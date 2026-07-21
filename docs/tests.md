@@ -3,8 +3,12 @@
 _Last updated: 2026-07-21_
 
 How Linqode is tested, what each layer covers, and how to extend it. The
-strategy in [PROJECT.md](PROJECT.md#testing-strategy) is the source of truth
-for the overall approach; this document details the implementation.
+strategy in short: pure logic is unit-tested against captured fixtures with
+no network; the SSH client is exercised for real against a scripted
+in-process server on loopback; full end-to-end coverage (connect → ps →
+logs → exec against a live Docker) is the job of the planned
+`tests/fixture/` container, so any developer — human or LLM — can verify
+changes locally without access to a real server.
 
 ## Running
 
@@ -112,7 +116,7 @@ wraps waits in a 10 s guard timeout so a regression hangs the test, not CI.
 
 ### 3. Docker fixture (planned, `tests/fixture/`)
 
-Per PROJECT.md: a docker-compose fixture running sshd + docker-in-docker
+The plan of record: a docker-compose fixture running sshd + docker-in-docker
 with a demo compose project emitting plain-text and JSONL logs, connected
 to over real SSH for full-path coverage (connect → ps → logs → exec). Not
 yet built — Docker is unavailable on the current dev machine. This is the

@@ -7,7 +7,7 @@
 //! streaming exec — without a real host, Docker, or any state outside a
 //! per-test temp directory. It does not simulate the remote `docker
 //! compose` CLI; end-to-end coverage of that belongs to the planned
-//! `tests/fixture/` sshd container (see docs/PROJECT.md).
+//! `tests/fixture/` sshd container (see docs/tests.md).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

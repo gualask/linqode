@@ -2,6 +2,11 @@
 
 _Last updated: 2026-07-21_
 
+Vision, scope, settled decisions, and roadmap. How the system works is in
+[architecture.md](architecture.md); testing in [tests.md](tests.md); user
+setup (install, configuration, keys) in the top-level
+[README](../README.md).
+
 ## Vision
 
 A single-binary TUI that runs on the operator's machine and connects to remote
@@ -36,34 +41,6 @@ to surface problems immediately.
 - A server-side agent or daemon of any kind.
 - Metrics collection beyond what `docker compose ps` / `docker stats` provide.
 
-## Architecture
-
-```
-┌─────────────────────────── laptop ───────────────────────────┐
-│  TUI (ratatui)                                               │
-│    │ app events / render state                               │
-│  Core state machine (tokio tasks, channels)                  │
-│    │                          │                              │
-│  SSH session mgr (russh)    Log engine                       │
-│    │  exec channels           │  line parser (text/JSONL)    │
-│    │  streamed stdout/stderr  │  filters + windowed aggs     │
-└────┼──────────────────────────┴──────────────────────────────┘
-     │ SSH (port 22)
-┌────▼───────────── server ────────────────┐
-│  sshd → docker compose ps / logs / exec  │
-└──────────────────────────────────────────┘
-```
-
-Key decisions:
-
-- **Agentless over SSH**: the remote "API" is the `docker compose` CLI with
-  `--format json` where available. No daemon, no socket forwarding required
-  (socket forwarding of `/var/run/docker.sock` may come later as an option).
-- **Async everywhere**: each SSH exec channel streams into the log engine through
-  tokio channels; the TUI thread never blocks on network I/O.
-- **The log engine is Docker-agnostic**: it consumes any line stream, so it can
-  later be pointed at plain files (`tail -F` over SSH) without changes.
-
 ## Decided policies
 
 These decisions are settled — do not re-litigate them when implementing:
@@ -77,112 +54,35 @@ These decisions are settled — do not re-litigate them when implementing:
   show the fingerprint and ask for confirmation (trust-on-first-use, same UX as
   OpenSSH), then persist it. Key mismatch → refuse to connect with a clear
   error. Never skip verification.
-- **Host/project selection**: a TOML config file (see below). The `host` value
-  is either a `~/.ssh/config` alias or an inline `user@host[:port]`, so servers
-  already reachable via plain `ssh` need no extra setup.
-
-## Configuration
-
-`~/.config/linqode/config.toml` (path overridable with `--config`):
-
-```toml
-[hosts.myapp]
-host = "deploy@203.0.113.10"   # or an ssh_config alias like "myapp-prod"
-compose_dir = "/srv/myapp"     # directory on the server containing compose.yaml
-
-[hosts.myapp.scripts]          # optional predefined commands (M5)
-disk = "df -h"
-```
-
-`linqode myapp` connects to that host and opens the compose project in
-`compose_dir`. With a single configured host, plain `linqode` picks it.
-
-## Testing strategy
-
-Implementation details, test inventory, and conventions live in
-[tests.md](tests.md); the layers are:
-
-- **Unit tests**: the SSH transport is behind a trait; the log engine and
-  compose-output parsing are tested against captured fixtures (JSONL samples,
-  `docker compose ps --format json` outputs) with no network involved.
-- **In-process SSH tests** (`crates/linqode-ssh/tests/`): a scripted russh
-  server on loopback exercises the real client — handshake, TOFU and host-key
-  policy, key auth, one-shot and streaming exec with cancellation — inside
-  plain `cargo test`, no Docker or network needed. The server fixture lives
-  in `tests/support/` (test-only by construction: Cargo never compiles
-  `tests/` into the library). Client knobs needed for hermetic tests
-  (`ConnectOptions`: `known_hosts_file`, `identities_only`) are production
-  code, mirroring OpenSSH's `UserKnownHostsFile`/`IdentitiesOnly`.
-- **Integration tests**: a `tests/fixture/` docker-compose in the repo runs a
-  container with `sshd` + Docker (docker-in-docker) hosting a demo compose
-  project that emits both plain-text and JSONL logs. Integration tests connect
-  to it over real SSH and exercise the full path (connect → ps → logs → exec).
-  This lets any developer — human or LLM — verify changes end-to-end locally
-  without access to a real server.
-
-## Technology choices
-
-| Concern        | Crate                       | Rationale                                                            |
-| -------------- | --------------------------- | -------------------------------------------------------------------- |
-| TUI            | `ratatui` + `crossterm`     | De-facto standard, actively maintained, great docs                    |
-| SSH            | `russh`                     | Pure-Rust async client, integrates with tokio, multiplexed channels   |
-| Async runtime  | `tokio`                     | Required by russh; drives log streaming without blocking the UI      |
-| Serialization  | `serde` + `serde_json`      | JSONL parsing, `docker compose ps --format json`                      |
-| Config         | `toml` (via serde)          | Host definitions, saved filters, predefined scripts                   |
-| SSH config     | `ssh2-config` (or similar)  | Reuse `~/.ssh/config` host aliases where possible                     |
-| Errors         | `thiserror` + `anyhow`      | Library vs application error handling                                 |
-| CLI entry      | `clap`                      | `linqode [host]` plus flags                                           |
-
-Conventions carried over from the previous incarnation of the repo: Rust
-edition 2024, cargo workspace with focused crates, ISC license.
-
-### Proposed workspace layout
-
-```
-crates/
-  linqode-ssh     # russh session management, exec channels, auth
-  linqode-logs    # line stream parsing, JSONL filters, aggregations
-  linqode-compose # docker compose command builders + output models
-  linqode-tui     # ratatui app: views, keymaps, state
-  linqode-cli     # binary entry point, config loading
-```
+- **Host/project selection**: a TOML config file (format documented in the
+  [README](../README.md)). The `host` value is either a `~/.ssh/config` alias
+  or an inline `user@host[:port]`, so servers already reachable via plain
+  `ssh` need no extra setup.
 
 ## Roadmap
 
 - **M1 — plumbing** _(done, July 2026)_: SSH connect + run a one-shot remote
-  command, output in a minimal ratatui screen. Not yet exercised against a
-  real server; end-to-end coverage waits for the `tests/fixture/` sshd
-  container (Docker was not available on the dev machine).
+  command, output in a minimal ratatui screen (kept behind `--exec`).
 - **M2 — compose status** _(done, July 2026)_: parse
   `docker compose ps --all --format json` (NDJSON and legacy array shapes),
   service table with state/health/ports coloring, selection, manual (`r`) and
   5-second auto refresh. Restart counts are not shown yet: `compose ps` does
-  not report them (needs `docker inspect`, deferred). Same caveat as M1: not
-  yet exercised against a real server or the sshd fixture.
-- **M3 — log follow** _(done, July 2026)_: `Session::exec_stream` streams a
-  remote command over a tokio channel with cancellation (SIGTERM on the
-  channel, then close); `linqode-logs` provides line assembly from byte
-  chunks, a 10k-line tail buffer, and ASCII-case-insensitive search; the TUI
-  gained a two-view loop — Enter on a service opens its `logs -f` tail with
-  follow mode, scrollback, `/` search with highlighting and `n`/`N`. Same
-  caveat as M1/M2: not yet exercised against a real server or the sshd
-  fixture.
-- **M4 — structured logs** _(done, July 2026)_: `linqode-logs` gained JSONL
-  records (top-level object flattened to dotted string paths), `key=value` /
-  `key!=value` field filters, live aggregations (counts by level, top values
-  of a chosen field), and a `LogStore` combining tail buffer + filter view +
-  search + stats for one stream. The log view auto-detects mostly-JSONL
-  streams and renders them structured (timestamp/level/message + dim
-  fields; `s` overrides), filters with `f`, toggles a stats side panel with
-  `a`, and picks the top-values field with `t`. Same caveat as M1–M3: not
-  yet exercised against a real server or the sshd fixture.
-- **M5 — actions** _(done, July 2026)_: `R`/`s`/`S` on the status view
-  restart/stop/start the selected service; `x` opens a popup listing the
-  host's `[hosts.X.scripts]` from the config (run verbatim on the host, no
-  compose-dir `cd`). Both stream their output into the same follow view as
-  logs, showing the exit code on completion. Ad-hoc one-shot commands
-  remain available via `--exec`. Same caveat as M1–M4: not yet exercised
-  against a real server or the sshd fixture.
+  not report them (needs `docker inspect`, deferred).
+- **M3 — log follow** _(done, July 2026)_: streaming exec with cancellation,
+  line assembly, a bounded tail buffer, and a log view with follow mode,
+  scrollback, and `/` search; Enter on a service opens it.
+- **M4 — structured logs** _(done, July 2026)_: JSONL records with flattened
+  field paths, `key=value` / `key!=value` filters, live aggregations (counts
+  by level, top values of a chosen field), auto-detected structured
+  rendering, and the stats side panel.
+- **M5 — actions** _(done, July 2026)_: restart/stop/start the selected
+  service; predefined scripts from the config, streamed into the shared
+  follow view.
+
+All MVP milestones are implemented. **None has been exercised against a real
+server yet** — end-to-end validation waits for the `tests/fixture/` sshd +
+docker-in-docker fixture (see [tests.md](tests.md)), then hardening against
+real deployments.
 
 ## Prior art / references
 

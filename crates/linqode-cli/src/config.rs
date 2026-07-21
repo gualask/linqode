@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-/// `~/.config/linqode/config.toml`, see docs/PROJECT.md.
+/// `~/.config/linqode/config.toml`, format documented in README.md.
 #[derive(Debug, Default, Deserialize)]
 pub struct Config {
     #[serde(default)]
