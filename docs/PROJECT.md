@@ -99,9 +99,20 @@ disk = "df -h"
 
 ## Testing strategy
 
+Implementation details, test inventory, and conventions live in
+[tests.md](tests.md); the layers are:
+
 - **Unit tests**: the SSH transport is behind a trait; the log engine and
   compose-output parsing are tested against captured fixtures (JSONL samples,
   `docker compose ps --format json` outputs) with no network involved.
+- **In-process SSH tests** (`crates/linqode-ssh/tests/`): a scripted russh
+  server on loopback exercises the real client — handshake, TOFU and host-key
+  policy, key auth, one-shot and streaming exec with cancellation — inside
+  plain `cargo test`, no Docker or network needed. The server fixture lives
+  in `tests/support/` (test-only by construction: Cargo never compiles
+  `tests/` into the library). Client knobs needed for hermetic tests
+  (`ConnectOptions`: `known_hosts_file`, `identities_only`) are production
+  code, mirroring OpenSSH's `UserKnownHostsFile`/`IdentitiesOnly`.
 - **Integration tests**: a `tests/fixture/` docker-compose in the repo runs a
   container with `sshd` + Docker (docker-in-docker) hosting a demo compose
   project that emits both plain-text and JSONL logs. Integration tests connect
@@ -138,14 +149,33 @@ crates/
 
 ## Roadmap
 
-- **M1 — plumbing**: SSH connect + run a one-shot remote command, output in a
-  minimal ratatui screen.
-- **M2 — compose status**: parse `docker compose ps --format json`, service
-  list view with refresh.
-- **M3 — log follow**: streaming `logs -f` for a selected service, plain-text
-  tail view with search.
-- **M4 — structured logs**: JSONL detection, field filters, live aggregation
-  panel (counts by level, top values of a field).
+- **M1 — plumbing** _(done, July 2026)_: SSH connect + run a one-shot remote
+  command, output in a minimal ratatui screen. Not yet exercised against a
+  real server; end-to-end coverage waits for the `tests/fixture/` sshd
+  container (Docker was not available on the dev machine).
+- **M2 — compose status** _(done, July 2026)_: parse
+  `docker compose ps --all --format json` (NDJSON and legacy array shapes),
+  service table with state/health/ports coloring, selection, manual (`r`) and
+  5-second auto refresh. Restart counts are not shown yet: `compose ps` does
+  not report them (needs `docker inspect`, deferred). Same caveat as M1: not
+  yet exercised against a real server or the sshd fixture.
+- **M3 — log follow** _(done, July 2026)_: `Session::exec_stream` streams a
+  remote command over a tokio channel with cancellation (SIGTERM on the
+  channel, then close); `linqode-logs` provides line assembly from byte
+  chunks, a 10k-line tail buffer, and ASCII-case-insensitive search; the TUI
+  gained a two-view loop — Enter on a service opens its `logs -f` tail with
+  follow mode, scrollback, `/` search with highlighting and `n`/`N`. Same
+  caveat as M1/M2: not yet exercised against a real server or the sshd
+  fixture.
+- **M4 — structured logs** _(done, July 2026)_: `linqode-logs` gained JSONL
+  records (top-level object flattened to dotted string paths), `key=value` /
+  `key!=value` field filters, live aggregations (counts by level, top values
+  of a chosen field), and a `LogStore` combining tail buffer + filter view +
+  search + stats for one stream. The log view auto-detects mostly-JSONL
+  streams and renders them structured (timestamp/level/message + dim
+  fields; `s` overrides), filters with `f`, toggles a stats side panel with
+  `a`, and picks the top-values field with `t`. Same caveat as M1–M3: not
+  yet exercised against a real server or the sshd fixture.
 - **M5 — actions**: restart/stop/start service, predefined scripts from config.
 
 ## Prior art / references

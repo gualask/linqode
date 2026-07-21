@@ -1,0 +1,10 @@
+[package]
+name = "linqode-logs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Log engine for Linqode: line stream assembly, tail buffer, search"
+
+[dependencies]
+serde_json.workspace = true

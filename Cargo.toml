@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/linqode-ssh",
+    "crates/linqode-compose",
+    "crates/linqode-logs",
+    "crates/linqode-tui",
+    "crates/linqode-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "ISC"
+repository = "https://github.com/gualask/linqode"
+
+[workspace.dependencies]
+linqode-ssh = { path = "crates/linqode-ssh" }
+linqode-compose = { path = "crates/linqode-compose" }
+linqode-logs = { path = "crates/linqode-logs" }
+linqode-tui = { path = "crates/linqode-tui" }
+anyhow = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "io-util", "net"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+clap = { version = "4", features = ["derive"] }
+ratatui = "0.29"
+crossterm = "0.28"
+russh = "0.62"
+ssh2-config = "0.5"

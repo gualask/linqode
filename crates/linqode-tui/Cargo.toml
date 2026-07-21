@@ -1,0 +1,15 @@
+[package]
+name = "linqode-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Ratatui application for Linqode: views, keymaps, state"
+
+[dependencies]
+anyhow.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+linqode-ssh.workspace = true
+linqode-compose.workspace = true
+linqode-logs.workspace = true

@@ -26,12 +26,28 @@ cargo test                 # unit tests, no network needed
 cargo clippy --all-targets # keep it warning-free
 ```
 
-Integration tests (once `tests/fixture/` exists) require Docker running
-locally; they spin up an sshd + docker-in-docker fixture. Never test against a
-real remote server unless the user explicitly provides one.
+Testing is documented in `docs/tests.md` (layers, the in-process SSH server
+fixture, conventions for new tests, known gaps). Everything in `cargo test`
+runs offline. Integration tests against real Docker (once `tests/fixture/`
+exists) require Docker running locally; they spin up an sshd +
+docker-in-docker fixture. Never test against a real remote server unless the
+user explicitly provides one.
 
 ## Status
 
 Rebooted from scratch in July 2026 (the previous static-analysis codebase was
-removed, history reset). Current milestone: **M1 — SSH connect + one-shot
-remote command in a minimal ratatui screen.**
+removed, history reset). Implemented so far: M1 (SSH connect + one-shot
+remote command; raw screen kept behind `--exec`), M2 (compose status view:
+`linqode-compose` parses `docker compose ps --all --format json`, service
+table with selection and manual + 5s auto refresh), and M3 (log follow:
+streaming `exec_stream` in `linqode-ssh`, the `linqode-logs` crate — line
+assembly, tail buffer, search — and a log view with follow mode and `/`
+search; Enter on a service opens it), and M4 (structured logs: JSONL
+records, `key=value` field filters, live aggregations and the `LogStore`
+in `linqode-logs`; auto-detected structured rendering, `f` filter, `a`
+stats panel, `t` top field in the log view). The SSH layer (connect, host
+keys, auth, exec, streaming, cancel) is covered by in-process russh-server
+tests in `crates/linqode-ssh/tests/` — no Docker needed; the
+`docker compose` side still awaits the sshd fixture for end-to-end coverage.
+Current milestone: **M5 — actions** (restart/stop/start a service,
+predefined scripts from config).

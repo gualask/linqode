@@ -1,0 +1,18 @@
+[package]
+name = "linqode-ssh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SSH session management for Linqode: target resolution, auth, host key policy, remote exec"
+
+[dependencies]
+thiserror.workspace = true
+tokio.workspace = true
+russh.workspace = true
+ssh2-config.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+# Key generation for the in-process test server (tests/support).
+rand = { version = "0.10", features = ["thread_rng"] }

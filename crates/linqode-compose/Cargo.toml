@@ -1,0 +1,12 @@
+[package]
+name = "linqode-compose"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Docker Compose command builders and output models for Linqode"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
