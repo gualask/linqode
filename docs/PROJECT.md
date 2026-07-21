@@ -17,7 +17,8 @@ to surface problems immediately.
 
 ## MVP scope
 
-1. **Connect** to a host over SSH (key/agent auth, reuse of `~/.ssh` conventions).
+1. **Connect** to a host over SSH, matching the behavior of a plain
+   `ssh user@host` (see [Decided policies](#decided-policies)).
 2. **Compose status view**: list services of a compose project with state,
    health, restarts (via `docker compose ps --format json` executed remotely).
 3. **Log view** for a selected service (`docker compose logs -f`):
@@ -62,6 +63,51 @@ Key decisions:
   tokio channels; the TUI thread never blocks on network I/O.
 - **The log engine is Docker-agnostic**: it consumes any line stream, so it can
   later be pointed at plain files (`tail -F` over SSH) without changes.
+
+## Decided policies
+
+These decisions are settled — do not re-litigate them when implementing:
+
+- **Authentication (MVP)**: try the SSH agent first, then fall back to the
+  default identity files in `~/.ssh` (`id_ed25519`, `id_rsa`, …), prompting for
+  a passphrase in the TUI only if a key is encrypted. The goal is parity with a
+  plain `ssh user@host` that "just works" once the public key is on the server.
+  Password authentication is out of scope for the MVP.
+- **Host key verification**: check against `~/.ssh/known_hosts`. Unknown host →
+  show the fingerprint and ask for confirmation (trust-on-first-use, same UX as
+  OpenSSH), then persist it. Key mismatch → refuse to connect with a clear
+  error. Never skip verification.
+- **Host/project selection**: a TOML config file (see below). The `host` value
+  is either a `~/.ssh/config` alias or an inline `user@host[:port]`, so servers
+  already reachable via plain `ssh` need no extra setup.
+
+## Configuration
+
+`~/.config/linqode/config.toml` (path overridable with `--config`):
+
+```toml
+[hosts.myapp]
+host = "deploy@203.0.113.10"   # or an ssh_config alias like "myapp-prod"
+compose_dir = "/srv/myapp"     # directory on the server containing compose.yaml
+
+[hosts.myapp.scripts]          # optional predefined commands (M5)
+disk = "df -h"
+```
+
+`linqode myapp` connects to that host and opens the compose project in
+`compose_dir`. With a single configured host, plain `linqode` picks it.
+
+## Testing strategy
+
+- **Unit tests**: the SSH transport is behind a trait; the log engine and
+  compose-output parsing are tested against captured fixtures (JSONL samples,
+  `docker compose ps --format json` outputs) with no network involved.
+- **Integration tests**: a `tests/fixture/` docker-compose in the repo runs a
+  container with `sshd` + Docker (docker-in-docker) hosting a demo compose
+  project that emits both plain-text and JSONL logs. Integration tests connect
+  to it over real SSH and exercise the full path (connect → ps → logs → exec).
+  This lets any developer — human or LLM — verify changes end-to-end locally
+  without access to a real server.
 
 ## Technology choices
 
