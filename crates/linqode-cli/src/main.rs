@@ -14,9 +14,6 @@ use linqode_tui::{AppInfo, SessionInfo};
 use crate::config::Config;
 use crate::prompt::TerminalPrompter;
 
-/// How many lines of history `docker compose logs` starts with.
-const LOG_TAIL: u32 = 200;
-
 /// SSH TUI for Docker Compose management.
 #[derive(Parser)]
 #[command(name = "linqode", version)]
@@ -64,19 +61,15 @@ fn main() -> Result<()> {
         }
         None => {
             let ps_command = linqode_compose::ps_command(selection.compose_dir.as_deref());
-            let compose_dir = selection.compose_dir.clone();
             let info = AppInfo {
                 target: target_label,
                 compose_dir: selection.compose_dir.clone(),
+                scripts: selection.scripts.clone(),
             };
             linqode_tui::run_app(
                 &info,
                 &mut || fetch_services(&runtime, &session, &ps_command),
-                &mut |service| {
-                    let command =
-                        linqode_compose::logs_command(compose_dir.as_deref(), service, LOG_TAIL);
-                    start_log_feed(&runtime, &session, &command)
-                },
+                &mut |command| start_log_feed(&runtime, &session, command),
             )
         }
     };

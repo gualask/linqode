@@ -42,12 +42,15 @@ remote command; raw screen kept behind `--exec`), M2 (compose status view:
 table with selection and manual + 5s auto refresh), and M3 (log follow:
 streaming `exec_stream` in `linqode-ssh`, the `linqode-logs` crate — line
 assembly, tail buffer, search — and a log view with follow mode and `/`
-search; Enter on a service opens it), and M4 (structured logs: JSONL
+search; Enter on a service opens it), M4 (structured logs: JSONL
 records, `key=value` field filters, live aggregations and the `LogStore`
 in `linqode-logs`; auto-detected structured rendering, `f` filter, `a`
-stats panel, `t` top field in the log view). The SSH layer (connect, host
-keys, auth, exec, streaming, cancel) is covered by in-process russh-server
-tests in `crates/linqode-ssh/tests/` — no Docker needed; the
-`docker compose` side still awaits the sshd fixture for end-to-end coverage.
-Current milestone: **M5 — actions** (restart/stop/start a service,
-predefined scripts from config).
+stats panel, `t` top field in the log view), and M5 (actions: `R`/`s`/`S`
+restart/stop/start the selected service, `x` runs a predefined script
+from config; output streams into the shared follow view). The SSH layer
+(connect, host keys, auth, exec, streaming, cancel) is covered by
+in-process russh-server tests in `crates/linqode-ssh/tests/` — no Docker
+needed; the `docker compose` side still awaits the sshd fixture for
+end-to-end coverage. All MVP milestones (M1–M5) are implemented; next up:
+the `tests/fixture/` docker-in-docker sshd fixture for end-to-end
+validation, then hardening against real deployments.

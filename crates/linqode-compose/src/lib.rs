@@ -8,7 +8,7 @@ mod command;
 mod model;
 mod parse;
 
-pub use command::{logs_command, ps_command};
+pub use command::{ServiceAction, action_command, logs_command, ps_command};
 pub use model::{Publisher, Service};
 pub use parse::parse_ps;
 

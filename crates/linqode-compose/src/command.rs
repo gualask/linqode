@@ -3,17 +3,50 @@ fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
+/// Prefixes `command` with a `cd` into the compose directory, when one is
+/// configured (the caller's remote working directory otherwise).
+fn in_dir(compose_dir: Option<&str>, command: String) -> String {
+    match compose_dir {
+        Some(dir) => format!("cd {} && {command}", shell_quote(dir)),
+        None => command,
+    }
+}
+
 /// Builds the remote command listing all services of the compose project in
 /// `compose_dir` (the caller's remote working directory when `None`).
 ///
 /// `--format json` is NDJSON on compose >= 2.21 and a JSON array before
 /// that; [`crate::parse_ps`] accepts both.
 pub fn ps_command(compose_dir: Option<&str>) -> String {
-    const PS: &str = "docker compose ps --all --format json";
-    match compose_dir {
-        Some(dir) => format!("cd {} && {PS}", shell_quote(dir)),
-        None => PS.to_string(),
+    in_dir(compose_dir, "docker compose ps --all --format json".to_string())
+}
+
+/// A lifecycle action on one compose service.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceAction {
+    Restart,
+    Stop,
+    Start,
+}
+
+impl ServiceAction {
+    /// The `docker compose` subcommand this action runs (also the natural
+    /// UI label).
+    pub fn verb(self) -> &'static str {
+        match self {
+            Self::Restart => "restart",
+            Self::Stop => "stop",
+            Self::Start => "start",
+        }
     }
+}
+
+/// Builds the remote command applying `action` to one service.
+pub fn action_command(compose_dir: Option<&str>, action: ServiceAction, service: &str) -> String {
+    in_dir(
+        compose_dir,
+        format!("docker compose {} {}", action.verb(), shell_quote(service)),
+    )
 }
 
 /// Builds the remote command following the logs of one service, starting
@@ -25,10 +58,7 @@ pub fn logs_command(compose_dir: Option<&str>, service: &str, tail: u32) -> Stri
         "docker compose logs --follow --no-color --no-log-prefix --tail {tail} {}",
         shell_quote(service)
     );
-    match compose_dir {
-        Some(dir) => format!("cd {} && {logs}", shell_quote(dir)),
-        None => logs,
-    }
+    in_dir(compose_dir, logs)
 }
 
 #[cfg(test)]
@@ -54,6 +84,22 @@ mod tests {
         assert_eq!(
             ps_command(Some("/srv/myapp")),
             "cd '/srv/myapp' && docker compose ps --all --format json"
+        );
+    }
+
+    #[test]
+    fn actions_target_one_service() {
+        assert_eq!(
+            action_command(Some("/srv/myapp"), ServiceAction::Restart, "web"),
+            "cd '/srv/myapp' && docker compose restart 'web'"
+        );
+        assert_eq!(
+            action_command(None, ServiceAction::Stop, "web"),
+            "docker compose stop 'web'"
+        );
+        assert_eq!(
+            action_command(None, ServiceAction::Start, "a b"),
+            "docker compose start 'a b'"
         );
     }
 

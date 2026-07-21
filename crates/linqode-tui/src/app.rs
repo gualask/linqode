@@ -15,21 +15,25 @@ use crate::status::{StatusAction, StatusView};
 /// the auto-refresh timer.
 const TICK: Duration = Duration::from_millis(150);
 
-/// Static context shown in view headers.
+/// Static context for the session: header fields plus what the config
+/// makes runnable.
 pub struct AppInfo {
     /// `user@host` the session is connected to.
     pub target: String,
     /// Remote directory of the compose project, if configured.
     pub compose_dir: Option<String>,
+    /// Predefined scripts from the config, `(name, command)` sorted by name.
+    pub scripts: Vec<(String, String)>,
 }
 
 /// Runs the app until the user quits. `refresh` fetches and parses
-/// `docker compose ps` output; `follow` starts a `docker compose logs -f`
-/// feed for one service. Both block briefly on the SSH round-trip.
+/// `docker compose ps` output; `exec` starts a remote command (log follow,
+/// service action, script) streaming into a feed. Both block briefly on
+/// the SSH round-trip.
 pub fn run_app(
     info: &AppInfo,
     refresh: &mut dyn FnMut() -> Result<Vec<Service>>,
-    follow: &mut dyn FnMut(&str) -> Result<LogFeed>,
+    exec: &mut dyn FnMut(&str) -> Result<LogFeed>,
 ) -> Result<()> {
     let mut status = StatusView::new();
     status.refresh(refresh);
@@ -67,10 +71,10 @@ pub fn run_app(
                         status.refresh(refresh);
                     }
                 }
-                None => match status.handle_key(key, refresh) {
+                None => match status.handle_key(key, info, refresh) {
                     StatusAction::Quit => return Ok(()),
-                    StatusAction::OpenLogs(service) => match follow(&service) {
-                        Ok(feed) => logs = Some(LogView::new(service, feed)),
+                    StatusAction::Follow { title, command } => match exec(&command) {
+                        Ok(feed) => logs = Some(LogView::new(title, feed)),
                         Err(err) => status.set_error(format!("{err:#}")),
                     },
                     StatusAction::None => {}

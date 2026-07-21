@@ -1,21 +1,25 @@
-//! Compose status view (M2): the project's services in a table, refreshed
-//! manually with `r` and automatically on an interval. Enter opens the log
-//! view for the selected service.
+//! Compose status view (M2+M5): the project's services in a table,
+//! refreshed manually with `r` and automatically on an interval. Enter
+//! opens the log view for the selected service; `R`/`s`/`S` restart, stop,
+//! or start it; `x` opens the predefined-scripts menu. Actions and scripts
+//! stream their output into the same follow view as logs.
 
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
-use linqode_compose::Service;
+use linqode_compose::{Service, ServiceAction, action_command, logs_command};
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Row, Table, TableState};
+use ratatui::widgets::{Block, Clear, Paragraph, Row, Table, TableState};
 
 use crate::app::AppInfo;
 
 const AUTO_REFRESH: Duration = Duration::from_secs(5);
+/// How many lines of history `docker compose logs` starts with.
+const LOG_TAIL: u32 = 200;
 
 type RefreshFn<'a> = &'a mut dyn FnMut() -> Result<Vec<Service>>;
 
@@ -23,8 +27,8 @@ type RefreshFn<'a> = &'a mut dyn FnMut() -> Result<Vec<Service>>;
 pub(crate) enum StatusAction {
     None,
     Quit,
-    /// Open the log view for this compose service.
-    OpenLogs(String),
+    /// Run `command` remotely and stream its output in a follow view.
+    Follow { title: String, command: String },
 }
 
 pub(crate) struct StatusView {
@@ -33,6 +37,8 @@ pub(crate) struct StatusView {
     /// Last refresh failure; the previous service list stays on screen.
     error: Option<String>,
     last_refresh: Instant,
+    /// Selected index in the scripts popup; `Some` routes keys to it.
+    script_menu: Option<usize>,
 }
 
 impl StatusView {
@@ -42,6 +48,7 @@ impl StatusView {
             selected: 0,
             error: None,
             last_refresh: Instant::now(),
+            script_menu: None,
         }
     }
 
@@ -71,7 +78,28 @@ impl StatusView {
         self.error = Some(error);
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent, refresh: RefreshFn) -> StatusAction {
+    pub fn handle_key(&mut self, key: KeyEvent, info: &AppInfo, refresh: RefreshFn) -> StatusAction {
+        if let Some(selected) = &mut self.script_menu {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('x') => self.script_menu = None,
+                KeyCode::Char('j') | KeyCode::Down => {
+                    *selected = (*selected + 1).min(info.scripts.len().saturating_sub(1));
+                }
+                KeyCode::Char('k') | KeyCode::Up => *selected = selected.saturating_sub(1),
+                KeyCode::Enter => {
+                    if let Some((name, command)) = info.scripts.get(*selected).cloned() {
+                        self.script_menu = None;
+                        return StatusAction::Follow {
+                            title: format!("script: {name}"),
+                            command,
+                        };
+                    }
+                }
+                _ => {}
+            }
+            return StatusAction::None;
+        }
+
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => return StatusAction::Quit,
             KeyCode::Char('j') | KeyCode::Down => self.select(1),
@@ -83,12 +111,40 @@ impl StatusView {
             KeyCode::Char('r') => self.refresh(refresh),
             KeyCode::Enter | KeyCode::Char('l') => {
                 if let Some(service) = self.services.get(self.selected) {
-                    return StatusAction::OpenLogs(service.service.clone());
+                    return StatusAction::Follow {
+                        title: format!("logs: {}", service.service),
+                        command: logs_command(
+                            info.compose_dir.as_deref(),
+                            &service.service,
+                            LOG_TAIL,
+                        ),
+                    };
+                }
+            }
+            KeyCode::Char('R') => return self.action(info, ServiceAction::Restart),
+            KeyCode::Char('s') => return self.action(info, ServiceAction::Stop),
+            KeyCode::Char('S') => return self.action(info, ServiceAction::Start),
+            KeyCode::Char('x') => {
+                if info.scripts.is_empty() {
+                    self.error = Some("no scripts configured for this host".to_string());
+                } else {
+                    self.script_menu = Some(0);
                 }
             }
             _ => {}
         }
         StatusAction::None
+    }
+
+    /// Runs a compose lifecycle action on the selected service.
+    fn action(&self, info: &AppInfo, action: ServiceAction) -> StatusAction {
+        let Some(service) = self.services.get(self.selected) else {
+            return StatusAction::None;
+        };
+        StatusAction::Follow {
+            title: format!("{}: {}", action.verb(), service.service),
+            command: action_command(info.compose_dir.as_deref(), action, &service.service),
+        }
     }
 
     fn select(&mut self, delta: i64) {
@@ -154,20 +210,81 @@ impl StatusView {
             frame.render_stateful_widget(table, table_area, &mut state);
         }
 
-        let footer = match &self.error {
-            Some(error) => Line::from(vec![
-                Span::raw(" "),
-                Span::styled(error.replace('\n', " · "), Style::default().fg(Color::Red)),
-            ]),
-            None => Line::from(vec![
-                Span::raw(format!(" {} services", self.services.len())),
-                Span::styled(
-                    "  ·  j/k select · enter logs · r refresh · q quit",
-                    Style::default().add_modifier(Modifier::DIM),
-                ),
-            ]),
+        let footer = if self.script_menu.is_some() {
+            Line::from(vec![Span::styled(
+                " j/k select · enter run · esc cancel",
+                Style::default().add_modifier(Modifier::DIM),
+            )])
+        } else {
+            match &self.error {
+                Some(error) => Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled(error.replace('\n', " · "), Style::default().fg(Color::Red)),
+                ]),
+                None => Line::from(vec![
+                    Span::raw(format!(" {} services", self.services.len())),
+                    Span::styled(
+                        "  ·  enter logs · R restart · s stop · S start · x scripts \
+                         · r refresh · q quit",
+                        Style::default().add_modifier(Modifier::DIM),
+                    ),
+                ]),
+            }
         };
         frame.render_widget(Paragraph::new(footer), footer_area);
+
+        if let Some(selected) = self.script_menu {
+            self.draw_scripts_menu(frame, info, table_area, selected);
+        }
+    }
+
+    fn draw_scripts_menu(&self, frame: &mut Frame, info: &AppInfo, area: Rect, selected: usize) {
+        let name_width = info
+            .scripts
+            .iter()
+            .map(|(name, _)| name.len())
+            .max()
+            .unwrap_or(0);
+        let lines: Vec<Line> = info
+            .scripts
+            .iter()
+            .enumerate()
+            .map(|(i, (name, command))| {
+                let line = Line::from(vec![
+                    Span::styled(
+                        format!(" {name:<name_width$}  "),
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(command.as_str(), Style::default().add_modifier(Modifier::DIM)),
+                    Span::raw(" "),
+                ]);
+                if i == selected {
+                    line.style(Style::default().add_modifier(Modifier::REVERSED))
+                } else {
+                    line
+                }
+            })
+            .collect();
+
+        let width = lines
+            .iter()
+            .map(Line::width)
+            .max()
+            .unwrap_or(0)
+            .clamp(20, area.width.saturating_sub(4) as usize) as u16
+            + 2;
+        let height = (info.scripts.len() as u16 + 2).min(area.height);
+        let popup = Rect {
+            x: area.x + area.width.saturating_sub(width) / 2,
+            y: area.y + area.height.saturating_sub(height) / 2,
+            width: width.min(area.width),
+            height,
+        };
+        frame.render_widget(Clear, popup);
+        frame.render_widget(
+            Paragraph::new(lines).block(Block::bordered().title(" scripts ")),
+            popup,
+        );
     }
 }
 

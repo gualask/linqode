@@ -41,7 +41,8 @@ enum InputMode {
 }
 
 pub(crate) struct LogView {
-    service: String,
+    /// Header label: `logs: web`, `restart: web`, `script: disk`, …
+    title: String,
     feed: LogFeed,
     store: LogStore,
     /// Index of the top visible line; recomputed on draw when following.
@@ -68,9 +69,9 @@ pub(crate) struct LogView {
 }
 
 impl LogView {
-    pub fn new(service: String, feed: LogFeed) -> Self {
+    pub fn new(title: String, feed: LogFeed) -> Self {
         Self {
-            service,
+            title,
             feed,
             store: LogStore::new(CAPACITY),
             scroll: 0,
@@ -241,8 +242,8 @@ impl LogView {
         let mut header = vec![
             Span::styled(" linqode ", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(&info.target),
-            Span::raw("  logs: "),
-            Span::styled(&self.service, Style::default().fg(Color::Cyan)),
+            Span::raw("  "),
+            Span::styled(&self.title, Style::default().fg(Color::Cyan)),
         ];
         if self.structured_rendering() {
             header.push(Span::styled("  · json", Style::default().fg(Color::Magenta)));

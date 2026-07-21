@@ -27,9 +27,9 @@ Pure logic tested against small fixtures, colocated with the code:
 | Crate | What is covered |
 | ----- | --------------- |
 | `linqode-ssh` | `[user@]host[:port]` spec parsing (IPv6, last-`@` rule, rejects), `~/.ssh/config` alias resolution and precedence, default identity-file discovery |
-| `linqode-compose` | Command builders (`ps`, `logs`) incl. shell quoting of hostile paths; `docker compose ps --format json` parsing in both shapes (NDJSON ≥ 2.21, legacy array), null `Publishers`, sorting; port summaries collapsing IPv4/IPv6 duplicates |
+| `linqode-compose` | Command builders (`ps`, `logs`, `restart`/`stop`/`start` actions) incl. shell quoting of hostile paths; `docker compose ps --format json` parsing in both shapes (NDJSON ≥ 2.21, legacy array), null `Publishers`, sorting; port summaries collapsing IPv4/IPv6 duplicates |
 | `linqode-logs` | Line assembly across arbitrary chunk boundaries (CRLF, UTF-8 split mid-character, unterminated tail); tail buffer overflow accounting; ASCII-case-insensitive find with char-boundary guarantees; JSONL record parsing (nested-object flattening, non-object rejection, well-known level/message/time keys); filter expression parsing and matching (AND terms, negation, case folding); aggregation add/remove symmetry, level counts, top values; `LogStore` — filtered-view indexing across buffer drops, wrap-around search over the visible view, JSONL detection heuristic |
-| `linqode-cli` | Config file parsing (documented format, tolerance of future sections), host selection rules |
+| `linqode-cli` | Config file parsing (documented format, `scripts` tables sorted by name, tolerance of future sections), host selection rules |
 
 Captured `docker compose` output lives inline in the test modules today
 (e.g. `parse.rs` carries an NDJSON sample from compose v2.27). If fixtures

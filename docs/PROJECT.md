@@ -176,7 +176,13 @@ crates/
   fields; `s` overrides), filters with `f`, toggles a stats side panel with
   `a`, and picks the top-values field with `t`. Same caveat as M1–M3: not
   yet exercised against a real server or the sshd fixture.
-- **M5 — actions**: restart/stop/start service, predefined scripts from config.
+- **M5 — actions** _(done, July 2026)_: `R`/`s`/`S` on the status view
+  restart/stop/start the selected service; `x` opens a popup listing the
+  host's `[hosts.X.scripts]` from the config (run verbatim on the host, no
+  compose-dir `cd`). Both stream their output into the same follow view as
+  logs, showing the exit code on completion. Ad-hoc one-shot commands
+  remain available via `--exec`. Same caveat as M1–M4: not yet exercised
+  against a real server or the sshd fixture.
 
 ## Prior art / references
 

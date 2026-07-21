@@ -17,6 +17,9 @@ pub struct HostEntry {
     pub host: String,
     /// Directory on the server containing compose.yaml.
     pub compose_dir: Option<String>,
+    /// Predefined commands runnable from the TUI, name → command line.
+    #[serde(default)]
+    pub scripts: BTreeMap<String, String>,
 }
 
 /// The host the session will connect to, after CLI/config selection.
@@ -24,6 +27,22 @@ pub struct HostEntry {
 pub struct Selection {
     pub spec: String,
     pub compose_dir: Option<String>,
+    /// Predefined scripts, sorted by name.
+    pub scripts: Vec<(String, String)>,
+}
+
+impl Selection {
+    fn from_entry(entry: &HostEntry) -> Self {
+        Self {
+            spec: entry.host.clone(),
+            compose_dir: entry.compose_dir.clone(),
+            scripts: entry
+                .scripts
+                .iter()
+                .map(|(name, command)| (name.clone(), command.clone()))
+                .collect(),
+        }
+    }
 }
 
 impl Config {
@@ -56,25 +75,20 @@ impl Config {
         match arg {
             Some(name) => {
                 if let Some(entry) = self.hosts.get(name) {
-                    Ok(Selection {
-                        spec: entry.host.clone(),
-                        compose_dir: entry.compose_dir.clone(),
-                    })
+                    Ok(Selection::from_entry(entry))
                 } else {
                     // Not a configured name: treat as an inline host spec.
                     Ok(Selection {
                         spec: name.to_string(),
                         compose_dir: None,
+                        scripts: Vec::new(),
                     })
                 }
             }
             None => match self.hosts.len() {
                 1 => {
                     let entry = self.hosts.values().next().expect("one host");
-                    Ok(Selection {
-                        spec: entry.host.clone(),
-                        compose_dir: entry.compose_dir.clone(),
-                    })
+                    Ok(Selection::from_entry(entry))
                 }
                 0 => bail!(
                     "no host given and no hosts configured; \
@@ -117,9 +131,25 @@ mod tests {
 
     #[test]
     fn tolerates_future_sections() {
-        // The documented M5 `scripts` table must not break older binaries.
-        let raw = "[hosts.a]\nhost = \"h\"\n[hosts.a.scripts]\ndisk = \"df -h\"\n";
+        let raw = "[hosts.a]\nhost = \"h\"\nfuture_knob = true\n[future_section]\nx = 1\n";
         assert!(Config::parse(raw).is_ok());
+    }
+
+    #[test]
+    fn parses_scripts_sorted_by_name() {
+        let raw = "[hosts.a]\nhost = \"h\"\n[hosts.a.scripts]\nmem = \"free -m\"\ndisk = \"df -h\"\n";
+        let selection = Config::parse(raw).unwrap().select(Some("a")).unwrap();
+        assert_eq!(
+            selection.scripts,
+            [
+                ("disk".to_string(), "df -h".to_string()),
+                ("mem".to_string(), "free -m".to_string()),
+            ]
+        );
+        // Absent table and inline specs mean no scripts.
+        let bare = Config::parse("[hosts.b]\nhost = \"h\"\n").unwrap();
+        assert!(bare.select(Some("b")).unwrap().scripts.is_empty());
+        assert!(bare.select(Some("x@y")).unwrap().scripts.is_empty());
     }
 
     #[test]
