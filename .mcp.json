@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "hyqode-tool": {
+      "type": "stdio",
+      "command": "/Users/blazar/Dev/hyqode/target/release/hyqode",
+      "args": ["stdio", "--root", "/Users/blazar/Dev/linqode"],
+      "env": {}
+    }
+  }
+}

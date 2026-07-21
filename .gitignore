@@ -1,0 +1,24 @@
+# Build output
+/target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Local agent/tooling state
+.claude/
+.codex/
+.cflow/
+.agents/
+.linqode/
+.impeccable/
