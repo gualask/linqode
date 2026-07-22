@@ -91,9 +91,9 @@ run commands on it. Decided policies apply as written — known_hosts check
 with TOFU prompt and persist, refuse on mismatch (never bypassable); agent
 first, then default identities, passphrase prompt only for encrypted keys.
 One-shot exec (stdout/stderr/exit) and streaming exec with cancellation via
-`context`; `--exec` raw-output screen in a minimal Bubble Tea program.
-Testability knobs (`known_hosts_file`, `identities_only`) stay user-facing,
-OpenSSH-style.
+`context`; `--exec` streams raw output straight to stdout/stderr and exits
+with the remote code. Testability knobs (`KnownHostsFile`,
+`IdentitiesOnly`) stay user-facing, OpenSSH-style.
 
 Integration tests against a scripted `gliderlabs/ssh` server on loopback
 cover the same product guarantees the Rust suite proves: TOFU
@@ -160,4 +160,13 @@ port so real-server validation is paid once, on the Go implementation.
 
 ## Deliberate divergences
 
-None yet. Record any here with rationale.
+- **known_hosts entries are keyed by the resolved host** (the `HostName`
+  after `~/.ssh/config` substitution), not by the alias the user typed as in
+  the Rust reference. This matches OpenSSH: servers already trusted via
+  plain `ssh` are recognized without re-prompting, which is the product's
+  "if ssh works, linqode works" promise. The alias is still what prompts
+  and errors display.
+- **`--exec` prints to stdout/stderr directly** instead of showing the raw
+  output in a minimal TUI screen. A one-shot command is more useful
+  pipeable; the Bubble Tea plumbing gets proven by the status view in G2
+  instead.

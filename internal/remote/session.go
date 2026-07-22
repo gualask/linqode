@@ -1,0 +1,268 @@
+package remote
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"strconv"
+	"strings"
+	"sync"
+
+	"golang.org/x/crypto/ssh"
+)
+
+// Prompter answers the interactive decisions needed while connecting.
+// Implemented by the frontend: terminal prompts for the CLI, dialogs once
+// the TUI owns the connect phase.
+type Prompter interface {
+	// ConfirmHostKey shows an unknown host's key and asks whether to trust
+	// it (TOFU).
+	ConfirmHostKey(host string, port uint16, algorithm, fingerprint string) (bool, error)
+	// AskPassphrase asks for the passphrase of an encrypted identity file.
+	// Empty means skip this key.
+	AskPassphrase(path string) (string, error)
+}
+
+// ConnectOptions are knobs for how a session is established. The zero value
+// matches the MVP policy (OpenSSH parity); overrides exist for special
+// setups and let the integration tests stay hermetic (no touching ~/.ssh or
+// the user's agent).
+type ConnectOptions struct {
+	// KnownHostsFile is an alternative known_hosts file, like OpenSSH's
+	// UserKnownHostsFile. Empty uses ~/.ssh/known_hosts.
+	KnownHostsFile string
+	// IdentitiesOnly skips SSH agent authentication and uses only the
+	// target's identity files, like OpenSSH's IdentitiesOnly.
+	IdentitiesOnly bool
+}
+
+// ExecOutput is the collected output of a one-shot remote command.
+type ExecOutput struct {
+	Stdout []byte
+	Stderr []byte
+	// ExitCode is -1 when the remote side reported none.
+	ExitCode int
+}
+
+// ExecEventKind discriminates the events of a streaming command.
+type ExecEventKind int
+
+const (
+	// ExecStdout carries a chunk of standard output in Data.
+	ExecStdout ExecEventKind = iota
+	// ExecStderr carries a chunk of standard error in Data.
+	ExecStderr
+	// ExecExit carries the command's exit code in ExitCode; it is the last
+	// event when the remote side reports one.
+	ExecExit
+)
+
+// ExecEvent is one chunk of output, or the exit report, of a streaming
+// remote command.
+type ExecEvent struct {
+	Kind     ExecEventKind
+	Data     []byte
+	ExitCode int
+}
+
+// Session is an established SSH session. Every command runs on its own
+// channel over it.
+type Session struct {
+	client *ssh.Client
+	target Target
+}
+
+// Connect connects and authenticates following the MVP policy; see
+// ConnectWith for the knobs.
+func Connect(ctx context.Context, target Target, prompter Prompter) (*Session, error) {
+	return ConnectWith(ctx, target, prompter, ConnectOptions{})
+}
+
+// ConnectWith establishes a session: host key verification per known_hosts +
+// TOFU, then SSH agent identities, then the target's identity files.
+func ConnectWith(ctx context.Context, target Target, prompter Prompter, opts ConnectOptions) (*Session, error) {
+	knownHosts := opts.KnownHostsFile
+	if knownHosts == "" {
+		var err error
+		if knownHosts, err = defaultKnownHostsFile(); err != nil {
+			return nil, err
+		}
+	}
+	policy, err := newHostKeyPolicy(target, knownHosts, prompter)
+	if err != nil {
+		return nil, err
+	}
+
+	var authErr error
+	methods, cleanup := authMethods(target, opts.IdentitiesOnly, prompter, &authErr)
+	defer cleanup()
+
+	config := &ssh.ClientConfig{
+		User:            target.User,
+		Auth:            methods,
+		HostKeyCallback: policy.callback,
+	}
+
+	addr := net.JoinHostPort(target.Host, strconv.Itoa(int(target.Port)))
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("cannot reach %s: %w", addr, err)
+	}
+	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	if err != nil {
+		conn.Close()
+		// Surface the precise cause recorded during the handshake instead
+		// of x/crypto's generic wrapper.
+		switch {
+		case policy.err != nil:
+			return nil, policy.err
+		case authErr != nil:
+			return nil, authErr
+		case strings.Contains(err.Error(), "unable to authenticate"):
+			return nil, &AuthFailedError{User: target.User, Host: target.DisplayHost}
+		default:
+			return nil, err
+		}
+	}
+	return &Session{client: ssh.NewClient(sshConn, chans, reqs), target: target}, nil
+}
+
+// Close closes the session. Errors on an already-dead connection are not
+// interesting to callers.
+func (s *Session) Close() {
+	s.client.Close()
+}
+
+// Exec runs command and collects its output until it finishes or ctx is
+// cancelled.
+func (s *Session) Exec(ctx context.Context, command string) (ExecOutput, error) {
+	sess, err := s.client.NewSession()
+	if err != nil {
+		return ExecOutput{}, err
+	}
+	defer sess.Close()
+
+	var stdout, stderr bytes.Buffer
+	sess.Stdout, sess.Stderr = &stdout, &stderr
+
+	done := make(chan error, 1)
+	go func() { done <- sess.Run(command) }()
+	select {
+	case <-ctx.Done():
+		terminate(sess)
+		return ExecOutput{}, ctx.Err()
+	case err = <-done:
+	}
+
+	out := ExecOutput{Stdout: stdout.Bytes(), Stderr: stderr.Bytes(), ExitCode: -1}
+	var exitErr *ssh.ExitError
+	var missing *ssh.ExitMissingError
+	switch {
+	case err == nil:
+		out.ExitCode = 0
+	case errors.As(err, &exitErr):
+		out.ExitCode = exitErr.ExitStatus()
+	case errors.As(err, &missing):
+		// Ran to completion but the server reported no status; keep -1.
+	default:
+		return out, err
+	}
+	return out, nil
+}
+
+// ExecStream starts command and streams its output as events. The channel
+// closes when the command ends; ExecExit is the last event when the remote
+// side reports an exit code. Cancelling ctx terminates the remote command
+// (SIGTERM, honored by modern sshd, then channel close — a follower that
+// misses the signal dies of SIGPIPE on its next write) and closes the
+// channel, so an abandoned stream never leaks a follower process.
+func (s *Session) ExecStream(ctx context.Context, command string) (<-chan ExecEvent, error) {
+	sess, err := s.client.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := sess.StdoutPipe()
+	if err != nil {
+		sess.Close()
+		return nil, err
+	}
+	stderr, err := sess.StderrPipe()
+	if err != nil {
+		sess.Close()
+		return nil, err
+	}
+	if err := sess.Start(command); err != nil {
+		sess.Close()
+		return nil, err
+	}
+
+	events := make(chan ExecEvent, 32)
+	send := func(ev ExecEvent) bool {
+		select {
+		case events <- ev:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+
+	var readers sync.WaitGroup
+	pump := func(r io.Reader, kind ExecEventKind) {
+		defer readers.Done()
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := r.Read(buf)
+			if n > 0 {
+				if !send(ExecEvent{Kind: kind, Data: bytes.Clone(buf[:n])}) {
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}
+	readers.Add(2)
+	go pump(stdout, ExecStdout)
+	go pump(stderr, ExecStderr)
+
+	// The controller tears the command down on cancel, which unblocks the
+	// readers; with no cancel it waits for them and reports the exit.
+	go func() {
+		defer close(events)
+		finished := make(chan struct{})
+		go func() {
+			readers.Wait()
+			close(finished)
+		}()
+		select {
+		case <-ctx.Done():
+			terminate(sess)
+			<-finished
+			return
+		case <-finished:
+		}
+		err := sess.Wait()
+		sess.Close()
+		var exitErr *ssh.ExitError
+		switch {
+		case err == nil:
+			send(ExecEvent{Kind: ExecExit, ExitCode: 0})
+		case errors.As(err, &exitErr):
+			send(ExecEvent{Kind: ExecExit, ExitCode: exitErr.ExitStatus()})
+		default:
+			// Cancelled or transport gone: no exit to report.
+		}
+	}()
+	return events, nil
+}
+
+// terminate ends a remote command: terminate signal, then channel close.
+func terminate(sess *ssh.Session) {
+	_ = sess.Signal(ssh.SIGTERM)
+	sess.Close()
+}

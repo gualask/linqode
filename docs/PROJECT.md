@@ -114,9 +114,10 @@ up. Each milestone leaves an offline `go test ./...` green:
 
 - **G0 — scaffolding** _(done, July 2026)_: Go module, package layout, CI;
   config loading + host selection.
-- **G1 — connect and remote exec**: connect like plain `ssh` (host-key
-  TOFU, agent → identity-file auth), one-shot and streaming exec with
-  cancellation; integration tests against a scripted loopback server.
+- **G1 — connect and remote exec** _(done, July 2026)_: connect like plain
+  `ssh` (host-key TOFU, agent → identity-file auth), one-shot and streaming
+  exec with cancellation; integration tests against a scripted loopback
+  server.
 - **G2 — compose status view**.
 - **G3 — log following**.
 - **G4 — structured log analysis**.
