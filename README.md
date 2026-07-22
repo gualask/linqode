@@ -6,8 +6,9 @@ its logs — including real-time filtering and aggregation of JSONL logs — and
 restart services or run predefined scripts. Agentless: nothing to install on
 the server.
 
-> **Status:** MVP implemented (July 2026), not yet validated against real
-> deployments.
+> **Status:** the Rust MVP is implemented (July 2026) and is being ported to
+> Go — see [docs/porting.md](docs/porting.md). Real-deployment validation
+> happens on the Go port.
 
 ## Getting started
 
@@ -71,6 +72,8 @@ mem = "free -m"
 
 - [docs/PROJECT.md](docs/PROJECT.md) — vision, MVP scope, settled policies,
   roadmap
+- [docs/porting.md](docs/porting.md) — the Go porting plan: stack, milestones,
+  ground rules
 - [docs/architecture.md](docs/architecture.md) — how it works: components
   and flows
 - [docs/tests.md](docs/tests.md) — testing strategy, layers, conventions

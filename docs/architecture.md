@@ -1,6 +1,11 @@
 # Architecture
 
-_Last updated: 2026-07-21_
+_Last updated: 2026-07-22_
+
+> **Note:** this describes the **Rust reference implementation**. Linqode is
+> being ported to Go (see [porting.md](porting.md)); the principles, flows,
+> and policies below carry over unchanged and remain the spec for the port.
+> This document is rewritten for the Go tree at parity (G5).
 
 How Linqode works, at the level of components and flows. The vision, scope,
 and settled policy decisions live in [PROJECT.md](PROJECT.md); testing is

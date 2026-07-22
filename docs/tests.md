@@ -1,6 +1,11 @@
 # Testing
 
-_Last updated: 2026-07-21_
+_Last updated: 2026-07-22_
+
+> **Note:** this describes the **Rust reference suite**. The Go port reuses
+> its cases and fixtures where the behavior carries over, and keeps the same
+> hermeticity rules (see [porting.md](porting.md)); this document is
+> rewritten for the Go tree once the MVP feature set is covered (G5).
 
 How Linqode is tested, what each layer covers, and how to extend it. The
 strategy in short: pure logic is unit-tested against captured fixtures with
