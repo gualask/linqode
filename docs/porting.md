@@ -44,8 +44,9 @@ data flow — is free.
 Module `github.com/gualask/linqode`, one binary:
 
 ```
-cmd/linqode/          # entry point: flags, config, wiring (was linqode-cli)
-internal/remote/      # SSH: connect, host keys, auth, exec (was linqode-ssh)
+cmd/linqode/          # entry point: flags, wiring (was linqode-cli)
+internal/config/      # config.toml loading + host selection (was in linqode-cli)
+internal/remote/      # SSH: targets, connect, host keys, auth, exec (was linqode-ssh)
 internal/compose/     # command builders + ps/json parsing (was linqode-compose)
 internal/logs/        # line assembly, tail buffer, JSONL, filters, aggs (was linqode-logs)
 internal/tui/         # Bubble Tea models, views, keymaps (was linqode-tui)

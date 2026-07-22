@@ -112,8 +112,8 @@ settled answers and test fixtures, but each feature is built the way Go
 builds it best, and milestones may be reshaped when a simpler path shows
 up. Each milestone leaves an offline `go test ./...` green:
 
-- **G0 — scaffolding**: Go module, package layout, CI; config loading +
-  host selection.
+- **G0 — scaffolding** _(done, July 2026)_: Go module, package layout, CI;
+  config loading + host selection.
 - **G1 — connect and remote exec**: connect like plain `ssh` (host-key
   TOFU, agent → identity-file auth), one-shot and streaming exec with
   cancellation; integration tests against a scripted loopback server.
