@@ -132,3 +132,87 @@ func TestEnterOpensLogsForSelectedService(t *testing.T) {
 		t.Errorf("command %q, want %q", msg.command, want)
 	}
 }
+
+func followMsg(t *testing.T, cmd tea.Cmd) openFollowMsg {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("no command produced")
+	}
+	msg, ok := cmd().(openFollowMsg)
+	if !ok {
+		t.Fatalf("got %T", cmd())
+	}
+	return msg
+}
+
+func TestActionKeysTargetSelectedService(t *testing.T) {
+	m := newStatusModel(Info{ComposeDir: "/srv/app"}, nil)
+	m.update(servicesMsg{services: services("db", "web")})
+	m.update(key("j")) // select "web"
+
+	msg := followMsg(t, m.update(key("R")))
+	if msg.title != "restart: web" || msg.command != "cd '/srv/app' && docker compose restart 'web'" {
+		t.Errorf("restart: %+v", msg)
+	}
+	msg = followMsg(t, m.update(key("s")))
+	if msg.title != "stop: web" || !strings.Contains(msg.command, "docker compose stop 'web'") {
+		t.Errorf("stop: %+v", msg)
+	}
+	msg = followMsg(t, m.update(key("S")))
+	if msg.title != "start: web" || !strings.Contains(msg.command, "docker compose start 'web'") {
+		t.Errorf("start: %+v", msg)
+	}
+
+	// Without services the keys do nothing.
+	empty := newStatusModel(Info{}, nil)
+	empty.update(servicesMsg{services: nil})
+	if cmd := empty.update(key("R")); cmd != nil {
+		t.Error("R with no services should do nothing")
+	}
+}
+
+func TestScriptsMenuRunsSelectedScript(t *testing.T) {
+	info := Info{Scripts: []Script{
+		{Name: "disk", Command: "df -h"},
+		{Name: "mem", Command: "free -m"},
+	}}
+	m := newStatusModel(info, nil)
+	m.update(servicesMsg{services: services("web")})
+
+	m.update(key("x"))
+	if m.scriptMenu != 0 {
+		t.Fatalf("menu not open: %d", m.scriptMenu)
+	}
+	view := m.view()
+	if !strings.Contains(view, "disk") || !strings.Contains(view, "free -m") {
+		t.Errorf("menu content missing:\n%s", view)
+	}
+
+	m.update(key("j")) // select "mem"
+	msg := followMsg(t, m.update(tea.KeyMsg{Type: tea.KeyEnter}))
+	if msg.title != "script: mem" || msg.command != "free -m" {
+		t.Errorf("got %+v", msg)
+	}
+	if m.scriptMenu != -1 {
+		t.Error("menu should close after running")
+	}
+
+	// Esc closes without running; keys go back to the table.
+	m.update(key("x"))
+	m.update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.scriptMenu != -1 {
+		t.Error("menu should close on esc")
+	}
+}
+
+func TestScriptsKeyWithoutScriptsShowsError(t *testing.T) {
+	m := newStatusModel(Info{}, nil)
+	m.update(servicesMsg{services: services("web")})
+	m.update(key("x"))
+	if m.scriptMenu != -1 {
+		t.Error("menu must not open without scripts")
+	}
+	if !strings.Contains(m.view(), "no scripts configured") {
+		t.Errorf("error missing:\n%s", m.view())
+	}
+}

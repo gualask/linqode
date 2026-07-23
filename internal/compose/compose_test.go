@@ -15,6 +15,18 @@ func TestPsWithDirChangesDirectoryFirst(t *testing.T) {
 	}
 }
 
+func TestActionsTargetOneService(t *testing.T) {
+	if got := ActionCommand("/srv/myapp", ActionRestart, "web"); got != "cd '/srv/myapp' && docker compose restart 'web'" {
+		t.Errorf("got %q", got)
+	}
+	if got := ActionCommand("", ActionStop, "web"); got != "docker compose stop 'web'" {
+		t.Errorf("got %q", got)
+	}
+	if got := ActionCommand("", ActionStart, "a b"); got != "docker compose start 'a b'" {
+		t.Errorf("got %q", got)
+	}
+}
+
 func TestLogsFollowsOneService(t *testing.T) {
 	want := "cd '/srv/myapp' && docker compose logs --follow --no-color --no-log-prefix --tail 200 'web'"
 	if got := LogsCommand("/srv/myapp", "web", 200); got != want {

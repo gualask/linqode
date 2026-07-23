@@ -76,6 +76,9 @@ func run(ctx context.Context, configPath, hostArg, execCommand string) (int, err
 			Target:     target.User + "@" + target.DisplayHost,
 			ComposeDir: sel.ComposeDir,
 		}
+		for _, script := range sel.Scripts {
+			info.Scripts = append(info.Scripts, tui.Script(script))
+		}
 		psCommand := compose.PsCommand(sel.ComposeDir)
 		fetch := func() ([]compose.Service, error) {
 			return fetchServices(ctx, session, psCommand)

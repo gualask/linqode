@@ -30,6 +30,33 @@ func PsCommand(composeDir string) string {
 	return inDir(composeDir, "docker compose ps --all --format json")
 }
 
+// ServiceAction is a lifecycle action on one compose service.
+type ServiceAction int
+
+const (
+	ActionRestart ServiceAction = iota
+	ActionStop
+	ActionStart
+)
+
+// Verb is the `docker compose` subcommand this action runs (also the
+// natural UI label).
+func (a ServiceAction) Verb() string {
+	switch a {
+	case ActionRestart:
+		return "restart"
+	case ActionStop:
+		return "stop"
+	default:
+		return "start"
+	}
+}
+
+// ActionCommand builds the remote command applying action to one service.
+func ActionCommand(composeDir string, action ServiceAction, service string) string {
+	return inDir(composeDir, "docker compose "+action.Verb()+" "+shellQuote(service))
+}
+
 // LogsCommand builds the remote command following the logs of one service,
 // starting tail lines back. `--no-log-prefix` drops the service-name prefix
 // (a single service needs none) and `--no-color` its ANSI styling; whatever

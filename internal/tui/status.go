@@ -42,11 +42,15 @@ type statusModel struct {
 	loaded     bool // first refresh done (either way)
 	refreshing bool
 
+	// scriptMenu is the selected index in the scripts menu; -1 when the
+	// menu is closed. While open, keys route to the menu.
+	scriptMenu int
+
 	width, height int
 }
 
 func newStatusModel(info Info, fetch Fetch) statusModel {
-	return statusModel{info: info, fetch: fetch}
+	return statusModel{info: info, fetch: fetch, scriptMenu: -1}
 }
 
 // init returns the startup commands. It must not mutate state: Bubble Tea
@@ -112,6 +116,9 @@ func (m *statusModel) update(msg tea.Msg) tea.Cmd {
 		return tea.Batch(m.refresh(), autoTick())
 
 	case tea.KeyMsg:
+		if m.scriptMenu >= 0 {
+			return m.handleScriptMenuKey(msg)
+		}
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			return tea.Quit
@@ -128,13 +135,53 @@ func (m *statusModel) update(msg tea.Msg) tea.Cmd {
 		case "enter", "l":
 			if m.selected < len(m.services) {
 				service := m.services[m.selected].Service
-				open := openFollowMsg{
-					title:   "logs: " + service,
-					command: compose.LogsCommand(m.info.ComposeDir, service, logTail),
-				}
-				return func() tea.Msg { return open }
+				return openFollow("logs: "+service,
+					compose.LogsCommand(m.info.ComposeDir, service, logTail))
+			}
+		case "R":
+			return m.action(compose.ActionRestart)
+		case "s":
+			return m.action(compose.ActionStop)
+		case "S":
+			return m.action(compose.ActionStart)
+		case "x":
+			if len(m.info.Scripts) == 0 {
+				m.errText = "no scripts configured for this host"
+			} else {
+				m.scriptMenu = 0
 			}
 		}
+	}
+	return nil
+}
+
+func openFollow(title, command string) tea.Cmd {
+	msg := openFollowMsg{title: title, command: command}
+	return func() tea.Msg { return msg }
+}
+
+// action runs a compose lifecycle action on the selected service.
+func (m *statusModel) action(action compose.ServiceAction) tea.Cmd {
+	if m.selected >= len(m.services) {
+		return nil
+	}
+	service := m.services[m.selected].Service
+	return openFollow(action.Verb()+": "+service,
+		compose.ActionCommand(m.info.ComposeDir, action, service))
+}
+
+func (m *statusModel) handleScriptMenuKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "esc", "q", "x":
+		m.scriptMenu = -1
+	case "j", "down":
+		m.scriptMenu = min(m.scriptMenu+1, len(m.info.Scripts)-1)
+	case "k", "up":
+		m.scriptMenu = max(m.scriptMenu-1, 0)
+	case "enter":
+		script := m.info.Scripts[m.scriptMenu]
+		m.scriptMenu = -1
+		return openFollow("script: "+script.Name, script.Command)
 	}
 	return nil
 }
@@ -201,6 +248,9 @@ func (m *statusModel) view() string {
 
 	tableHeight := max(m.height-4, 1) // header block (2) + table header (1) + footer (1)
 	switch {
+	case m.scriptMenu >= 0:
+		b.WriteString(m.renderScriptsMenu(tableHeight + 1))
+		b.WriteString("\n")
 	case len(m.services) == 0 && !m.loaded:
 		b.WriteString(dimStyle.Render("  (loading services…)"))
 		b.WriteString("\n")
@@ -214,15 +264,45 @@ func (m *statusModel) view() string {
 		m.renderTable(&b, tableHeight)
 	}
 
-	// Footer: error, or count plus keys.
+	// Footer: menu hints, error, or count plus keys.
 	b.WriteString("\n")
-	if m.errText != "" {
+	switch {
+	case m.scriptMenu >= 0:
+		b.WriteString(dimStyle.Render(" j/k select · enter run · esc cancel"))
+	case m.errText != "":
 		b.WriteString(redStyle.Render(" " + strings.ReplaceAll(m.errText, "\n", " · ")))
-	} else {
+	default:
 		b.WriteString(fmt.Sprintf(" %d services", len(m.services)))
-		b.WriteString(dimStyle.Render("  ·  enter logs · j/k select · r refresh · q quit"))
+		b.WriteString(dimStyle.Render(
+			"  ·  enter logs · R restart · s stop · S start · x scripts · r refresh · q quit"))
 	}
 	return b.String()
+}
+
+// renderScriptsMenu shows the predefined scripts, centered where the table
+// normally is.
+func (m *statusModel) renderScriptsMenu(height int) string {
+	nameWidth := 0
+	for _, script := range m.info.Scripts {
+		nameWidth = max(nameWidth, len(script.Name))
+	}
+	var lines []string
+	for i, script := range m.info.Scripts {
+		line := fmt.Sprintf(" %-*s  ", nameWidth, script.Name)
+		if i == m.scriptMenu {
+			lines = append(lines, reverseStyle.Render(line+script.Command+" "))
+		} else {
+			lines = append(lines, boldStyle.Render(line)+dimStyle.Render(script.Command+" "))
+		}
+	}
+	menu := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		Padding(0, 1).
+		Render(strings.Join(lines, "\n"))
+	if m.width > 0 && m.height > 0 {
+		return lipgloss.Place(m.width, height, lipgloss.Center, lipgloss.Center, menu)
+	}
+	return menu
 }
 
 // renderTable writes the service table, keeping the selection visible when

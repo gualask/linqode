@@ -14,6 +14,14 @@ type Info struct {
 	// ComposeDir is the remote directory of the compose project, if
 	// configured.
 	ComposeDir string
+	// Scripts are the predefined commands from the config, sorted by name.
+	Scripts []Script
+}
+
+// Script is a predefined command runnable from the status view.
+type Script struct {
+	Name    string
+	Command string
 }
 
 // Fetch loads the current service list. It blocks on the SSH round-trip,
