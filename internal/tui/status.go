@@ -153,6 +153,8 @@ var (
 	redStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	greenStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 	yellowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	blueStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
+	magentaStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
 	reverseStyle = lipgloss.NewStyle().Reverse(true)
 	matchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("3"))
 )

@@ -149,7 +149,7 @@ func TestStoreReportsDropsForScrollCompensation(t *testing.T) {
 	if got := s.Push("c"); got != 1 {
 		t.Errorf("got %d", got)
 	}
-	if line, _ := s.Line(0); line != "b" {
-		t.Errorf("oldest is %q", line)
+	if line, _ := s.Line(0); line.Raw != "b" {
+		t.Errorf("oldest is %q", line.Raw)
 	}
 }

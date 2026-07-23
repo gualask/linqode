@@ -170,3 +170,9 @@ port so real-server validation is paid once, on the Go implementation.
   output in a minimal TUI screen. A one-shot command is more useful
   pipeable; the Bubble Tea plumbing gets proven by the status view in G2
   instead.
+- **Stats are recomputed on demand**, not maintained incrementally with
+  add/remove symmetry as in the Rust reference. Over the bounded 10k-line
+  tail a recompute is well under a millisecond at render rate, and it
+  removes a whole class of drift invariants from buffer mutations. The
+  store keeps only two incremental counters (total via the buffer, parsed
+  lines) for the JSONL detection heuristic.

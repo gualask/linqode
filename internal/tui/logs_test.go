@@ -169,3 +169,109 @@ func TestBurstDrainIsBounded(t *testing.T) {
 		t.Errorf("after second drain %d events, want %d", got, maxEventsPerTick+100)
 	}
 }
+
+func jsonlEvents(n int, level string) []LogEvent {
+	events := make([]LogEvent, n)
+	for i := range events {
+		events[i] = LogEvent{Kind: LogLine,
+			Text: fmt.Sprintf(`{"level":"%s","msg":"event %d"}`, level, i)}
+	}
+	return events
+}
+
+func typeText(m *logsModel, text string) {
+	for _, r := range text {
+		m.update(key(string(r)))
+	}
+}
+
+func TestFilterNarrowsViewAndFooterShowsCounts(t *testing.T) {
+	events := append(jsonlEvents(3, "error"), jsonlEvents(5, "info")...)
+	m := newTestLogView(events...)
+
+	m.update(key("f"))
+	typeText(m, "level=error")
+	m.update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	view := m.view()
+	if !strings.Contains(view, "3/8 lines") {
+		t.Errorf("filtered counts missing:\n%s", view)
+	}
+	if !strings.Contains(view, "f:level=error") {
+		t.Errorf("filter expression missing:\n%s", view)
+	}
+
+	// Clearing the filter restores the whole tail.
+	m.update(key("f"))
+	for range len("level=error") {
+		m.update(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(m.view(), "8 lines") {
+		t.Errorf("filter not cleared:\n%s", m.view())
+	}
+}
+
+func TestBadFilterShowsNotice(t *testing.T) {
+	m := newTestLogView(jsonlEvents(2, "info")...)
+	m.update(key("f"))
+	typeText(m, "oops")
+	m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(m.view(), "bad filter") {
+		t.Errorf("notice missing:\n%s", m.view())
+	}
+	if m.store.Filter() != nil {
+		t.Error("bad filter must not be applied")
+	}
+}
+
+func TestStructuredAutoDetectionAndOverride(t *testing.T) {
+	m := newTestLogView(jsonlEvents(4, "info")...)
+	if !strings.Contains(m.view(), "json") {
+		t.Errorf("auto-detected json marker missing:\n%s", m.view())
+	}
+	m.update(key("s")) // manual override off
+	if strings.Contains(m.view(), "· json") {
+		t.Errorf("override ignored:\n%s", m.view())
+	}
+	m.update(key("s")) // back on
+	if !strings.Contains(m.view(), "· json") {
+		t.Errorf("override back on ignored:\n%s", m.view())
+	}
+}
+
+func TestStructuredRenderingShowsLevelAndFields(t *testing.T) {
+	m := newTestLogView(lineEvents(
+		`{"level":"error","msg":"boom","ts":"12:00:01","http":{"status":500}}`,
+		`{"level":"error","msg":"boom again"}`,
+		`{"level":"error","msg":"boom thrice"}`)...)
+	view := m.view()
+	if !strings.Contains(view, "boom") || !strings.Contains(view, "http.status=500") {
+		t.Errorf("structured layout missing:\n%s", view)
+	}
+	if !strings.Contains(view, "12:00:01") {
+		t.Errorf("timestamp missing:\n%s", view)
+	}
+}
+
+func TestStatsPanelShowsLevelsAndTopField(t *testing.T) {
+	events := append(jsonlEvents(2, "error"), jsonlEvents(1, "info")...)
+	m := newTestLogView(events...)
+
+	m.update(key("a"))
+	view := m.view()
+	if !strings.Contains(view, "levels") || !strings.Contains(view, "error") {
+		t.Errorf("levels missing:\n%s", view)
+	}
+	if !strings.Contains(view, "3 lines") {
+		t.Errorf("totals missing:\n%s", view)
+	}
+
+	m.update(key("t"))
+	typeText(m, "level")
+	m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	view = m.view()
+	if !strings.Contains(view, "top level") {
+		t.Errorf("top field header missing:\n%s", view)
+	}
+}

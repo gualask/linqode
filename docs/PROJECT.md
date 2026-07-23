@@ -120,7 +120,7 @@ up. Each milestone leaves an offline `go test ./...` green:
   server.
 - **G2 — compose status view** _(done, July 2026)_.
 - **G3 — log following** _(done, July 2026)_.
-- **G4 — structured log analysis**.
+- **G4 — structured log analysis** _(done, July 2026)_.
 - **G5 — actions and scripts**. MVP feature set covered: the Rust tree is
   removed (still available at the `rust-mvp` tag).
 
