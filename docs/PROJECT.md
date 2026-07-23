@@ -118,7 +118,7 @@ up. Each milestone leaves an offline `go test ./...` green:
   `ssh` (host-key TOFU, agent → identity-file auth), one-shot and streaming
   exec with cancellation; integration tests against a scripted loopback
   server.
-- **G2 — compose status view**.
+- **G2 — compose status view** _(done, July 2026)_.
 - **G3 — log following**.
 - **G4 — structured log analysis**.
 - **G5 — actions and scripts**. MVP feature set covered: the Rust tree is
