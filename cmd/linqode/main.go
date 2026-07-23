@@ -14,6 +14,7 @@ import (
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/config"
+	"github.com/gualask/linqode/internal/logs"
 	"github.com/gualask/linqode/internal/remote"
 	"github.com/gualask/linqode/internal/tui"
 )
@@ -76,9 +77,13 @@ func run(ctx context.Context, configPath, hostArg, execCommand string) (int, err
 			ComposeDir: sel.ComposeDir,
 		}
 		psCommand := compose.PsCommand(sel.ComposeDir)
-		return 0, tui.Run(info, func() ([]compose.Service, error) {
+		fetch := func() ([]compose.Service, error) {
 			return fetchServices(ctx, session, psCommand)
-		})
+		}
+		exec := func(command string) (tui.LogFeed, error) {
+			return startLogFeed(ctx, session, command)
+		}
+		return 0, tui.Run(info, fetch, exec)
 	}
 
 	events, err := session.ExecStream(ctx, execCommand)
@@ -100,6 +105,59 @@ func run(ctx context.Context, configPath, hostArg, execCommand string) (int, err
 		return 0, fmt.Errorf("interrupted: %w", err)
 	}
 	return exitCode, nil
+}
+
+// startLogFeed starts a remote follower and pumps its byte chunks into
+// complete line events for the TUI. Stopping the feed cancels the remote
+// command.
+func startLogFeed(ctx context.Context, session *remote.Session, command string) (tui.LogFeed, error) {
+	streamCtx, cancel := context.WithCancel(ctx)
+	events, err := session.ExecStream(streamCtx, command)
+	if err != nil {
+		cancel()
+		return tui.LogFeed{}, err
+	}
+
+	out := make(chan tui.LogEvent, 4096)
+	go func() {
+		defer close(out)
+		send := func(ev tui.LogEvent) bool {
+			select {
+			case out <- ev:
+				return true
+			case <-streamCtx.Done():
+				return false // the feed was stopped and nobody drains it
+			}
+		}
+		var stdout, stderr logs.LineAssembler
+		exitCode := -1
+		for ev := range events {
+			switch ev.Kind {
+			case remote.ExecStdout:
+				for _, line := range stdout.Push(ev.Data) {
+					if !send(tui.LogEvent{Kind: tui.LogLine, Text: line}) {
+						return
+					}
+				}
+			case remote.ExecStderr:
+				for _, line := range stderr.Push(ev.Data) {
+					if !send(tui.LogEvent{Kind: tui.LogStderrLine, Text: line}) {
+						return
+					}
+				}
+			case remote.ExecExit:
+				exitCode = ev.ExitCode
+			}
+		}
+		if line, ok := stdout.Finish(); ok && !send(tui.LogEvent{Kind: tui.LogLine, Text: line}) {
+			return
+		}
+		if line, ok := stderr.Finish(); ok && !send(tui.LogEvent{Kind: tui.LogStderrLine, Text: line}) {
+			return
+		}
+		send(tui.LogEvent{Kind: tui.LogEnded, ExitCode: exitCode})
+	}()
+	return tui.LogFeed{Events: out, Stop: cancel}, nil
 }
 
 // fetchServices runs `docker compose ps` remotely and parses its output.

@@ -15,6 +15,13 @@ func TestPsWithDirChangesDirectoryFirst(t *testing.T) {
 	}
 }
 
+func TestLogsFollowsOneService(t *testing.T) {
+	want := "cd '/srv/myapp' && docker compose logs --follow --no-color --no-log-prefix --tail 200 'web'"
+	if got := LogsCommand("/srv/myapp", "web", 200); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestQuotesHostileDirectories(t *testing.T) {
 	want := `cd '/srv/it'\''s; rm -rf $HOME' && docker compose ps --all --format json`
 	if got := PsCommand("/srv/it's; rm -rf $HOME"); got != want {

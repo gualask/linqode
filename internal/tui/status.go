@@ -3,6 +3,7 @@ package tui
 // Compose status view: the project's services in a table, refreshed
 // manually with `r` and automatically on an interval. A failed refresh
 // shows its error in the footer while the last good table stays on screen.
+// Enter opens the log view for the selected service.
 
 import (
 	"fmt"
@@ -16,6 +17,9 @@ import (
 )
 
 const autoRefresh = 5 * time.Second
+
+// logTail is how many lines of history `docker compose logs` starts with.
+const logTail = 200
 
 // servicesMsg is the outcome of a refresh, delivered asynchronously so the
 // UI never blocks on the SSH round-trip.
@@ -45,11 +49,13 @@ func newStatusModel(info Info, fetch Fetch) statusModel {
 	return statusModel{info: info, fetch: fetch}
 }
 
-func (m statusModel) Init() tea.Cmd {
+// init returns the startup commands. It must not mutate state: Bubble Tea
+// calls Init on a copy whose changes are discarded.
+func (m *statusModel) init() tea.Cmd {
 	return tea.Batch(m.refreshCmd(), autoTick())
 }
 
-func (m statusModel) refreshCmd() tea.Cmd {
+func (m *statusModel) refreshCmd() tea.Cmd {
 	fetch := m.fetch
 	return func() tea.Msg {
 		services, err := fetch()
@@ -57,21 +63,35 @@ func (m statusModel) refreshCmd() tea.Cmd {
 	}
 }
 
+// refresh starts a fetch unless one is already running.
+func (m *statusModel) refresh() tea.Cmd {
+	if m.refreshing {
+		return nil
+	}
+	m.refreshing = true
+	return m.refreshCmd()
+}
+
 func autoTick() tea.Cmd {
 	return tea.Tick(autoRefresh, func(time.Time) tea.Msg { return autoTickMsg{} })
 }
 
-func (m statusModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
+func (m *statusModel) setSize(width, height int) {
+	m.width, m.height = width, height
+}
 
+func (m *statusModel) setError(text string) {
+	m.errText = text
+}
+
+func (m *statusModel) update(msg tea.Msg) tea.Cmd {
+	switch msg := msg.(type) {
 	case servicesMsg:
 		m.refreshing = false
 		m.loaded = true
 		if msg.err != nil {
 			m.errText = msg.err.Error()
-			break
+			return nil
 		}
 		// Keep the cursor on the same service across refreshes; if it is
 		// gone, stay at the same position, clamped into range.
@@ -89,16 +109,12 @@ func (m statusModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.errText = ""
 
 	case autoTickMsg:
-		if m.refreshing {
-			return m, autoTick()
-		}
-		m.refreshing = true
-		return m, tea.Batch(m.refreshCmd(), autoTick())
+		return tea.Batch(m.refresh(), autoTick())
 
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
-			return m, tea.Quit
+			return tea.Quit
 		case "j", "down":
 			m.move(1)
 		case "k", "up":
@@ -108,13 +124,19 @@ func (m statusModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "G", "end":
 			m.selected = max(0, len(m.services)-1)
 		case "r":
-			if !m.refreshing {
-				m.refreshing = true
-				return m, m.refreshCmd()
+			return m.refresh()
+		case "enter", "l":
+			if m.selected < len(m.services) {
+				service := m.services[m.selected].Service
+				open := openFollowMsg{
+					title:   "logs: " + service,
+					command: compose.LogsCommand(m.info.ComposeDir, service, logTail),
+				}
+				return func() tea.Msg { return open }
 			}
 		}
 	}
-	return m, nil
+	return nil
 }
 
 func (m *statusModel) move(delta int) {
@@ -132,6 +154,7 @@ var (
 	greenStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 	yellowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	reverseStyle = lipgloss.NewStyle().Reverse(true)
+	matchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("3"))
 )
 
 func stateStyle(state string) lipgloss.Style {
@@ -162,7 +185,7 @@ func healthStyle(health string) lipgloss.Style {
 	}
 }
 
-func (m statusModel) View() string {
+func (m *statusModel) view() string {
 	var b strings.Builder
 
 	// Header: target and compose dir.
@@ -195,14 +218,14 @@ func (m statusModel) View() string {
 		b.WriteString(redStyle.Render(" " + strings.ReplaceAll(m.errText, "\n", " · ")))
 	} else {
 		b.WriteString(fmt.Sprintf(" %d services", len(m.services)))
-		b.WriteString(dimStyle.Render("  ·  j/k select · r refresh · q quit"))
+		b.WriteString(dimStyle.Render("  ·  enter logs · j/k select · r refresh · q quit"))
 	}
 	return b.String()
 }
 
 // renderTable writes the service table, keeping the selection visible when
 // there are more rows than fit.
-func (m statusModel) renderTable(b *strings.Builder, height int) {
+func (m *statusModel) renderTable(b *strings.Builder, height int) {
 	widths := m.columnWidths()
 	pad := func(s string, w int) string {
 		if len(s) > w {
@@ -252,7 +275,7 @@ func (m statusModel) renderTable(b *strings.Builder, height int) {
 
 // columnWidths sizes SERVICE/STATE/HEALTH/PORTS from their content and
 // gives STATUS the rest of the terminal width.
-func (m statusModel) columnWidths() [5]int {
+func (m *statusModel) columnWidths() [5]int {
 	widths := [5]int{len("SERVICE"), len("STATE"), len("HEALTH"), len("PORTS"), len("STATUS")}
 	for _, s := range m.services {
 		widths[0] = max(widths[0], len(s.Service))
