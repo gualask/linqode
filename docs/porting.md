@@ -1,6 +1,11 @@
 # Go Porting Plan
 
-_Last updated: 2026-07-22_
+_Last updated: 2026-07-23_
+
+> **The port is complete** (July 2026): milestones G0–G5 all landed and the
+> Rust tree was removed — it remains available at the `rust-mvp` tag. This
+> document is kept as the record of how the port was run and why it
+> diverged where it did.
 
 Why the port happens is settled in
 [PROJECT.md → Decided policies](PROJECT.md#decided-policies); this document is

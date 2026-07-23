@@ -6,14 +6,13 @@ its logs — including real-time filtering and aggregation of JSONL logs — and
 restart services or run predefined scripts. Agentless: nothing to install on
 the server.
 
-> **Status:** the Rust MVP is implemented (July 2026) and is being ported to
-> Go — see [docs/porting.md](docs/porting.md). Real-deployment validation
-> happens on the Go port.
+> **Status:** MVP implemented (July 2026), not yet validated against real
+> deployments.
 
 ## Getting started
 
 ```bash
-cargo build --release        # binary in target/release/linqode
+go build -o linqode ./cmd/linqode    # or: go install ./cmd/linqode
 ```
 
 Linqode reuses your existing SSH setup: keys from the agent or `~/.ssh`,
@@ -72,11 +71,11 @@ mem = "free -m"
 
 - [docs/PROJECT.md](docs/PROJECT.md) — vision, MVP scope, settled policies,
   roadmap
-- [docs/porting.md](docs/porting.md) — the Go porting plan: stack, milestones,
-  ground rules
 - [docs/architecture.md](docs/architecture.md) — how it works: components
   and flows
 - [docs/tests.md](docs/tests.md) — testing strategy, layers, conventions
+- [docs/porting.md](docs/porting.md) — how the Go codebase was ported from
+  the Rust reference implementation (tag `rust-mvp`)
 
 ## License
 

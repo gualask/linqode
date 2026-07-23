@@ -1,6 +1,6 @@
 # Linqode — Project Document
 
-_Last updated: 2026-07-22_
+_Last updated: 2026-07-23_
 
 Vision, scope, settled decisions, and roadmap. How the system works is in
 [architecture.md](architecture.md); testing in [tests.md](tests.md); the Go
@@ -105,12 +105,12 @@ All Rust milestones are implemented but **never exercised against a real
 server**; that validation now happens on the Go port instead of being paid
 twice.
 
-### Go port _(current phase — plan in [porting.md](porting.md))_
+### Go port _(done, July 2026 — plan and record in [porting.md](porting.md))_
 
-The port is feature-driven, not a 1:1 translation: the Rust tree supplies
-settled answers and test fixtures, but each feature is built the way Go
-builds it best, and milestones may be reshaped when a simpler path shows
-up. Each milestone leaves an offline `go test ./...` green:
+The port was feature-driven, not a 1:1 translation: the Rust tree supplied
+settled answers and test fixtures, but each feature was built the way Go
+builds it best (divergences recorded in porting.md). Each milestone left an
+offline `go test ./...` green:
 
 - **G0 — scaffolding** _(done, July 2026)_: Go module, package layout, CI;
   config loading + host selection.
@@ -121,10 +121,11 @@ up. Each milestone leaves an offline `go test ./...` green:
 - **G2 — compose status view** _(done, July 2026)_.
 - **G3 — log following** _(done, July 2026)_.
 - **G4 — structured log analysis** _(done, July 2026)_.
-- **G5 — actions and scripts**. MVP feature set covered: the Rust tree is
-  removed (still available at the `rust-mvp` tag).
+- **G5 — actions and scripts** _(done, July 2026)_. MVP feature set
+  covered: the Rust tree is removed (still available at the `rust-mvp`
+  tag).
 
-### After parity
+### Next
 
 - **E2E fixture**: the `tests/fixture/` sshd + docker-in-docker compose
   fixture (see [tests.md](tests.md)) validating connect → ps → logs → exec
