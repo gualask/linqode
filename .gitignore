@@ -15,6 +15,9 @@ Thumbs.db
 .env
 .env.local
 
+# E2E fixture: SSH keys are generated per run, never checked in
+/tests/fixture/.keys/
+
 # Local agent/tooling state
 .claude/
 .codex/

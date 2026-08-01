@@ -15,6 +15,10 @@ jobs:
           go-version: stable
       - run: go build ./...
       - run: go vet ./...
+      # The e2e package is behind a build tag, so nothing above compiles it.
+      # Vetting it keeps the fixture code from rotting; running it needs a
+      # Docker engine and stays a local step.
+      - run: go vet -tags e2e ./tests/e2e/
       - uses: dominikh/staticcheck-action@v1
         with:
           install-go: false

@@ -1,0 +1,26 @@
+# Points Linqode at the running fixture, for driving the TUI by hand:
+#
+#   go test -tags e2e ./tests/e2e/ -run TestTOFUPersistsHostKey -fixture.keep
+#   ssh-add tests/fixture/.keys/id_ed25519
+#   ./linqode --config tests/fixture/linqode.toml fixture
+#
+# One-time setup: the identity and the fixture's host key are generated once
+# into .keys/ and reused, so the agent entry and whatever your client wrote
+# into ~/.ssh/known_hosts stay valid across fixture recreations.
+#
+# Only if you delete .keys/ does the fixture become a different server:
+#
+#   ssh-keygen -R '[127.0.0.1]:2222'
+#   ssh-add -d tests/fixture/.keys/id_ed25519
+
+[hosts.fixture]
+host = "linqode@127.0.0.1:2222"
+compose_dir = "/srv/demo"
+
+# Something for the scripts menu (`x`) to run.
+[hosts.fixture.scripts]
+disk = "df -h"
+uptime = "uptime"
+containers = "docker ps --format 'table {{.Names}}\t{{.Status}}'"
+images = "docker images"
+follow-syslog = "tail -F /var/log/messages"

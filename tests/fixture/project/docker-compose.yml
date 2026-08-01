@@ -1,0 +1,54 @@
+# The demo project, running *inside* the fixture server. Its services exist
+# to give the status view every column it renders and the log engine both of
+# its modes, not to do anything useful.
+#
+# Scripts are bind-mounted from this directory, which is /srv/demo inside the
+# fixture container.
+
+services:
+  # Plain-text logs plus a published port, so PortsSummary has something to
+  # collapse.
+  web:
+    image: busybox:1.37
+    working_dir: /app
+    volumes:
+      - .:/app:ro
+    command: ["sh", "/app/text-logger.sh"]
+    ports:
+      - "8080:80"
+
+  # JSONL logs: structured rendering, field filters, and stats.
+  api:
+    image: busybox:1.37
+    working_dir: /app
+    volumes:
+      - .:/app:ro
+    command: ["sh", "/app/jsonl-logger.sh"]
+
+  # Reports healthy, to exercise the Health column.
+  db:
+    image: busybox:1.37
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 2s
+      timeout: 2s
+      retries: 3
+      start_period: 1s
+
+  # Reports unhealthy, for the failure coloring.
+  cache:
+    image: busybox:1.37
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    healthcheck:
+      test: ["CMD", "false"]
+      interval: 2s
+      timeout: 2s
+      retries: 1
+      start_period: 1s
+
+  # Exits immediately: `ps --all` must still list it, with State=exited.
+  migrate:
+    image: busybox:1.37
+    command: ["sh", "-c", "echo 'migration complete'"]
+    restart: "no"

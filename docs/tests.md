@@ -1,15 +1,15 @@
 # Testing
 
-_Last updated: 2026-07-23_
+_Last updated: 2026-08-01_
 
 How Linqode is tested, what each layer covers, and how to extend it. The
 strategy in short: pure logic is unit-tested against captured fixtures with
 no network; the SSH client is exercised for real against a scripted
 in-process server on loopback; the TUI's view models are tested directly as
 pure update/view functions; full end-to-end coverage (connect → ps → logs →
-exec against a live Docker) is the job of the planned `tests/fixture/`
-container, so any developer — human or LLM — can verify changes locally
-without access to a real server.
+exec against a live Docker) is the job of the `tests/fixture/` container, so
+any developer — human or LLM — can verify changes locally without access to
+a real server.
 
 ## Running
 
@@ -17,11 +17,15 @@ without access to a real server.
 go test ./...              # everything below except the Docker fixture
 go vet ./...
 staticcheck ./...          # keep it warning-free (CI runs it)
+
+go test -tags e2e -timeout 20m ./tests/e2e/   # the Docker fixture
 ```
 
-Everything runs offline: no Docker, no network beyond loopback, no state
-outside per-test temp directories. Tests are parallel-safe; the config
-tests fake `$HOME` per test via `t.Setenv`.
+Everything except the Docker fixture runs offline: no Docker, no network
+beyond loopback, no state outside per-test temp directories. Tests are
+parallel-safe; the config tests fake `$HOME` per test via `t.Setenv`. The
+fixture is the deliberate exception — it needs a Docker engine and pulls
+images — which is why it is tagged out of the default run.
 
 ## Layers
 
@@ -36,6 +40,7 @@ hardened them first:
 | `internal/config` | Config parsing (documented format, tolerance of future sections, missing-`host` rejection, scripts sorted by name), host selection rules, default-path loading |
 | `internal/remote` | `[user@]host[:port]` spec parsing (IPv6, last-`@` rule, rejects incl. port 0), `~/.ssh/config` alias resolution and precedence, identity-file discovery limited to existing files, tilde expansion |
 | `internal/compose` | Command builders (`ps`, `logs`, actions) incl. shell quoting of hostile paths; `ps --format json` parsing in both shapes (NDJSON ≥ 2.21, legacy array), null `Publishers`, sorting; port summaries collapsing IPv4/IPv6 duplicates |
+| `internal/host` | Metrics parsing from the marked `/proc` + `df -Pk` sections; tolerance of missing sections and of garbage (both leave fields zero rather than failing the sample); derived percentages guarding against division by zero and unsigned underflow; the command asking for every section |
 | `internal/logs` | Line assembly across arbitrary chunk boundaries (CRLF, invalid UTF-8, runes split mid-chunk); ring-buffer drop accounting; ASCII-case-insensitive search on rune-safe offsets; JSONL record parsing (flattening, numeric literals verbatim, well-known keys); filter parsing and matching (AND terms, negation, case folding); the filtered visible view across buffer drops; wrap-around search over the visible view; detection heuristic; stats recompute incl. a test pinning that counts follow drops |
 
 ### 2. In-process SSH integration tests (`internal/remote/*_test.go`, package `remote_test`)
@@ -80,13 +85,56 @@ detection and override, the stats panel, action key routing, and the
 scripts menu cycle. The log view is fed through a hand-built `LogFeed`
 channel — no SSH involved.
 
-### 4. Docker fixture (planned, `tests/fixture/`)
+### 4. Docker fixture (`tests/fixture/`, driven by `tests/e2e/`)
 
-The plan of record: a docker-compose fixture running sshd + docker-in-docker
-with a demo compose project emitting plain-text and JSONL logs, connected
-to over real SSH for full-path coverage (connect → ps → logs → exec). This
-is the only layer that will validate the `docker compose` side end-to-end;
-no milestone has been exercised against a real Docker host until it lands.
+The only layer that validates the `docker compose` side end-to-end: a
+container running sshd in front of a real docker-in-docker daemon, with a
+demo project emitting plain-text and JSONL logs, reached over real SSH. It
+proves the commands Linqode builds actually produce the output its parsers
+expect — the one thing the layers above cannot check, since they either
+stub the daemon or replay captured output.
+
+It sits behind the `e2e` build tag, so `go test ./...` stays offline:
+
+```bash
+go test -tags e2e -timeout 20m ./tests/e2e/
+```
+
+`TestMain` generates the SSH key, brings the fixture up, waits for the demo
+project, and tears it down; `-fixture.keep` leaves it running for
+inspection. Setting up a Docker engine to run this — including keeping it
+off when unused — is covered in [docker-setup.md](docker-setup.md); the
+fixture's own layout is documented in
+[tests/fixture/README.md](../tests/fixture/README.md).
+
+The same fixture doubles as a live server for manual work:
+`scripts/dev-fixture.sh` starts the engine, brings it up, and runs the TUI
+against it.
+
+| Test | Proves |
+| ---- | ------ |
+| `TestComposeStatusReportsDemoProject` | `ps --all --format json` from a live daemon parses into the model: every service present, sorted by name, `running`/`exited` states, `healthy`/`unhealthy` health, published ports collapsing into the summary |
+| `TestFollowPlainTextLogs` | An unstructured service streams through the line assembler as readable lines, and is not mistaken for JSONL |
+| `TestFollowStructuredLogs` | JSONL written by a real container reaches the engine intact: level, message, timestamp, and nested objects flattened to dotted paths (`http.status`) |
+| `TestCancelEndsFollower` | Cancelling a follow closes the stream **and** the remote `compose logs -f` process is gone — checked in the remote process list, with a sanity check that it was visible while running |
+| `TestRestartServiceRestartsContainer` | The action command runs against a real project and the service comes back `running` |
+| `TestTOFUPersistsHostKey` | Trust-on-first-use against a real sshd: prompts exactly once, the second connection is silent |
+| `TestHostMetricsAgainstRealHost` | The header's metrics command works on a busybox userland — the `/proc` layout and `df -Pk` support that differ most from a developer's machine — and every field arrives with a sane derived percentage |
+| `TestStatsStreamAgainstRealProject` | The live panel's stream yields parseable samples for the project's running containers, and only those |
+| `TestStatsSampleAgainstRealProject` | The periodic refresh's one-shot form terminates on its own and parses into a whole sample, and logs what it cost — the measurement the 20 s interval rests on |
+
+`tests/e2e/cost_test.go` measures what candidate dashboard commands cost on
+the server. It is opt-in (`-cost.measure`) and asserts nothing; it exists so
+the refresh design in [PROJECT.md](PROJECT.md) can be re-derived from
+numbers when docker or the scenario changes.
+
+Both the authorized identity and the server's host key are generated into
+`.keys/` on first use and reused afterwards — never checked in. Keeping them
+stable means a client that trusted the fixture once still connects after it
+is recreated, which is what makes the fixture usable for driving the TUI by
+hand. TOFU is still exercised for real: every test connects with its own
+empty `known_hosts`, so the prompt path runs each time regardless. Delete
+`.keys/` to force new keys.
 
 ## Conventions for new tests
 
@@ -107,10 +155,13 @@ no milestone has been exercised against a real Docker host until it lands.
 - **Full-screen rendering**: view tests assert on the rendered strings,
   not on terminal placement/ANSI details; the app-model routing between
   views has only indirect coverage.
-- **Remote-process termination semantics** of the cancel path (SIGTERM
-  delivery / SIGPIPE fallback depend on the real sshd and OS).
-- **SSH agent auth** (skipped via `IdentitiesOnly`; needs a fake agent
-  socket or the e2e fixture).
+- **SSH agent auth**: still skipped everywhere via `IdentitiesOnly`,
+  including in the e2e fixture, which authenticates with a generated
+  identity file. Covering it needs a fake agent socket, or an agent
+  forwarded into the fixture.
 - **`cmd/linqode` wiring** (`startLogFeed`, `fetchServices`, flag
-  handling) has no direct tests, though all its pieces do.
-- **Docker fixture**: see above — the plan of record for end-to-end.
+  handling) has no direct tests, though all its pieces do — and the e2e
+  suite now exercises equivalent paths through the same packages.
+- **The TUI itself is never driven end-to-end**: the e2e suite calls the
+  production packages directly, not the Bubble Tea program, so keybindings
+  and view routing are covered only by the view-model tests.

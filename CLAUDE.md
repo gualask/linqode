@@ -15,6 +15,9 @@ intro (install, configuration, keys):
   flows (connect, status, log follow, structured logs, actions).
 - **`docs/tests.md`** — testing strategy, layers, conventions for new tests,
   known gaps.
+- **`docs/docker-setup.md`** — getting a Docker engine for the e2e fixture
+  (Colima on macOS), lifecycle and disk cleanup. Not needed for
+  `go test ./...`.
 - **`docs/porting.md`** — historical: how this codebase was ported from the
   Rust MVP (kept at the `rust-mvp` tag), including the deliberate
   divergences from it.
@@ -24,7 +27,7 @@ intro (install, configuration, keys):
 - All documentation, code comments, commit messages, and generated reports
   are written in **English**, regardless of the conversation language.
 - One Go module (`github.com/gualask/linqode`): packages under `internal/`
-  (`config`, `remote`, `compose`, `logs`, `tui`) plus `cmd/linqode`.
+  (`config`, `remote`, `compose`, `host`, `logs`, `tui`) plus `cmd/linqode`.
 - Stack: Bubble Tea + Lipgloss, `golang.org/x/crypto/ssh`,
   `kevinburke/ssh_config`, `pelletier/go-toml/v2`, stdlib elsewhere;
   `gliderlabs/ssh` in tests only. Prefer these over alternatives unless a
@@ -44,8 +47,11 @@ one.
 
 ## Status
 
-The MVP feature set is fully ported to Go (July 2026) with the offline test
-suite green, but **nothing has been exercised against a real server yet**.
-Next per the roadmap in `docs/PROJECT.md`: the `tests/fixture/` sshd +
-docker-in-docker fixture for end-to-end validation, then hardening, then
-the broadened remote-operations scope.
+The MVP feature set is fully ported to Go (July 2026), the offline suite is
+green, and the `tests/fixture/` sshd + docker-in-docker fixture validates
+connect → ps → logs → actions against a live Docker daemon (August 2026,
+behind the `e2e` build tag). It passed without product changes, but the
+fixture is a controlled Alpine environment: **no real deployment has been
+touched yet**. Next per the roadmap in `docs/PROJECT.md`: hardening against
+real hosts, the two MVP gaps (restart counts, ad-hoc commands from the
+TUI), then the broadened remote-operations scope.
