@@ -95,6 +95,7 @@ anything useful:
 | `db` | healthcheck that passes → `healthy` |
 | `cache` | healthcheck that fails → `unhealthy` |
 | `migrate` | exits immediately → `exited`, only visible because `ps` passes `--all` |
+| `flaky` | fails until its `on-failure:3` policy gives up, so `RestartCount` settles at 3 — the only way to get a non-zero one, since a manual restart never moves it |
 
 ## Notes
 

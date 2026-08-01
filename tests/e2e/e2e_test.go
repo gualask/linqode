@@ -521,3 +521,73 @@ func (p *countingPrompter) AskPassphrase(string) (string, error) {
 	p.passPrompts.Add(1)
 	return "", nil
 }
+
+// TestRestartCountsAgainstRealProject covers what no offline test can: that
+// the `docker inspect` format behind the RESTARTS column is understood by a
+// real daemon, and that the counts it returns line up with the container
+// names `compose ps` reported.
+//
+// `flaky` is what makes this more than a format check. RestartCount tracks
+// the restarts docker performs under the restart policy, so only a service
+// that fails on its own produces a non-zero one — restarting a service by
+// hand, as TestRestartServiceRestartsContainer does, leaves it at zero.
+func TestRestartCountsAgainstRealProject(t *testing.T) {
+	session := connect(t)
+
+	// The policy takes a moment to exhaust its retries; until then the count
+	// is still climbing.
+	var services []compose.Service
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		services = pollServices(t, session, guardTimeout, func([]compose.Service) bool { return true })
+
+		names := make([]string, 0, len(services))
+		for _, service := range services {
+			names = append(names, service.Name)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), guardTimeout)
+		out, err := session.Exec(ctx, compose.InspectRestartsCommand(names))
+		cancel()
+		if err != nil {
+			t.Fatalf("docker inspect: %v", err)
+		}
+		compose.ApplyRestarts(services, compose.ParseRestarts(out.Stdout))
+
+		byName := index(services)
+		if flaky := byName["flaky"]; flaky.Restarts != nil && *flaky.Restarts >= 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("flaky never reached its 3 policy restarts: %s", summarizeRestarts(services))
+		}
+		time.Sleep(2 * time.Second)
+	}
+
+	// Every container `ps` named must have been matched: a name the parser
+	// failed to line up (docker prints it with a leading slash) would leave
+	// the column reading `-` for a host that answered perfectly well.
+	for _, service := range services {
+		if service.Restarts == nil {
+			t.Errorf("%s got no restart count, table would show %q",
+				service.Service, service.RestartsText())
+		}
+	}
+	// The services that never fail must report a genuine zero, not just
+	// something non-nil.
+	byName := index(services)
+	for _, name := range []string{"web", "api", "db"} {
+		service := byName[name]
+		if got := service.RestartsText(); got != "0" {
+			t.Errorf("%s restarts = %s, want 0", name, got)
+		}
+	}
+	t.Logf("restart counts: %s", summarizeRestarts(services))
+}
+
+func summarizeRestarts(services []compose.Service) string {
+	var parts []string
+	for _, service := range services {
+		parts = append(parts, service.Service+"="+service.RestartsText())
+	}
+	return strings.Join(parts, " ")
+}

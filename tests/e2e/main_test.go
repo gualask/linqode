@@ -43,9 +43,9 @@ const (
 	composeDir = "/srv/demo"
 	// demoServices is what the demo project defines; readiness means all of
 	// them are reported by `compose ps`.
-	demoServices = 5
-	// demoRunningServices excludes `migrate`, which exits immediately, so
-	// it never appears in a live resource stream.
+	demoServices = 6
+	// demoRunningServices excludes `migrate` and `flaky`, which both end up
+	// exited, so neither appears in a live resource stream.
 	demoRunningServices = 4
 )
 

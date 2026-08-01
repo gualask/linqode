@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -42,4 +43,28 @@ func ParsePS(raw []byte) ([]Service, error) {
 		return strings.Compare(a.Name, b.Name)
 	})
 	return services, nil
+}
+
+// ParseRestarts parses the output of InspectRestartsCommand into restart
+// counts keyed by container name, as `compose ps` reports it — docker
+// inspect prints the name with a leading slash, which is stripped here.
+//
+// It returns no error by design: a container that vanished between `ps` and
+// `inspect` makes the command fail while the lines for the others are still
+// good, so an unparseable line is skipped rather than discarding a whole
+// reading that is mostly usable.
+func ParseRestarts(raw []byte) map[string]int {
+	counts := make(map[string]int)
+	for line := range strings.Lines(string(raw)) {
+		name, count, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok {
+			continue
+		}
+		n, err := strconv.Atoi(count)
+		if err != nil {
+			continue
+		}
+		counts[strings.TrimPrefix(name, "/")] = n
+	}
+	return counts
 }

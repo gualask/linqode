@@ -50,11 +50,28 @@ mem = "free -m"
 | --- | ------ |
 | `j`/`k` | select service |
 | `Enter` | follow the service's logs |
-| `R` / `s` / `S` | restart / stop / start the service |
+| `c` | act on the service: restart / stop / start |
 | `x` | run a predefined script |
+| `!` | type a command to run on the host |
 | `a` | live panel: per-second CPU sparkline per container |
 | `r` | refresh now (auto-refreshes every 5 s) |
 | `q` | quit |
+
+`c` and `x` open a menu — `j`/`k` to choose, `Enter` to run, `Esc` to back
+out — that shows the exact command before it runs. Service actions sit
+behind one deliberately: no two keys in Linqode differ only by the shift
+key, so a mistyped capital can never stop a service you meant to start.
+
+Scripts and `!` commands run where `ssh user@host 'command'` would run
+them — your login directory, not `compose_dir`. Only the actions Linqode
+builds itself (the `c` menu, log following) target the compose project.
+Output streams into the log view, with the exit code when the command
+finishes.
+
+The RESTARTS column shows how many times docker has restarted each
+container — a count that climbs is a service crash-looping rather than
+recovering. It comes from a `docker inspect` alongside the refresh, and
+reads `-` on a host where that command did not answer.
 
 The machine's load, memory, disk and uptime go in a panel down the right
 side — or, on a terminal too narrow for it, in a line under the header.

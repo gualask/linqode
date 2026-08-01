@@ -211,7 +211,8 @@ func fetchContainerStats(ctx context.Context, session *remote.Session, command s
 	return compose.ParseStatsSample(out.Stdout), nil
 }
 
-// fetchServices runs `docker compose ps` remotely and parses its output.
+// fetchServices runs `docker compose ps` remotely, parses its output, and
+// fills in the restart counts compose does not report.
 func fetchServices(ctx context.Context, session *remote.Session, command string) ([]compose.Service, error) {
 	out, err := session.Exec(ctx, command)
 	if err != nil {
@@ -220,7 +221,40 @@ func fetchServices(ctx context.Context, session *remote.Session, command string)
 	if out.ExitCode != 0 {
 		return nil, errors.New(execFailure(out))
 	}
-	return compose.ParsePS(out.Stdout)
+	services, err := compose.ParsePS(out.Stdout)
+	if err != nil {
+		return nil, err
+	}
+	fetchRestarts(ctx, session, services)
+	return services, nil
+}
+
+// fetchRestarts asks docker how often it has restarted the containers `ps`
+// just reported, and attaches the answer to them.
+//
+// It reports no failure on purpose. This is one column of a table whose
+// other columns are already in hand, so a daemon that refuses the inspect
+// leaves that column unknown instead of failing a refresh that otherwise
+// succeeded. The exit code is ignored for the same reason: inspect exits
+// non-zero when any single container is gone — likely here, since it is
+// asking about a list assembled a moment earlier — while still printing the
+// ones it did find.
+func fetchRestarts(ctx context.Context, session *remote.Session, services []compose.Service) {
+	names := make([]string, 0, len(services))
+	for _, service := range services {
+		if service.Name != "" {
+			names = append(names, service.Name)
+		}
+	}
+	command := compose.InspectRestartsCommand(names)
+	if command == "" {
+		return
+	}
+	out, err := session.Exec(ctx, command)
+	if err != nil {
+		return
+	}
+	compose.ApplyRestarts(services, compose.ParseRestarts(out.Stdout))
 }
 
 // execFailure gives a one-line reason for a failed remote command: the last

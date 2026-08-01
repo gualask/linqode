@@ -50,8 +50,9 @@ one.
 The MVP feature set is fully ported to Go (July 2026), the offline suite is
 green, and the `tests/fixture/` sshd + docker-in-docker fixture validates
 connect → ps → logs → actions against a live Docker daemon (August 2026,
-behind the `e2e` build tag). It passed without product changes, but the
-fixture is a controlled Alpine environment: **no real deployment has been
-touched yet**. Next per the roadmap in `docs/PROJECT.md`: hardening against
-real hosts, the two MVP gaps (restart counts, ad-hoc commands from the
-TUI), then the broadened remote-operations scope.
+behind the `e2e` build tag). The two MVP gaps the port left open — restart
+counts in the status view, ad-hoc commands from the TUI (`!`) — closed in
+August 2026. The fixture is still a controlled Alpine environment: **no
+real deployment has been touched yet**. Next per the roadmap in
+`docs/PROJECT.md`: hardening against real hosts, then the broadened
+remote-operations scope (PTY, `.sh` upload, `tail -F`).

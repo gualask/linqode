@@ -39,7 +39,7 @@ hardened them first:
 | ------- | --------------- |
 | `internal/config` | Config parsing (documented format, tolerance of future sections, missing-`host` rejection, scripts sorted by name), host selection rules, default-path loading |
 | `internal/remote` | `[user@]host[:port]` spec parsing (IPv6, last-`@` rule, rejects incl. port 0), `~/.ssh/config` alias resolution and precedence, identity-file discovery limited to existing files, tilde expansion |
-| `internal/compose` | Command builders (`ps`, `logs`, actions) incl. shell quoting of hostile paths; `ps --format json` parsing in both shapes (NDJSON ≥ 2.21, legacy array), null `Publishers`, sorting; port summaries collapsing IPv4/IPv6 duplicates |
+| `internal/compose` | Command builders (`ps`, `logs`, actions, restart inspect) incl. shell quoting of hostile paths and container names; `ps --format json` parsing in both shapes (NDJSON ≥ 2.21, legacy array), null `Publishers`, sorting; port summaries collapsing IPv4/IPv6 duplicates; restart counts parsed leniently (leading slash stripped, a vanished container's error line skipped without losing the rest) and an absent count staying unknown rather than zero |
 | `internal/host` | Metrics parsing from the marked `/proc` + `df -Pk` sections; tolerance of missing sections and of garbage (both leave fields zero rather than failing the sample); derived percentages guarding against division by zero and unsigned underflow; the command asking for every section |
 | `internal/logs` | Line assembly across arbitrary chunk boundaries (CRLF, invalid UTF-8, runes split mid-chunk); ring-buffer drop accounting; ASCII-case-insensitive search on rune-safe offsets; JSONL record parsing (flattening, numeric literals verbatim, well-known keys); filter parsing and matching (AND terms, negation, case folding); the filtered visible view across buffer drops; wrap-around search over the visible view; detection heuristic; stats recompute incl. a test pinning that counts follow drops |
 
@@ -81,9 +81,20 @@ stayed untested in the Rust reference is covered directly here: selection
 preservation across refreshes, error handling that keeps the last good
 table, follow/scroll transitions, search cycling with wrap-around, the
 bounded burst drain, filter commit/clear/errors, structured-rendering
-detection and override, the stats panel, action key routing, and the
-scripts menu cycle. The log view is fed through a hand-built `LogFeed`
-channel — no SSH involved.
+detection and override, the stats panel, the action and script menus
+(navigation, running the chosen entry, closing on esc or on the key that
+opened them), the RESTARTS column appearing only once counts exist, and the
+`!` prompt (keys type instead of acting while it is open, empty input runs
+nothing, esc cancels, and it reopens on the last command). The log view is
+fed through a hand-built `LogFeed` channel — no SSH involved.
+
+One test pins a design rule rather than a behavior: the keys Linqode
+invents must not differ only by case, so `R`, `S`, `C`, `X` and a bare `s`
+are asserted to do nothing. The vim pairs (`g`/`G`, `n`/`N`) are exempt by
+decision — see [architecture.md](architecture.md).
+
+Assertions about color compare styles, not rendered strings: tests run
+without a TTY, where lipgloss drops the very colors under test.
 
 ### 4. Docker fixture (`tests/fixture/`, driven by `tests/e2e/`)
 

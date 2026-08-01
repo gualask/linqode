@@ -101,6 +101,17 @@ accepted) and rendered as a table with state/health coloring. Selection is
 preserved on the same container across refreshes; a failed refresh shows
 the error while the last good table stays on screen.
 
+Restart counts are not in that output, so the same refresh follows it with
+`docker inspect --format '{{.Name}} {{.RestartCount}}'` over the containers
+`ps` just named — cheaper than a second compose invocation, which would pay
+the compose CLI's startup again to re-derive a list already in hand. The
+reading is best-effort: it never fails a refresh, and inspect's non-zero
+exit is ignored, since a container that disappeared between the two
+commands makes it fail while the remaining lines are still good. Counts
+that did not arrive render as `-`, distinct from a container that has
+genuinely never restarted; the RESTARTS column appears only once something
+can fill it.
+
 The same tick samples the host's load, memory, disk and uptime, as a second
 exec: independent so one failing cannot blank the other, and cheap enough
 (~2 ms) that the separation costs nothing. A failed sample keeps the last
@@ -172,11 +183,34 @@ object becomes a record whose nested fields are flattened to dotted paths
   shown in a side panel. They are recomputed on demand over the bounded
   tail (see [porting.md](porting.md), deliberate divergences).
 
-### Service actions and scripts
+### Service actions, scripts, and ad-hoc commands
 
 Restart/stop/start on the selected service build the corresponding
-`docker compose` command; predefined scripts from the config run verbatim
-on the host (no compose-dir `cd`). Both reuse the log-follow pipeline: the
-command's output streams into the same view, the exit code is shown on
-completion, and the status view refreshes on return — so a restart's
-effect is visible immediately.
+`docker compose` command; predefined scripts from the config, and commands
+typed at the `!` prompt, run verbatim on the host. That split is the rule:
+what Linqode builds is project-relative and gets a compose-dir `cd`, what
+the user supplies runs where `ssh host 'command'` would run it — the same
+working directory `--exec` uses.
+
+All three reuse the log-follow pipeline: the command's output streams into
+the same view, the exit code is shown on completion, and the status view
+refreshes on return — so a restart's effect is visible immediately.
+
+Two input shapes carry them, and both are modal — while one is up, keys go
+to it instead of to the table:
+
+- **Menus** (`c` actions, `x` scripts) share one `menu` type: a list of
+  entries, each a label plus the command it runs, navigated with `j`/`k`
+  and dismissed with `esc` or the key that opened it. Service actions live
+  here rather than on a key each so that **no two keys in the application
+  differ only by the shift key** — `s` and `S` for stop and start put a
+  service one mistyped capital away from the opposite outcome. Showing the
+  command before running it falls out of the same design.
+- **The `!` prompt** is an inline footer input like the log view's `/` and
+  `f`: every key edits the line, and it reopens holding the last command so
+  a typo is corrected rather than retyped.
+
+The case rule applies to what Linqode invents. The `j`/`k`, `g`/`G` and
+`n`/`N` pairs stay as they are: they are the vim and less bindings every
+terminal user already has in their fingers, and getting one wrong moves the
+cursor rather than a service.

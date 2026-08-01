@@ -30,6 +30,27 @@ func PsCommand(composeDir string) string {
 	return inDir(composeDir, "docker compose ps --all --format json")
 }
 
+// InspectRestartsCommand builds the remote command reporting how many times
+// docker has restarted each of the given containers: one `name count` line
+// per container, empty when there is nothing to ask about.
+//
+// `compose ps` does not carry restart counts, so they need `docker inspect`.
+// The containers `ps` just listed are named here directly rather than
+// re-derived with `compose ps -q`: a second compose invocation would cost
+// about as much as the first, while a bare `docker inspect` is one cheap
+// daemon round-trip. No `cd` either — container names are absolute
+// references, not project-relative ones.
+func InspectRestartsCommand(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	quoted := make([]string, len(names))
+	for i, name := range names {
+		quoted[i] = shellQuote(name)
+	}
+	return "docker inspect --format '{{.Name}} {{.RestartCount}}' " + strings.Join(quoted, " ")
+}
+
 // ServiceAction is a lifecycle action on one compose service.
 type ServiceAction int
 

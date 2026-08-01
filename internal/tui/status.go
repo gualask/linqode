@@ -7,6 +7,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -81,15 +82,44 @@ type statusModel struct {
 	loaded     bool // first refresh done (either way)
 	refreshing bool
 
-	// scriptMenu is the selected index in the scripts menu; -1 when the
-	// menu is closed. While open, keys route to the menu.
-	scriptMenu int
+	// menu is the open modal list, nil when none is. While one is open,
+	// keys route to it instead of to the table.
+	menu *menu
+
+	// commandPrompt is the `!` ad-hoc command line. While it is open every
+	// key edits the text, so `q` types a q instead of quitting. commandText
+	// is what has been typed; lastCommand is what was last run, which the
+	// prompt reopens with — the same courtesy `f` does for filters.
+	commandPrompt bool
+	commandText   string
+	lastCommand   string
 
 	width, height int
 }
 
+// menuEntry is one line of a modal menu: a label, and the command choosing
+// it runs. The command doubles as the dimmed detail column, so a menu always
+// shows exactly what it is about to execute.
+type menuEntry struct {
+	label   string
+	command string
+	// title labels the log view the command's output streams into.
+	title string
+}
+
+// menu is a modal list over the table: the service actions on `c`, the
+// configured scripts on `x`. Both pick one entry out of a short list and run
+// it through the log-follow pipeline, so they share navigation, rendering,
+// and footer hints.
+type menu struct {
+	entries  []menuEntry
+	selected int
+	// key is the one that opened the menu; pressing it again closes it.
+	key string
+}
+
 func newStatusModel(info Info, fetch Fetch) statusModel {
-	return statusModel{info: info, fetch: fetch, scriptMenu: -1}
+	return statusModel{info: info, fetch: fetch}
 }
 
 // init returns the startup commands. It must not mutate state: Bubble Tea
@@ -242,8 +272,11 @@ func (m *statusModel) update(msg tea.Msg) tea.Cmd {
 		return tea.Batch(m.refresh(), m.refreshHost(), autoTick())
 
 	case tea.KeyMsg:
-		if m.scriptMenu >= 0 {
-			return m.handleScriptMenuKey(msg)
+		if m.commandPrompt {
+			return m.handleCommandKey(msg)
+		}
+		if m.menu != nil {
+			return m.handleMenuKey(msg)
 		}
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
@@ -264,18 +297,13 @@ func (m *statusModel) update(msg tea.Msg) tea.Cmd {
 				return openFollow("logs: "+service,
 					compose.LogsCommand(m.info.ComposeDir, service, logTail))
 			}
-		case "R":
-			return m.action(compose.ActionRestart)
-		case "s":
-			return m.action(compose.ActionStop)
-		case "S":
-			return m.action(compose.ActionStart)
+		case "c":
+			m.openActionMenu()
 		case "x":
-			if len(m.info.Scripts) == 0 {
-				m.errText = "no scripts configured for this host"
-			} else {
-				m.scriptMenu = 0
-			}
+			m.openScriptMenu()
+		case "!":
+			m.commandPrompt, m.commandText = true, m.lastCommand
+			m.errText = ""
 		case "a":
 			return m.toggleLive()
 		}
@@ -288,28 +316,93 @@ func openFollow(title, command string) tea.Cmd {
 	return func() tea.Msg { return msg }
 }
 
-// action runs a compose lifecycle action on the selected service.
-func (m *statusModel) action(action compose.ServiceAction) tea.Cmd {
+// openActionMenu lists the lifecycle actions for the selected service.
+//
+// They sit behind a menu rather than getting a key each so that no two of
+// them differ only by the shift key: `s` and `S` for stop and start put a
+// production service one mistyped capital away from the opposite outcome.
+// The menu also shows the exact command before it runs.
+func (m *statusModel) openActionMenu() {
 	if m.selected >= len(m.services) {
-		return nil
+		return
 	}
 	service := m.services[m.selected].Service
-	return openFollow(action.Verb()+": "+service,
-		compose.ActionCommand(m.info.ComposeDir, action, service))
+	actions := []compose.ServiceAction{
+		compose.ActionRestart, compose.ActionStop, compose.ActionStart,
+	}
+	entries := make([]menuEntry, len(actions))
+	for i, action := range actions {
+		entries[i] = menuEntry{
+			label:   action.Verb() + " " + service,
+			command: compose.ActionCommand(m.info.ComposeDir, action, service),
+			title:   action.Verb() + ": " + service,
+		}
+	}
+	m.menu = &menu{entries: entries, key: "c"}
 }
 
-func (m *statusModel) handleScriptMenuKey(msg tea.KeyMsg) tea.Cmd {
-	switch msg.String() {
-	case "esc", "q", "x":
-		m.scriptMenu = -1
-	case "j", "down":
-		m.scriptMenu = min(m.scriptMenu+1, len(m.info.Scripts)-1)
-	case "k", "up":
-		m.scriptMenu = max(m.scriptMenu-1, 0)
+// openScriptMenu lists the host's configured scripts.
+func (m *statusModel) openScriptMenu() {
+	if len(m.info.Scripts) == 0 {
+		m.errText = "no scripts configured for this host"
+		return
+	}
+	entries := make([]menuEntry, len(m.info.Scripts))
+	for i, script := range m.info.Scripts {
+		entries[i] = menuEntry{
+			label:   script.Name,
+			command: script.Command,
+			title:   "script: " + script.Name,
+		}
+	}
+	m.menu = &menu{entries: entries, key: "x"}
+}
+
+// handleCommandKey collects the ad-hoc command line, mirroring the log
+// view's prompts: esc cancels, enter runs, everything else edits.
+//
+// The command is sent as typed, with no `cd` into the compose directory —
+// what the user writes runs where `ssh host 'command'` would run it, the
+// same rule the configured scripts and `--exec` follow. Only the actions
+// Linqode builds itself are project-relative.
+func (m *statusModel) handleCommandKey(key tea.KeyMsg) tea.Cmd {
+	switch key.String() {
+	case "esc":
+		m.commandPrompt, m.commandText = false, ""
 	case "enter":
-		script := m.info.Scripts[m.scriptMenu]
-		m.scriptMenu = -1
-		return openFollow("script: "+script.Name, script.Command)
+		command := strings.TrimSpace(m.commandText)
+		m.commandPrompt, m.commandText = false, ""
+		if command == "" {
+			return nil
+		}
+		m.lastCommand = command
+		return openFollow("$ "+command, command)
+	case "backspace":
+		if r := []rune(m.commandText); len(r) > 0 {
+			m.commandText = string(r[:len(r)-1])
+		}
+	default:
+		if len(key.Runes) > 0 {
+			m.commandText += string(key.Runes)
+		}
+	}
+	return nil
+}
+
+// handleMenuKey drives the open menu. The key that opened it closes it, so
+// the same finger that reached for it backs out.
+func (m *statusModel) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "esc", "q", m.menu.key:
+		m.menu = nil
+	case "j", "down":
+		m.menu.selected = min(m.menu.selected+1, len(m.menu.entries)-1)
+	case "k", "up":
+		m.menu.selected = max(m.menu.selected-1, 0)
+	case "enter":
+		entry := m.menu.entries[m.menu.selected]
+		m.menu = nil
+		return openFollow(entry.title, entry.command)
 	}
 	return nil
 }
@@ -344,6 +437,20 @@ func stateStyle(state string) lipgloss.Style {
 		return redStyle
 	default:
 		return lipgloss.NewStyle()
+	}
+}
+
+// restartStyle colors a restart count. One restart is worth noticing; a
+// handful means a container is looping rather than recovering, which is the
+// reading this column exists to surface.
+func restartStyle(n int) lipgloss.Style {
+	switch {
+	case n >= 5:
+		return redStyle
+	case n > 0:
+		return yellowStyle
+	default:
+		return dimStyle
 	}
 }
 
@@ -427,8 +534,8 @@ func (m *statusModel) view() string {
 // renderBody is everything left of the system panel: the service table, or
 // what stands in for it, with the live panel below when it is open.
 func (m *statusModel) renderBody(width, height int) string {
-	if m.scriptMenu >= 0 {
-		return m.renderScriptsMenu(width, height)
+	if m.menu != nil {
+		return m.renderMenu(width, height)
 	}
 
 	live := ""
@@ -456,9 +563,51 @@ func (m *statusModel) renderBody(width, height int) string {
 	return strings.TrimRight(b.String(), "\n") + live
 }
 
-// footerKeys is the width below which the key hints are trimmed to the ones
-// worth spending a narrow terminal's last columns on.
-const footerKeys = 110
+// footerHint is one key hint and how readily it is given up when the
+// terminal is too narrow to show them all: the higher the rank, the sooner
+// it goes.
+type footerHint struct {
+	text string
+	drop int
+}
+
+// footerHints renders the key hints, dropping the least essential ones until
+// they fit in width columns (unbounded when width is not positive).
+//
+// Ranking them beats a tier per terminal width: the way out stays on screen
+// at any size, and a new key only has to declare how expendable it is.
+func (m *statusModel) footerHints(width int) string {
+	live := "a live"
+	if m.liveActive() {
+		live = "a live off"
+	}
+	hints := []footerHint{
+		{"enter logs", 2},
+		{"c actions", 3},
+		{"x scripts", 6},
+		{"! run", 4},
+		{live, 5},
+		{"r refresh", 1},
+		{"q quit", 0},
+	}
+	for {
+		texts := make([]string, len(hints))
+		for i, hint := range hints {
+			texts[i] = hint.text
+		}
+		joined := strings.Join(texts, " · ")
+		if width <= 0 || len(hints) == 1 || lipgloss.Width(joined) <= width {
+			return joined
+		}
+		worst := 0
+		for i, hint := range hints {
+			if hint.drop >= hints[worst].drop {
+				worst = i
+			}
+		}
+		hints = slices.Delete(hints, worst, worst+1)
+	}
+}
 
 // footer is the menu hints, the last error, or the service count and keys.
 // It is clipped to the terminal: a footer that wraps pushes the whole view
@@ -466,7 +615,10 @@ const footerKeys = 110
 func (m *statusModel) footer() string {
 	var text string
 	switch {
-	case m.scriptMenu >= 0:
+	case m.commandPrompt:
+		text = " $ " + m.commandText + "▏" +
+			dimStyle.Render("  enter run · esc cancel")
+	case m.menu != nil:
 		text = dimStyle.Render(" j/k select · enter run · esc cancel")
 	case m.errText != "":
 		text = redStyle.Render(" " + strings.ReplaceAll(m.errText, "\n", " · "))
@@ -476,16 +628,12 @@ func (m *statusModel) footer() string {
 		if m.statsErr != "" {
 			b.WriteString(redStyle.Render("  ·  stats: " + m.statsErr))
 		}
-		live := "a live"
-		if m.liveActive() {
-			live = "a live off"
+		// The hints get whatever the count and the stats error leave.
+		budget := 0
+		if m.width > 0 {
+			budget = m.width - lipgloss.Width(b.String()) - len("  ·  ")
 		}
-		keys := "enter logs · " + live + " · x scripts · r refresh · q quit"
-		if m.width == 0 || m.width >= footerKeys {
-			keys = "enter logs · R restart · s stop · S start · x scripts · " +
-				live + " · r refresh · q quit"
-		}
-		b.WriteString(dimStyle.Render("  ·  " + keys))
+		b.WriteString(dimStyle.Render("  ·  " + m.footerHints(budget)))
 		text = b.String()
 	}
 	if m.width > 0 {
@@ -587,20 +735,20 @@ func formatUptime(d time.Duration) string {
 	}
 }
 
-// renderScriptsMenu shows the predefined scripts, centered where the table
-// normally is.
-func (m *statusModel) renderScriptsMenu(width, height int) string {
-	nameWidth := 0
-	for _, script := range m.info.Scripts {
-		nameWidth = max(nameWidth, len(script.Name))
+// renderMenu shows the open menu's entries, each with the command it runs,
+// centered where the table normally is.
+func (m *statusModel) renderMenu(width, height int) string {
+	labelWidth := 0
+	for _, entry := range m.menu.entries {
+		labelWidth = max(labelWidth, len(entry.label))
 	}
 	var lines []string
-	for i, script := range m.info.Scripts {
-		line := fmt.Sprintf(" %-*s  ", nameWidth, script.Name)
-		if i == m.scriptMenu {
-			lines = append(lines, reverseStyle.Render(line+script.Command+" "))
+	for i, entry := range m.menu.entries {
+		line := fmt.Sprintf(" %-*s  ", labelWidth, entry.label)
+		if i == m.menu.selected {
+			lines = append(lines, reverseStyle.Render(line+entry.command+" "))
 		} else {
-			lines = append(lines, boldStyle.Render(line)+dimStyle.Render(script.Command+" "))
+			lines = append(lines, boldStyle.Render(line)+dimStyle.Render(entry.command+" "))
 		}
 	}
 	menu := lipgloss.NewStyle().
@@ -621,12 +769,30 @@ type cell struct {
 }
 
 // tableHeaders are the column titles for the current state. CPU and MEM
-// exist whenever something can fill them.
+// exist whenever something can fill them, RESTARTS whenever the inspect
+// behind it answered.
 func (m *statusModel) tableHeaders() []string {
-	if m.statsColumns() {
-		return []string{"SERVICE", "STATE", "HEALTH", "CPU", "MEM", "PORTS", "STATUS"}
+	headers := []string{"SERVICE", "STATE", "HEALTH"}
+	if m.restartColumn() {
+		headers = append(headers, "RESTARTS")
 	}
-	return []string{"SERVICE", "STATE", "HEALTH", "PORTS", "STATUS"}
+	if m.statsColumns() {
+		headers = append(headers, "CPU", "MEM")
+	}
+	return append(headers, "PORTS", "STATUS")
+}
+
+// restartColumn reports whether the table carries RESTARTS. The counts come
+// from a single `docker inspect` over the whole list, so in practice they
+// are known for every service or for none — the column does not flicker
+// with individual rows.
+func (m *statusModel) restartColumn() bool {
+	for i := range m.services {
+		if m.services[i].Restarts != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // serviceRow builds one service's cells, aligned with tableHeaders.
@@ -639,6 +805,13 @@ func (m *statusModel) serviceRow(s compose.Service) []cell {
 		{text: s.Service},
 		{text: s.State, style: stateStyle(s.State)},
 		{text: health, style: healthStyle(s.Health)},
+	}
+	if m.restartColumn() {
+		restarts := cell{text: s.RestartsText(), style: dimStyle}
+		if s.Restarts != nil {
+			restarts.style = restartStyle(*s.Restarts)
+		}
+		row = append(row, restarts)
 	}
 	if m.statsColumns() {
 		row = append(row, m.statsCells(s.Name)...)

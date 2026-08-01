@@ -52,3 +52,14 @@ services:
     image: busybox:1.37
     command: ["sh", "-c", "echo 'migration complete'"]
     restart: "no"
+
+  # Fails until its policy gives up, so RestartCount settles at a stable
+  # non-zero value — the reading behind the RESTARTS column. It takes a
+  # service that fails on its own: RestartCount counts the restarts docker
+  # performs under the policy, and a manual `docker restart` never moves it.
+  # Bounded on purpose, so the fixture ends up in a steady state rather than
+  # churning for as long as it is running.
+  flaky:
+    image: busybox:1.37
+    command: ["sh", "-c", "exit 1"]
+    restart: on-failure:3

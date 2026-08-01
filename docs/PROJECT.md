@@ -79,6 +79,16 @@ These decisions are settled — do not re-litigate them when implementing:
   [README](../README.md)). The `host` value is either a `~/.ssh/config` alias
   or an inline `user@host[:port]`, so servers already reachable via plain
   `ssh` need no extra setup.
+- **Keymap: no case-variant pairs** _(decided 2026-08-01)_. Two keys that
+  differ only by the shift key must never do different things. The cost is
+  not confusion but damage: `s` for stop beside `S` for start puts a
+  production service one mistyped capital away from the opposite outcome.
+  Where several related commands need a home, they go behind a menu (`c`
+  for service actions, `x` for scripts), which also shows the exact command
+  before running it. The exemption is the bindings Linqode did not invent —
+  `j`/`k`, `g`/`G`, `n`/`N` are vim and less conventions users already
+  have in their fingers, and getting one wrong moves the cursor, not a
+  service.
 - **Dashboard cost budget** _(measured 2026-08-01; reproduce with
   `go test -tags e2e ./tests/e2e/ -run TestRemoteCommandCost -cost.measure`)_.
   Round-trip cost of the status view's candidate commands, against the e2e
@@ -165,22 +175,33 @@ Docker daemon, behind the `e2e` build tag. This is the first time any
 milestone — Rust or Go — has run against real Docker rather than captured
 output, and the MVP feature set passed without changes to the product.
 
+### MVP gaps closed _(done, August 2026)_
+
+The two items the MVP scope named but the port left open:
+
+- **Restart counts** in the status view. `compose ps` does not report them,
+  so the refresh follows it with a `docker inspect` over the containers it
+  just named — one cheap daemon round-trip rather than a second compose
+  invocation. Best-effort: a host where it fails keeps every other column,
+  and an unknown count shows as `-` rather than as a zero.
+- **Ad-hoc commands** from the TUI (`!`), streaming into the same view as
+  actions and scripts. This settles where user-supplied commands run:
+  scripts and `!` run in the login directory, like `ssh host 'command'` and
+  like `--exec`; only the commands Linqode builds itself are
+  project-relative.
+
 ### Next
 
 - **Hardening against real deployments**: the fixture is a controlled
   Alpine/dind environment. Real hosts bring compose version skew, larger
   projects, slower links, daemons behind `sudo`, and hosts reached through
   `~/.ssh/config` rather than an inline spec.
-- **MVP gaps left open**: restart counts in the status view (needs
-  `docker inspect`; `compose ps` does not report them) and running an
-  ad-hoc command from the TUI — only predefined scripts and the `--exec`
-  flag exist today.
-- **Generic remote operations** (the broadened vision): ad-hoc command
-  execution from the TUI, running `.sh` scripts with streamed output, PTY
-  support for interactive commands (`sudo`, prompts), monitoring plain
-  files via `tail -F`. To be scoped into milestones now that parity and
-  e2e validation have landed. _(Host and per-container monitoring landed
-  August 2026: see the dashboard cost budget above.)_
+- **Generic remote operations** (the broadened vision): running `.sh`
+  scripts with streamed output, PTY support for interactive commands
+  (`sudo`, prompts), monitoring plain files via `tail -F`. To be scoped
+  into milestones now that parity and e2e validation have landed. _(Host
+  and per-container monitoring landed August 2026: see the dashboard cost
+  budget above.)_
 - **Release engineering** _(deferred to the first release)_: CI currently
   only vets the e2e package (`go vet -tags e2e`), never runs it — the
   fixture stays a local step. Running it on CI is feasible whenever it is

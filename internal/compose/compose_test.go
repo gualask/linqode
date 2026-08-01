@@ -120,3 +120,62 @@ func TestPortsSummaryCollapsesIPv4IPv6Duplicates(t *testing.T) {
 		t.Errorf("empty service ports %q", got)
 	}
 }
+
+func TestInspectRestartsNamesTheContainersDirectly(t *testing.T) {
+	want := "docker inspect --format '{{.Name}} {{.RestartCount}}' 'myapp-db-1' 'myapp-web-1'"
+	if got := InspectRestartsCommand([]string{"myapp-db-1", "myapp-web-1"}); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	// Nothing to inspect must not produce a command that inspects everything.
+	if got := InspectRestartsCommand(nil); got != "" {
+		t.Errorf("empty list built %q", got)
+	}
+	want = `docker inspect --format '{{.Name}} {{.RestartCount}}' 'a'\''; rm -rf $HOME'`
+	if got := InspectRestartsCommand([]string{"a'; rm -rf $HOME"}); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestParseRestartsStripsTheLeadingSlash(t *testing.T) {
+	counts := ParseRestarts([]byte("/myapp-db-1 0\n/myapp-web-1 7\n"))
+	if len(counts) != 2 || counts["myapp-db-1"] != 0 || counts["myapp-web-1"] != 7 {
+		t.Errorf("got %+v", counts)
+	}
+}
+
+// A container that disappears between `ps` and `inspect` makes the command
+// fail and print an error line, while the containers that are still there
+// report normally. That partial reading is worth keeping.
+func TestParseRestartsSkipsUnparseableLines(t *testing.T) {
+	raw := []byte("Error: No such object: myapp-gone-1\n/myapp-web-1 3\n\nrubbish\n/x notanumber\n")
+	counts := ParseRestarts(raw)
+	if len(counts) != 1 || counts["myapp-web-1"] != 3 {
+		t.Errorf("got %+v", counts)
+	}
+	if got := ParseRestarts(nil); len(got) != 0 {
+		t.Errorf("no output should yield no counts, got %+v", got)
+	}
+}
+
+func TestApplyRestartsMatchesOnContainerName(t *testing.T) {
+	services := []Service{
+		{Service: "db", Name: "myapp-db-1"},
+		{Service: "web", Name: "myapp-web-1"},
+	}
+	ApplyRestarts(services, map[string]int{"myapp-db-1": 0})
+
+	if services[0].Restarts == nil || *services[0].Restarts != 0 {
+		t.Errorf("db restarts %v, want 0", services[0].Restarts)
+	}
+	// A service the inspect said nothing about stays unknown rather than
+	// being reported as never restarted.
+	if services[1].Restarts != nil {
+		t.Errorf("web restarts %v, want unknown", *services[1].Restarts)
+	}
+	if got := services[0].RestartsText(); got != "0" {
+		t.Errorf("known count renders %q", got)
+	}
+	if got := services[1].RestartsText(); got != "-" {
+		t.Errorf("unknown count renders %q", got)
+	}
+}
