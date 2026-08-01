@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/gualask/linqode/internal/compose"
 )
@@ -202,6 +203,25 @@ func TestScriptsMenuRunsSelectedScript(t *testing.T) {
 	m.update(tea.KeyMsg{Type: tea.KeyEsc})
 	if m.scriptMenu != -1 {
 		t.Error("menu should close on esc")
+	}
+}
+
+// The key hints are the first thing to give up room on a narrow terminal:
+// a footer that wraps costs a line of table on every redraw.
+func TestFooterFitsTheTerminal(t *testing.T) {
+	m := newStatusModel(Info{Target: "deploy@prod"}, nil)
+	m.setSize(70, 20)
+	m.update(servicesMsg{services: services("web", "db")})
+
+	for i, line := range strings.Split(m.view(), "\n") {
+		if width := lipgloss.Width(line); width > 70 {
+			t.Errorf("line %d is %d columns wide, terminal is 70: %q", i, width, line)
+		}
+	}
+	view := m.view()
+	// Whatever is dropped, the way out stays.
+	if !strings.Contains(view, "q quit") {
+		t.Errorf("footer lost the quit hint:\n%s", view)
 	}
 }
 

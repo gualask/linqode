@@ -26,6 +26,10 @@ type Host struct {
 	ComposeDir string `toml:"compose_dir"`
 	// Scripts are predefined commands runnable from the TUI, name → command.
 	Scripts map[string]string `toml:"scripts"`
+	// HostMetrics enables the status view's system panel and the table's
+	// resource columns; unset means enabled.
+	// A pointer distinguishes "not configured" from an explicit false.
+	HostMetrics *bool `toml:"host_metrics"`
 }
 
 // Selection is the host the session will connect to, after CLI/config
@@ -34,6 +38,9 @@ type Selection struct {
 	Spec       string
 	ComposeDir string
 	Scripts    []Script
+	// HostMetrics is whether to sample resource usage — the machine's, and
+	// the containers'. Enabled unless the config turns it off.
+	HostMetrics bool
 }
 
 // Script is a predefined command from the config.
@@ -88,7 +95,7 @@ func (c *Config) Select(arg string) (Selection, error) {
 			return selection(host), nil
 		}
 		// Not a configured name: treat as an inline host spec.
-		return Selection{Spec: arg}, nil
+		return Selection{Spec: arg, HostMetrics: true}, nil
 	}
 	switch len(c.Hosts) {
 	case 1:
@@ -109,7 +116,11 @@ func (c *Config) Select(arg string) (Selection, error) {
 }
 
 func selection(host Host) Selection {
-	s := Selection{Spec: host.Host, ComposeDir: host.ComposeDir}
+	s := Selection{
+		Spec:        host.Host,
+		ComposeDir:  host.ComposeDir,
+		HostMetrics: host.HostMetrics == nil || *host.HostMetrics,
+	}
 	for name, command := range host.Scripts {
 		s.Scripts = append(s.Scripts, Script{Name: name, Command: command})
 	}

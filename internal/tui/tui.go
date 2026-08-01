@@ -5,6 +5,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/gualask/linqode/internal/compose"
+	"github.com/gualask/linqode/internal/host"
 )
 
 // Info is the static context for the session, shown in the header.
@@ -28,6 +29,19 @@ type Script struct {
 // so it is always called from a background command, never from the UI
 // loop.
 type Fetch func() ([]compose.Service, error)
+
+// FetchHost samples the remote machine's resource usage for the header. Nil
+// disables the resource line entirely — the escape hatch for hosts where
+// even a cheap extra command is unwelcome. Like Fetch, it runs in a
+// background command.
+type FetchHost func() (host.Metrics, error)
+
+// FetchStats takes one sample of the containers' resource usage, for the
+// status table's CPU and MEM columns. Nil leaves those columns out, the
+// same escape hatch FetchHost is for the resource panel. Like Fetch, it
+// runs in a background command — it is the slowest of the three, since
+// docker needs a second of sampling to derive a CPU percentage.
+type FetchStats func() ([]compose.ContainerStats, error)
 
 // Exec starts a remote command (log follow, later actions and scripts)
 // streaming into a LogFeed. Like Fetch, it blocks briefly and runs in a
@@ -80,6 +94,18 @@ type feedMsg struct {
 // closeFollowMsg asks the app to close the log view and return to status.
 type closeFollowMsg struct{}
 
+// openStatsMsg asks the app to start the status view's live resource
+// stream.
+type openStatsMsg struct {
+	command string
+}
+
+// statsFeedMsg is the outcome of starting that stream.
+type statsFeedMsg struct {
+	feed LogFeed
+	err  error
+}
+
 type appModel struct {
 	info    Info
 	exec    Exec
@@ -89,9 +115,13 @@ type appModel struct {
 	width, height int
 }
 
-// Run shows the application until the user quits.
-func Run(info Info, fetch Fetch, exec Exec) error {
-	app := appModel{info: info, exec: exec, status: newStatusModel(info, fetch)}
+// Run shows the application until the user quits. A nil fetchHost leaves
+// the system panel out, a nil fetchStats the resource columns.
+func Run(info Info, fetch Fetch, fetchHost FetchHost, fetchStats FetchStats, exec Exec) error {
+	status := newStatusModel(info, fetch)
+	status.hostFetch = fetchHost
+	status.statsFetch = fetchStats
+	app := appModel{info: info, exec: exec, status: status}
 	_, err := tea.NewProgram(app, tea.WithAltScreen()).Run()
 	return err
 }
@@ -140,7 +170,26 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, autoTick() // keep the timer alive, skip the fetch
 		}
 
-	case servicesMsg:
+	case statsPollMsg:
+		// Same as above, and it matters more here: a sample occupies the
+		// server for ~2 s, which is not worth paying for a table nobody is
+		// looking at.
+		if m.logView != nil {
+			return m, statsPollTick()
+		}
+
+	case openStatsMsg:
+		exec := m.exec
+		return m, func() tea.Msg {
+			feed, err := exec(msg.command)
+			return statsFeedMsg{feed: feed, err: err}
+		}
+
+	// These always belong to the status view, even while the log view is on
+	// screen: the live stream keeps running so returning to the table does
+	// not pay docker's sampling latency again, and a sample already in
+	// flight is worth applying.
+	case servicesMsg, hostMsg, statsFeedMsg, statsTickMsg, statsSampleMsg:
 		return m, m.status.update(msg)
 	}
 

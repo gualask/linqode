@@ -35,6 +35,7 @@ linqode myapp --exec "df -h"       # one-shot command, raw output
 [hosts.myapp]
 host = "deploy@203.0.113.10"   # or an ~/.ssh/config alias
 compose_dir = "/srv/myapp"     # where compose.yaml lives on the server
+host_metrics = true            # optional: header resource line, on by default
 
 [hosts.myapp.scripts]          # optional commands runnable from the TUI
 disk = "df -h"
@@ -51,8 +52,20 @@ mem = "free -m"
 | `Enter` | follow the service's logs |
 | `R` / `s` / `S` | restart / stop / start the service |
 | `x` | run a predefined script |
+| `a` | live panel: per-second CPU sparkline per container |
 | `r` | refresh now (auto-refreshes every 5 s) |
 | `q` | quit |
+
+The machine's load, memory, disk and uptime go in a panel down the right
+side — or, on a terminal too narrow for it, in a line under the header.
+Either way they are sampled every 5 seconds, which costs about 2 ms.
+
+The table's CPU and MEM columns are refreshed every 20 seconds instead: a
+`docker stats` sample takes the daemon ~2 seconds to produce, whatever the
+project's size, because it reads the cgroups twice to derive a percentage.
+When you want to watch resources move rather than glance at them, `a` opens
+the live panel, which streams a sample per second for as long as it is open
+and stops the remote command when you close it.
 
 **Log view** — follow mode with scrollback:
 

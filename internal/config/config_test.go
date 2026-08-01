@@ -113,6 +113,42 @@ func TestNoArgNeedsExactlyOneHost(t *testing.T) {
 	}
 }
 
+// Host metrics are cheap enough to be on by default, but a server where
+// even one extra command is unwelcome must be able to turn them off.
+func TestHostMetricsDefaultOnAndDisablable(t *testing.T) {
+	cfg := mustParse(t, `
+[hosts.unset]
+host = "user@a"
+
+[hosts.off]
+host = "user@b"
+host_metrics = false
+
+[hosts.on]
+host = "user@c"
+host_metrics = true
+`)
+	for name, want := range map[string]bool{"unset": true, "off": false, "on": true} {
+		sel, err := cfg.Select(name)
+		if err != nil {
+			t.Fatalf("selecting %q: %v", name, err)
+		}
+		if sel.HostMetrics != want {
+			t.Errorf("hosts.%s: HostMetrics = %v, want %v", name, sel.HostMetrics, want)
+		}
+	}
+
+	// An inline spec has no config entry to read the flag from, and must
+	// still get the header.
+	sel, err := (&Config{}).Select("user@inline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sel.HostMetrics {
+		t.Error("inline host spec should enable host metrics")
+	}
+}
+
 func TestLoadDefaults(t *testing.T) {
 	// A missing default config is an empty config…
 	t.Setenv("HOME", t.TempDir())

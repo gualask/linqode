@@ -14,6 +14,7 @@ import (
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/config"
+	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/logs"
 	"github.com/gualask/linqode/internal/remote"
 	"github.com/gualask/linqode/internal/tui"
@@ -83,10 +84,26 @@ func run(ctx context.Context, configPath, hostArg, execCommand string) (int, err
 		fetch := func() ([]compose.Service, error) {
 			return fetchServices(ctx, session, psCommand)
 		}
+		// Both resource fetches ride on the same switch, and nil leaves the
+		// feature they feed out of the view: one host that wants no extra
+		// commands wants none of them. See `host_metrics` in the config
+		// format.
+		var fetchHost tui.FetchHost
+		var fetchStats tui.FetchStats
+		if sel.HostMetrics {
+			hostCommand := host.Command()
+			fetchHost = func() (host.Metrics, error) {
+				return fetchHostMetrics(ctx, session, hostCommand)
+			}
+			statsCommand := compose.StatsSampleCommand(sel.ComposeDir)
+			fetchStats = func() ([]compose.ContainerStats, error) {
+				return fetchContainerStats(ctx, session, statsCommand)
+			}
+		}
 		exec := func(command string) (tui.LogFeed, error) {
 			return startLogFeed(ctx, session, command)
 		}
-		return 0, tui.Run(info, fetch, exec)
+		return 0, tui.Run(info, fetch, fetchHost, fetchStats, exec)
 	}
 
 	events, err := session.ExecStream(ctx, execCommand)
@@ -161,6 +178,37 @@ func startLogFeed(ctx context.Context, session *remote.Session, command string) 
 		send(tui.LogEvent{Kind: tui.LogEnded, ExitCode: exitCode})
 	}()
 	return tui.LogFeed{Events: out, Stop: cancel}, nil
+}
+
+// fetchHostMetrics samples the machine's resource usage.
+//
+// The exit code is deliberately ignored: the command is several readings
+// joined together, so one unreadable source (a kernel without
+// /proc/meminfo, a df that fails) makes it non-zero while the rest of the
+// sample is still good. Parse tolerates the missing pieces.
+func fetchHostMetrics(ctx context.Context, session *remote.Session, command string) (host.Metrics, error) {
+	out, err := session.Exec(ctx, command)
+	if err != nil {
+		return host.Metrics{}, err
+	}
+	return host.Parse(out.Stdout)
+}
+
+// fetchContainerStats takes one `docker stats --no-stream` sample.
+//
+// A project with nothing running produces no output and a zero exit code,
+// which is an empty sample rather than an error. A non-zero exit is
+// reported: unlike the host metrics, this is a single command, so failing
+// means no reading at all.
+func fetchContainerStats(ctx context.Context, session *remote.Session, command string) ([]compose.ContainerStats, error) {
+	out, err := session.Exec(ctx, command)
+	if err != nil {
+		return nil, err
+	}
+	if out.ExitCode != 0 {
+		return nil, errors.New(execFailure(out))
+	}
+	return compose.ParseStatsSample(out.Stdout), nil
 }
 
 // fetchServices runs `docker compose ps` remotely and parses its output.

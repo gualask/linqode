@@ -1,6 +1,6 @@
 # Linqode — Project Document
 
-_Last updated: 2026-07-23_
+_Last updated: 2026-08-01_
 
 Vision, scope, settled decisions, and roadmap. How the system works is in
 [architecture.md](architecture.md); testing in [tests.md](tests.md); the Go
@@ -79,6 +79,38 @@ These decisions are settled — do not re-litigate them when implementing:
   [README](../README.md)). The `host` value is either a `~/.ssh/config` alias
   or an inline `user@host[:port]`, so servers already reachable via plain
   `ssh` need no extra setup.
+- **Dashboard cost budget** _(measured 2026-08-01; reproduce with
+  `go test -tags e2e ./tests/e2e/ -run TestRemoteCommandCost -cost.measure`)_.
+  Round-trip cost of the status view's candidate commands, against the e2e
+  fixture:
+
+  | Command | 4 containers | 30 containers |
+  | ------- | ------------ | ------------- |
+  | exec overhead (`true`) | 1 ms | 1 ms |
+  | host metrics (`/proc` + `df -Pk`) | 2 ms | 2 ms |
+  | `compose ps --all --format json` | 64 ms | 60 ms |
+  | `docker stats --no-stream` | 2.01 s | 2.07 s |
+
+  Host metrics therefore belong in the automatic refresh: their cost is
+  noise beside the `ps` already being paid, so they are always on
+  (`host_metrics = false` opts out for hosts where even that is unwelcome).
+
+  `docker stats` gets its own, slower interval. Its ~2 s is fixed sampling
+  latency (docker reads each container's cgroups twice, a second apart, to
+  compute CPU%), not a per-container cost — so it scales better than `ps`
+  but can never be made quick. Two modes follow from that _(revised
+  2026-08-01: the columns were previously live-only)_:
+
+  - **Soft**, always on: `docker stats --no-stream` every **20 s**, behind
+    the table's CPU and MEM columns. The command is in flight a tenth of
+    the time; at 10 s it would be a fifth, and no more informative, since
+    each reading is already an average over docker's own sampling second.
+  - **Live**, on request (`a`): the streaming form, a sample per second,
+    for as long as the panel is open. The soft poll stands down while it
+    runs, and the remote command is terminated when it closes.
+
+  The rule this encodes: **a server pays a small fixed rent for what is on
+  screen, and pays by the second only while someone is watching**.
 
 ## Roadmap
 
@@ -125,16 +157,37 @@ offline `go test ./...` green:
   covered: the Rust tree is removed (still available at the `rust-mvp`
   tag).
 
+### E2E validation _(done, August 2026)_
+
+The `tests/fixture/` sshd + docker-in-docker fixture (see
+[tests.md](tests.md)) validates connect → ps → logs → actions against a live
+Docker daemon, behind the `e2e` build tag. This is the first time any
+milestone — Rust or Go — has run against real Docker rather than captured
+output, and the MVP feature set passed without changes to the product.
+
 ### Next
 
-- **E2E fixture**: the `tests/fixture/` sshd + docker-in-docker compose
-  fixture (see [tests.md](tests.md)) validating connect → ps → logs → exec
-  against a live Docker, then hardening against real deployments.
+- **Hardening against real deployments**: the fixture is a controlled
+  Alpine/dind environment. Real hosts bring compose version skew, larger
+  projects, slower links, daemons behind `sudo`, and hosts reached through
+  `~/.ssh/config` rather than an inline spec.
+- **MVP gaps left open**: restart counts in the status view (needs
+  `docker inspect`; `compose ps` does not report them) and running an
+  ad-hoc command from the TUI — only predefined scripts and the `--exec`
+  flag exist today.
 - **Generic remote operations** (the broadened vision): ad-hoc command
   execution from the TUI, running `.sh` scripts with streamed output, PTY
-  support for interactive commands (`sudo`, prompts), monitoring beyond
-  Compose (`docker stats`, plain files via `tail -F`). To be scoped into
-  milestones once parity and e2e validation land.
+  support for interactive commands (`sudo`, prompts), monitoring plain
+  files via `tail -F`. To be scoped into milestones now that parity and
+  e2e validation have landed. _(Host and per-container monitoring landed
+  August 2026: see the dashboard cost budget above.)_
+- **Release engineering** _(deferred to the first release)_: CI currently
+  only vets the e2e package (`go vet -tags e2e`), never runs it — the
+  fixture stays a local step. Running it on CI is feasible whenever it is
+  wanted: `ubuntu-latest` ships Docker and allows privileged containers, at
+  the cost of a couple of minutes per run and some flakiness risk. Decide
+  when cutting the first release, along with whatever else that needs
+  (build matrix, artifacts, versioning).
 
 ## Prior art / references
 

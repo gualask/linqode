@@ -57,6 +57,39 @@ func ActionCommand(composeDir string, action ServiceAction, service string) stri
 	return inDir(composeDir, "docker compose "+action.Verb()+" "+shellQuote(service))
 }
 
+// StatsCommand builds the remote command streaming live resource usage for
+// the project's containers, one JSON object per container per sample. This
+// is the on-demand mode: docker emits a block per second for as long as the
+// command runs.
+//
+// Three details matter:
+//
+//   - the ids come from `compose ps -q`, because a bare `docker stats`
+//     reports every container on the host, not just this project's;
+//   - the whole thing is one brace group, so a failed `cd` aborts it
+//     instead of falling through to that host-wide listing;
+//   - `exec` replaces the shell with docker stats, so cancelling the stream
+//     tears down the process that is actually producing output.
+//
+// It omits --no-stream: the first sample costs ~2 s of fixed sampling
+// latency either way, so a stream pays it once instead of per sample.
+func StatsCommand(composeDir string) string {
+	stats := `{ ids=$(docker compose ps -q); [ -z "$ids" ] || exec docker stats --format '{{json .}}' $ids; }`
+	return inDir(composeDir, stats)
+}
+
+// StatsSampleCommand builds the one-shot form of StatsCommand: a single
+// block for the project's containers, then exit.
+//
+// This is what the periodic refresh uses. It costs ~2 s regardless of the
+// container count — the daemon reads the cgroups twice, a second apart, to
+// derive the CPU percentage — which is why it runs on its own slow interval
+// rather than alongside `compose ps` (see docs/PROJECT.md).
+func StatsSampleCommand(composeDir string) string {
+	stats := `{ ids=$(docker compose ps -q); [ -z "$ids" ] || exec docker stats --no-stream --format '{{json .}}' $ids; }`
+	return inDir(composeDir, stats)
+}
+
 // LogsCommand builds the remote command following the logs of one service,
 // starting tail lines back. `--no-log-prefix` drops the service-name prefix
 // (a single service needs none) and `--no-color` its ANSI styling; whatever

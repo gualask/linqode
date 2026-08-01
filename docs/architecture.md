@@ -1,6 +1,6 @@
 # Architecture
 
-_Last updated: 2026-07-23_
+_Last updated: 2026-08-01_
 
 How Linqode works, at the level of components and flows. The vision, scope,
 and settled policy decisions live in [PROJECT.md](PROJECT.md); testing is
@@ -48,9 +48,10 @@ Two principles shape the design:
 | `cmd/linqode` | entry point: flags, terminal prompts, wiring session ⇄ TUI, the feed pump |
 | `internal/config` | `config.toml` loading and host selection |
 | `internal/remote` | SSH: target resolution, connect, host-key policy, auth, one-shot and streaming exec with cancellation |
-| `internal/compose` | `docker compose` command builders (with shell quoting) and `ps` output parsing into typed models |
+| `internal/compose` | `docker compose` command builders (with shell quoting), `ps` output parsing into typed models, and both `docker stats` forms — one-shot sample and live stream |
+| `internal/host` | machine resource metrics for the status view's system panel: one command over `/proc` and `df -Pk`, parsed into a typed sample |
 | `internal/logs` | log engine: line assembly, tail buffer, JSONL records, field filters, stats, search |
-| `internal/tui` | Bubble Tea application: app model, status and log views, keymaps |
+| `internal/tui` | Bubble Tea application: app model, status and log views, the system panel and resource modes, keymaps |
 
 | Concern | Library | Rationale |
 | ------- | ------- | --------- |
@@ -99,6 +100,38 @@ typed service rows (both the NDJSON and the legacy array shape are
 accepted) and rendered as a table with state/health coloring. Selection is
 preserved on the same container across refreshes; a failed refresh shows
 the error while the last good table stays on screen.
+
+The same tick samples the host's load, memory, disk and uptime, as a second
+exec: independent so one failing cannot blank the other, and cheap enough
+(~2 ms) that the separation costs nothing. A failed sample keeps the last
+one on screen, marked stale, mirroring how the table survives a failed
+refresh. Those readings render as a panel down the right-hand side, with
+per-resource bars and a count of services by state; below a terminal width
+of 100 the panel would cost the table more than it is worth, and the same
+sample collapses into a single line under the header instead.
+
+Per-container CPU and memory are a third exec on a third interval, because
+they cost two orders of magnitude more: `docker stats` needs ~2 seconds to
+answer whatever the project's size, since the daemon reads each container's
+cgroups twice, a second apart, to derive a CPU percentage (measured
+alongside the other commands in `tests/e2e/cost_test.go`). Two modes come
+out of that:
+
+- **Soft**, the default: one `docker stats --no-stream` every 20 seconds,
+  filling the table's CPU and MEM columns. A whole sample replaces the
+  previous one, so a container that stopped between two samples loses its
+  numbers rather than freezing them.
+- **Live**, on `a`: the **streaming** form over the log-follow pipeline,
+  emitting a block per second into a panel below the table — current
+  readings plus a CPU sparkline per container, scaled to its own peak so
+  fluctuation is visible at any magnitude. While it runs the soft poll
+  stands down; closing it terminates the remote command and the poll takes
+  the columns back.
+
+Both are scoped to the project's container ids, since a bare `docker stats`
+would report every container on the host. Docker wraps its output in
+cursor-control escapes even when writing to a pipe, so the parser strips
+them before reading the JSON.
 
 ### Following logs
 
