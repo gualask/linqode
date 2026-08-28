@@ -1,10 +1,9 @@
 # Linqode
 
-An SSH terminal UI for Docker Compose. Connect to a remote server the way
-`ssh user@host` does, see the state of a compose project, follow and analyze
-its logs — including real-time filtering and aggregation of JSONL logs — and
-restart services or run predefined scripts. Agentless: nothing to install on
-the server.
+An SSH terminal UI and constrained machine interface for Docker Compose.
+Humans can inspect and operate a remote project in the TUI; automation can use
+typed JSON commands without receiving arbitrary SSH execution. Agentless:
+nothing to install on the server.
 
 > **Status:** MVP implemented (July 2026), not yet validated against real
 > deployments.
@@ -15,7 +14,7 @@ the server.
 go build -o linqode ./cmd/linqode    # or: go install ./cmd/linqode
 ```
 
-Linqode reuses your existing SSH setup: keys from the agent or `~/.ssh`,
+The TUI reuses your existing SSH setup: keys from the agent or `~/.ssh`,
 aliases from `~/.ssh/config`, host verification against `~/.ssh/known_hosts`
 (unknown hosts prompt for confirmation, like OpenSSH). If `ssh user@host`
 works, Linqode works.
@@ -24,23 +23,61 @@ works, Linqode works.
 linqode deploy@203.0.113.10        # inline host, no config needed
 linqode myapp                      # a host from the config file
 linqode                            # with a single configured host
-linqode myapp --exec "df -h"       # one-shot command, raw output
+linqode tui status                 # explicit TUI when a host has a command name
 ```
 
 ## Configuration
 
-`~/.config/linqode/config.toml` (override with `--config`):
+`~/.config/linqode/config.toml` (the TUI can override it with `--config`):
 
 ```toml
 [hosts.myapp]
 host = "deploy@203.0.113.10"   # or an ~/.ssh/config alias
 compose_dir = "/srv/myapp"     # where compose.yaml lives on the server
-host_metrics = true            # optional: header resource line, on by default
+host_metrics = true            # optional: resource collection, on by default
 
-[hosts.myapp.scripts]          # optional commands runnable from the TUI
+[hosts.myapp.scripts]          # optional server commands allowed by name
 disk = "df -h"
 mem = "free -m"
 ```
+
+`--config <path>` is available only to the TUI. Machine commands always use
+the default file above so their authorized hosts and scripts come from one
+operator-controlled location.
+
+## Machine interface
+
+The machine interface is intended for agents and other automation. It accepts
+only configured host names, typed Compose operations, and exact scripts from
+the selected host's `scripts` table:
+
+| Command | Result |
+| --- | --- |
+| `linqode hosts` | configured host names; no SSH connection |
+| `linqode scripts <host>` | configured script names; no SSH connection |
+| `linqode status <host>` | current Compose services |
+| `linqode stats <host>` | one host/container resource snapshot |
+| `linqode stats --follow <host>` | resource event stream |
+| `linqode logs [--tail N] [--follow] <host> <service>` | bounded logs by default, or an explicit follow stream |
+| `linqode restart <host> <service>` | restart one validated service |
+| `linqode stop <host> <service>` | stop one validated service |
+| `linqode start <host> <service>` | start one validated service |
+| `linqode script <host> <name>` | one exact configured server command |
+
+One-shot results are JSON; streams are JSON Lines. Remote stdout and stderr
+are typed events on stdout, followed by an `exit` event when the server
+supplies a status. Linqode diagnostics are JSON on stderr. Exit codes are `0`
+for success, `2` for invalid input or an unknown configured name, `1` for a
+Linqode/configuration/transport failure, and `130` for local interruption.
+Lifecycle actions and scripts instead propagate a reported non-zero remote
+exit code exactly. Logs default to 200 lines; `--tail` accepts values from 1
+through 10,000.
+
+Machine authentication does not prompt, accept an unknown host key, or ask for
+a key passphrase. Prepare trust and credentials with OpenSSH or the TUI first.
+Script arguments cannot be supplied at runtime: put every allowed variant in
+the TOML as its own named command. This boundary assumes the agent cannot
+modify the operator-controlled config or SSH files.
 
 ## Keys
 

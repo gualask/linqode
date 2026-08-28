@@ -5,14 +5,11 @@ package e2e
 import (
 	"context"
 	"path/filepath"
-	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gualask/linqode/internal/compose"
-	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/logs"
 	"github.com/gualask/linqode/internal/remote"
 )
@@ -71,7 +68,7 @@ func TestComposeStatusReportsDemoProject(t *testing.T) {
 func TestFollowPlainTextLogs(t *testing.T) {
 	session := connect(t)
 
-	lines := followLines(t, session, compose.LogsCommand(composeDir, "web", 10), 3)
+	lines := followLines(t, session, compose.LogsCommand(composeDir, "web", 10, true), 3)
 	for _, line := range lines {
 		if !strings.Contains(line, "web: request served") {
 			t.Errorf("unexpected log line %q", line)
@@ -87,7 +84,7 @@ func TestFollowPlainTextLogs(t *testing.T) {
 func TestFollowStructuredLogs(t *testing.T) {
 	session := connect(t)
 
-	lines := followLines(t, session, compose.LogsCommand(composeDir, "api", 10), 5)
+	lines := followLines(t, session, compose.LogsCommand(composeDir, "api", 10, true), 5)
 
 	levels := map[string]int{}
 	for _, line := range lines {
@@ -131,7 +128,7 @@ func TestCancelEndsFollower(t *testing.T) {
 	session := connect(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	events, err := session.ExecStream(ctx, compose.LogsCommand(composeDir, "web", 5))
+	events, err := session.ExecStream(ctx, compose.LogsCommand(composeDir, "web", 5, true))
 	if err != nil {
 		t.Fatalf("starting follower: %v", err)
 	}
@@ -250,344 +247,4 @@ func TestTOFUPersistsHostKey(t *testing.T) {
 	if got := prompter.hostKeyPrompts.Load(); got != 1 {
 		t.Errorf("host key prompts = %d, want exactly 1 (TOFU should persist)", got)
 	}
-}
-
-// TestHostMetricsAgainstRealHost proves the header's metrics command works
-// on a real (busybox) userland: /proc layout and `df -Pk` support are the
-// parts most likely to differ from a developer's machine.
-func TestHostMetricsAgainstRealHost(t *testing.T) {
-	session := connect(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), guardTimeout)
-	defer cancel()
-
-	out, err := session.Exec(ctx, host.Command())
-	if err != nil {
-		t.Fatalf("sampling host metrics: %v", err)
-	}
-	metrics, err := host.Parse(out.Stdout)
-	if err != nil {
-		t.Fatalf("parsing host metrics: %v\noutput was:\n%s", err, out.Stdout)
-	}
-
-	// Every field must actually arrive: a silently empty section would make
-	// the header quietly useless.
-	if metrics.CPUs < 1 {
-		t.Errorf("CPUs = %d, want at least 1 (is /proc/cpuinfo readable?)", metrics.CPUs)
-	}
-	if metrics.MemTotalKB == 0 {
-		t.Error("MemTotalKB = 0 (is /proc/meminfo readable?)")
-	}
-	if metrics.MemAvailableKB == 0 {
-		t.Error("MemAvailableKB = 0 (does this kernel report MemAvailable?)")
-	}
-	if metrics.DiskTotalKB == 0 {
-		t.Errorf("DiskTotalKB = 0 (does this df support -Pk?)\noutput was:\n%s", out.Stdout)
-	}
-	if metrics.Uptime <= 0 {
-		t.Error("Uptime not reported")
-	}
-	// Derived values must be sane, not just non-zero.
-	if percent := metrics.MemUsedPercent(); percent <= 0 || percent > 100 {
-		t.Errorf("MemUsedPercent = %v, outside 0–100", percent)
-	}
-	if percent := metrics.DiskUsedPercent(); percent <= 0 || percent > 100 {
-		t.Errorf("DiskUsedPercent = %v, outside 0–100", percent)
-	}
-}
-
-// TestStatsStreamAgainstRealProject proves the resource columns' command
-// streams parseable samples for the project's containers — and only those.
-func TestStatsStreamAgainstRealProject(t *testing.T) {
-	session := connect(t)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	events, err := session.ExecStream(ctx, compose.StatsCommand(composeDir))
-	if err != nil {
-		t.Fatalf("starting stats stream: %v", err)
-	}
-
-	// Collect until every demo service has reported once, or we run out of
-	// patience: docker needs a couple of seconds for its first sample.
-	seen := map[string]compose.ContainerStats{}
-	var assembler logs.LineAssembler
-	deadline := time.After(45 * time.Second)
-
-collect:
-	for {
-		select {
-		case event, ok := <-events:
-			if !ok {
-				break collect
-			}
-			switch event.Kind {
-			case remote.ExecStdout:
-				for _, line := range assembler.Push(event.Data) {
-					if stats, ok := compose.ParseStats(line); ok {
-						seen[stats.Name] = stats
-					}
-				}
-			case remote.ExecStderr:
-				t.Logf("stderr: %s", event.Data)
-			case remote.ExecExit:
-				t.Fatalf("stats stream exited early with code %d", event.ExitCode)
-			}
-			if len(seen) >= demoRunningServices {
-				break collect
-			}
-		case <-deadline:
-			break collect
-		}
-	}
-
-	if len(seen) < demoRunningServices {
-		t.Fatalf("saw %d containers, want %d: %v", len(seen), demoRunningServices, keys(seen))
-	}
-	for name, stats := range seen {
-		// Scoped to the project: `migrate` has exited, and nothing outside
-		// the compose project should appear.
-		if !strings.HasPrefix(name, "demo-") {
-			t.Errorf("stats reported a container outside the project: %q", name)
-		}
-		if _, ok := stats.CPUPercent(); !ok {
-			t.Errorf("%s: unparseable CPU reading %q", name, stats.CPUPerc)
-		}
-		if _, ok := stats.MemPercent(); !ok {
-			t.Errorf("%s: unparseable memory reading %q", name, stats.MemPerc)
-		}
-		if stats.MemAmount() == "" {
-			t.Errorf("%s: empty memory amount from %q", name, stats.MemUsage)
-		}
-	}
-}
-
-// TestStatsSampleAgainstRealProject proves the periodic refresh's command —
-// the one-shot form behind the table's CPU and MEM columns — terminates on
-// its own and parses into a whole sample.
-//
-// It also puts a number on what that costs: the log line is the evidence
-// behind the 20 s interval, since the sampling latency is docker's and no
-// amount of client-side care can shorten it.
-func TestStatsSampleAgainstRealProject(t *testing.T) {
-	session := connect(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), guardTimeout)
-	defer cancel()
-
-	start := time.Now()
-	out, err := session.Exec(ctx, compose.StatsSampleCommand(composeDir))
-	elapsed := time.Since(start)
-	if err != nil {
-		t.Fatalf("sampling stats: %v", err)
-	}
-	if out.ExitCode != 0 {
-		t.Fatalf("stats sample exited %d: %s", out.ExitCode, out.Stderr)
-	}
-	t.Logf("one sample took %v for %d containers", elapsed.Round(time.Millisecond), demoRunningServices)
-
-	sample := compose.ParseStatsSample(out.Stdout)
-	if len(sample) != demoRunningServices {
-		t.Fatalf("sample holds %d readings, want %d: %+v", len(sample), demoRunningServices, sample)
-	}
-	for _, stats := range sample {
-		// Scoped to the project: `migrate` has exited, and nothing outside
-		// the compose project should appear.
-		if !strings.HasPrefix(stats.Name, "demo-") {
-			t.Errorf("sample reported a container outside the project: %q", stats.Name)
-		}
-		if _, ok := stats.CPUPercent(); !ok {
-			t.Errorf("%s: unparseable CPU reading %q", stats.Name, stats.CPUPerc)
-		}
-		if _, ok := stats.MemPercent(); !ok {
-			t.Errorf("%s: unparseable memory reading %q", stats.Name, stats.MemPerc)
-		}
-	}
-}
-
-func keys(m map[string]compose.ContainerStats) []string {
-	names := make([]string, 0, len(m))
-	for name := range m {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	return names
-}
-
-// followLines collects want complete lines from a streaming command through
-// the production line assembler, then cancels.
-func followLines(t *testing.T, session *remote.Session, command string, want int) []string {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), guardTimeout)
-	defer cancel()
-
-	events, err := session.ExecStream(ctx, command)
-	if err != nil {
-		t.Fatalf("starting %q: %v", command, err)
-	}
-
-	var assembler logs.LineAssembler
-	var lines []string
-	for event := range events {
-		switch event.Kind {
-		case remote.ExecStdout:
-			for _, line := range assembler.Push(event.Data) {
-				if strings.TrimSpace(line) == "" {
-					continue
-				}
-				lines = append(lines, line)
-				if len(lines) >= want {
-					return lines
-				}
-			}
-		case remote.ExecStderr:
-			t.Logf("stderr: %s", event.Data)
-		case remote.ExecExit:
-			t.Fatalf("follower exited early with code %d", event.ExitCode)
-		}
-	}
-	t.Fatalf("stream ended with %d/%d lines", len(lines), want)
-	return nil
-}
-
-// pollServices refreshes `compose ps` until done is satisfied, returning the
-// services that satisfied it.
-func pollServices(t *testing.T, session *remote.Session, timeout time.Duration, done func([]compose.Service) bool) []compose.Service {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	var last []compose.Service
-	for time.Now().Before(deadline) {
-		ctx, cancel := context.WithTimeout(context.Background(), guardTimeout)
-		out, err := session.Exec(ctx, compose.PsCommand(composeDir))
-		cancel()
-		if err != nil {
-			t.Fatalf("compose ps: %v", err)
-		}
-		if out.ExitCode != 0 {
-			t.Fatalf("compose ps exited %d: %s", out.ExitCode, out.Stderr)
-		}
-		services, err := compose.ParsePS(out.Stdout)
-		if err != nil {
-			t.Fatalf("parsing ps output: %v\noutput was: %s", err, out.Stdout)
-		}
-		last = services
-		if done(services) {
-			return services
-		}
-		time.Sleep(2 * time.Second)
-	}
-	t.Fatalf("condition not met within %s; last state: %s", timeout, summarize(last))
-	return nil
-}
-
-func index(services []compose.Service) map[string]compose.Service {
-	byName := make(map[string]compose.Service, len(services))
-	for _, s := range services {
-		byName[s.Service] = s
-	}
-	return byName
-}
-
-func summarize(services []compose.Service) string {
-	var parts []string
-	for _, s := range services {
-		parts = append(parts, s.Service+"="+s.State+"/"+s.Health)
-	}
-	return strings.Join(parts, " ")
-}
-
-func isSorted(names []string) bool {
-	for i := 1; i < len(names); i++ {
-		if names[i-1] > names[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// countingPrompter accepts everything and counts how often it is asked.
-type countingPrompter struct {
-	hostKeyPrompts atomic.Int32
-	passPrompts    atomic.Int32
-}
-
-func (p *countingPrompter) ConfirmHostKey(string, uint16, string, string) (bool, error) {
-	p.hostKeyPrompts.Add(1)
-	return true, nil
-}
-
-func (p *countingPrompter) AskPassphrase(string) (string, error) {
-	p.passPrompts.Add(1)
-	return "", nil
-}
-
-// TestRestartCountsAgainstRealProject covers what no offline test can: that
-// the `docker inspect` format behind the RESTARTS column is understood by a
-// real daemon, and that the counts it returns line up with the container
-// names `compose ps` reported.
-//
-// `flaky` is what makes this more than a format check. RestartCount tracks
-// the restarts docker performs under the restart policy, so only a service
-// that fails on its own produces a non-zero one — restarting a service by
-// hand, as TestRestartServiceRestartsContainer does, leaves it at zero.
-func TestRestartCountsAgainstRealProject(t *testing.T) {
-	session := connect(t)
-
-	// The policy takes a moment to exhaust its retries; until then the count
-	// is still climbing.
-	var services []compose.Service
-	deadline := time.Now().Add(60 * time.Second)
-	for {
-		services = pollServices(t, session, guardTimeout, func([]compose.Service) bool { return true })
-
-		names := make([]string, 0, len(services))
-		for _, service := range services {
-			names = append(names, service.Name)
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), guardTimeout)
-		out, err := session.Exec(ctx, compose.InspectRestartsCommand(names))
-		cancel()
-		if err != nil {
-			t.Fatalf("docker inspect: %v", err)
-		}
-		compose.ApplyRestarts(services, compose.ParseRestarts(out.Stdout))
-
-		byName := index(services)
-		if flaky := byName["flaky"]; flaky.Restarts != nil && *flaky.Restarts >= 3 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("flaky never reached its 3 policy restarts: %s", summarizeRestarts(services))
-		}
-		time.Sleep(2 * time.Second)
-	}
-
-	// Every container `ps` named must have been matched: a name the parser
-	// failed to line up (docker prints it with a leading slash) would leave
-	// the column reading `-` for a host that answered perfectly well.
-	for _, service := range services {
-		if service.Restarts == nil {
-			t.Errorf("%s got no restart count, table would show %q",
-				service.Service, service.RestartsText())
-		}
-	}
-	// The services that never fail must report a genuine zero, not just
-	// something non-nil.
-	byName := index(services)
-	for _, name := range []string{"web", "api", "db"} {
-		service := byName[name]
-		if got := service.RestartsText(); got != "0" {
-			t.Errorf("%s restarts = %s, want 0", name, got)
-		}
-	}
-	t.Logf("restart counts: %s", summarizeRestarts(services))
-}
-
-func summarizeRestarts(services []compose.Service) string {
-	var parts []string
-	for _, service := range services {
-		parts = append(parts, service.Service+"="+service.RestartsText())
-	}
-	return strings.Join(parts, " ")
 }

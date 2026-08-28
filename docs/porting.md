@@ -1,6 +1,6 @@
 # Go Porting Plan
 
-_Last updated: 2026-07-23_
+_Last updated: 2026-08-08_
 
 > **The port is complete** (July 2026): milestones G0–G5 all landed and the
 > Rust tree was removed — it remains available at the `rust-mvp` tag. This
@@ -49,7 +49,9 @@ data flow — is free.
 Module `github.com/gualask/linqode`, one binary:
 
 ```
-cmd/linqode/          # entry point: flags, wiring (was linqode-cli)
+cmd/linqode/          # composition root and adapter wiring (was linqode-cli)
+internal/cli/         # machine command routing + JSON/JSONL presentation
+internal/operations/  # shared typed remote workflows
 internal/config/      # config.toml loading + host selection (was in linqode-cli)
 internal/remote/      # SSH: targets, connect, host keys, auth, exec (was linqode-ssh)
 internal/compose/     # command builders + ps/json parsing (was linqode-compose)
@@ -67,7 +69,7 @@ internal/tui/         # Bubble Tea models, views, keymaps (was linqode-tui)
 | Concurrency | tokio tasks + channels | goroutines + channels, `context.Context` for cancellation |
 | JSON / JSONL | serde_json | stdlib `encoding/json` (revisit only if profiling demands) |
 | Config (TOML) | toml + serde | `github.com/pelletier/go-toml/v2` |
-| CLI args | clap | stdlib `flag` (surface is tiny: `linqode [host] --exec --config`) |
+| CLI args | clap | stdlib `flag`: TUI shorthand plus explicit machine commands |
 | Errors | thiserror/anyhow | stdlib `errors` wrapping; sentinel errors where the TUI branches on them |
 | Test SSH server | scripted russh server | scripted `gliderlabs/ssh` server on loopback |
 | Lint | clippy | `go vet` + `staticcheck` |
@@ -96,8 +98,8 @@ run commands on it. Decided policies apply as written — known_hosts check
 with TOFU prompt and persist, refuse on mismatch (never bypassable); agent
 first, then default identities, passphrase prompt only for encrypted keys.
 One-shot exec (stdout/stderr/exit) and streaming exec with cancellation via
-`context`; `--exec` streams raw output straight to stdout/stderr and exits
-with the remote code. Testability knobs (`KnownHostsFile`,
+`context`; the initial one-shot CLI route streamed raw output and propagated
+the remote code. Testability knobs (`KnownHostsFile`,
 `IdentitiesOnly`) stay user-facing, OpenSSH-style.
 
 Integration tests against a scripted `gliderlabs/ssh` server on loopback
@@ -171,10 +173,10 @@ port so real-server validation is paid once, on the Go implementation.
   plain `ssh` are recognized without re-prompting, which is the product's
   "if ssh works, linqode works" promise. The alias is still what prompts
   and errors display.
-- **`--exec` prints to stdout/stderr directly** instead of showing the raw
-  output in a minimal TUI screen. A one-shot command is more useful
-  pipeable; the Bubble Tea plumbing gets proven by the status view in G2
-  instead.
+- **The initial one-shot command printed directly to stdout/stderr** instead
+  of showing raw output in a minimal TUI screen. It was later replaced by the
+  constrained named JSON/JSONL commands documented in the README; arbitrary
+  execution remains available only in the human TUI.
 - **Stats are recomputed on demand**, not maintained incrementally with
   add/remove symmetry as in the Rust reference. Over the bounded 10k-line
   tail a recompute is well under a millisecond at render rate, and it

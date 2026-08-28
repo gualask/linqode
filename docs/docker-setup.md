@@ -1,11 +1,11 @@
 # Docker setup for development
 
-_Last updated: 2026-08-01_
+_Last updated: 2026-08-08_
 
 Linqode itself needs no Docker: the offline suite (`go test ./...`) runs
 without it. Docker is required only for the end-to-end fixture described in
-[tests.md](tests.md) — sshd + docker-in-docker validating connect → ps →
-logs → exec against a live Docker.
+[tests.md](tests.md) — sshd + docker-in-docker validating status, logs, stats,
+actions, and compiled machine commands against live Docker.
 
 This document covers getting a Docker engine on **macOS**, where it is less
 obvious than on Linux, and keeping it off when it is not in use. On Linux,

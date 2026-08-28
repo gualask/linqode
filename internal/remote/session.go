@@ -84,51 +84,111 @@ func Connect(ctx context.Context, target Target, prompter Prompter) (*Session, e
 // ConnectWith establishes a session: host key verification per known_hosts +
 // TOFU, then SSH agent identities, then the target's identity files.
 func ConnectWith(ctx context.Context, target Target, prompter Prompter, opts ConnectOptions) (*Session, error) {
+	setup, err := prepareConnection(target, prompter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer setup.cleanup()
+
+	client, err := dialSSHClient(ctx, target, setup)
+	if err != nil {
+		return nil, err
+	}
+	return &Session{client: client, target: target}, nil
+}
+
+type connectionSetup struct {
+	config  *ssh.ClientConfig
+	policy  *hostKeyPolicy
+	authErr *error
+	cleanup func()
+}
+
+func prepareConnection(target Target, prompter Prompter, opts ConnectOptions) (connectionSetup, error) {
 	knownHosts := opts.KnownHostsFile
 	if knownHosts == "" {
 		var err error
 		if knownHosts, err = defaultKnownHostsFile(); err != nil {
-			return nil, err
+			return connectionSetup{}, err
 		}
 	}
 	policy, err := newHostKeyPolicy(target, knownHosts, prompter)
 	if err != nil {
-		return nil, err
+		return connectionSetup{}, err
 	}
 
-	var authErr error
-	methods, cleanup := authMethods(target, opts.IdentitiesOnly, prompter, &authErr)
-	defer cleanup()
+	authErr := new(error)
+	methods, cleanup := authMethods(target, opts.IdentitiesOnly, prompter, authErr)
+	return connectionSetup{
+		config: &ssh.ClientConfig{
+			User:            target.User,
+			Auth:            methods,
+			HostKeyCallback: policy.callback,
+		},
+		policy: policy, authErr: authErr, cleanup: cleanup,
+	}, nil
+}
 
-	config := &ssh.ClientConfig{
-		User:            target.User,
-		Auth:            methods,
-		HostKeyCallback: policy.callback,
-	}
-
+func dialSSHClient(ctx context.Context, target Target, setup connectionSetup) (*ssh.Client, error) {
 	addr := net.JoinHostPort(target.Host, strconv.Itoa(int(target.Port)))
 	var dialer net.Dialer
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("cannot reach %s: %w", addr, err)
 	}
-	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+
+	result, err := negotiateSSH(ctx, conn, addr, setup.config)
 	if err != nil {
-		conn.Close()
-		// Surface the precise cause recorded during the handshake instead
-		// of x/crypto's generic wrapper.
-		switch {
-		case policy.err != nil:
-			return nil, policy.err
-		case authErr != nil:
-			return nil, authErr
-		case strings.Contains(err.Error(), "unable to authenticate"):
-			return nil, &AuthFailedError{User: target.User, Host: target.DisplayHost}
-		default:
-			return nil, err
-		}
+		return nil, classifyHandshakeError(err, target, setup)
 	}
-	return &Session{client: ssh.NewClient(sshConn, chans, reqs), target: target}, nil
+	return ssh.NewClient(result.conn, result.channels, result.requests), nil
+}
+
+type handshakeResult struct {
+	conn     ssh.Conn
+	channels <-chan ssh.NewChannel
+	requests <-chan *ssh.Request
+}
+
+func negotiateSSH(ctx context.Context, conn net.Conn, addr string, config *ssh.ClientConfig) (handshakeResult, error) {
+	handshakeDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-handshakeDone:
+		}
+	}()
+	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	close(handshakeDone)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if sshConn != nil {
+			_ = sshConn.Close()
+		} else {
+			_ = conn.Close()
+		}
+		return handshakeResult{}, ctxErr
+	}
+	if err != nil {
+		_ = conn.Close()
+		return handshakeResult{}, err
+	}
+	return handshakeResult{conn: sshConn, channels: chans, requests: reqs}, nil
+}
+
+func classifyHandshakeError(err error, target Target, setup connectionSetup) error {
+	// Surface the precise cause recorded during the handshake instead of
+	// x/crypto's generic wrapper.
+	switch {
+	case setup.policy.err != nil:
+		return setup.policy.err
+	case *setup.authErr != nil:
+		return *setup.authErr
+	case strings.Contains(err.Error(), "unable to authenticate"):
+		return &AuthFailedError{User: target.User, Host: target.DisplayHost}
+	default:
+		return err
+	}
 }
 
 // Close closes the session. Errors on an already-dead connection are not

@@ -9,26 +9,28 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/gualask/linqode/internal/operations"
 )
 
-// feedOf builds a LogFeed whose channel already holds events.
-func feedOf(events ...LogEvent) (LogFeed, chan LogEvent) {
-	ch := make(chan LogEvent, len(events)+16)
+// feedOf builds a feed whose channel already holds events.
+func feedOf(events ...operations.Event) (operations.Feed, chan operations.Event) {
+	ch := make(chan operations.Event, len(events)+16)
 	for _, ev := range events {
 		ch <- ev
 	}
-	return LogFeed{Events: ch, Stop: func() {}}, ch
+	return operations.Feed{Events: ch, Stop: func() {}}, ch
 }
 
-func lineEvents(lines ...string) []LogEvent {
-	events := make([]LogEvent, len(lines))
+func lineEvents(lines ...string) []operations.Event {
+	events := make([]operations.Event, len(lines))
 	for i, line := range lines {
-		events[i] = LogEvent{Kind: LogLine, Text: line}
+		events[i] = operations.Event{Kind: operations.EventLog, Text: line}
 	}
 	return events
 }
 
-func newTestLogView(events ...LogEvent) *logsModel {
+func newTestLogView(events ...operations.Event) *logsModel {
 	feed, _ := feedOf(events...)
 	m := newLogsModel("deploy@prod", "logs: web", feed)
 	m.setSize(80, 12) // viewport 10
@@ -128,8 +130,8 @@ func TestSearchWithoutMatchShowsNotice(t *testing.T) {
 
 func TestEndedStreamShowsExitAndStderr(t *testing.T) {
 	events := append(lineEvents("bye"),
-		LogEvent{Kind: LogStderrLine, Text: "no such service"},
-		LogEvent{Kind: LogEnded, ExitCode: 1})
+		operations.Event{Kind: operations.EventStderr, Text: "no such service"},
+		operations.Event{Kind: operations.EventExit, ExitCode: 1})
 	m := newTestLogView(events...)
 
 	view := m.view()
@@ -153,10 +155,10 @@ func TestCloseEmitsCloseFollowMsg(t *testing.T) {
 }
 
 func TestBurstDrainIsBounded(t *testing.T) {
-	ch := make(chan LogEvent, maxEventsPerTick+200)
-	feed := LogFeed{Events: ch, Stop: func() {}}
+	ch := make(chan operations.Event, maxEventsPerTick+200)
+	feed := operations.Feed{Events: ch, Stop: func() {}}
 	for range maxEventsPerTick + 100 {
-		ch <- LogEvent{Kind: LogLine, Text: "x"}
+		ch <- operations.Event{Kind: operations.EventLog, Text: "x"}
 	}
 	m := newLogsModel("t", "logs: web", feed)
 	m.setSize(80, 12)
@@ -170,10 +172,10 @@ func TestBurstDrainIsBounded(t *testing.T) {
 	}
 }
 
-func jsonlEvents(n int, level string) []LogEvent {
-	events := make([]LogEvent, n)
+func jsonlEvents(n int, level string) []operations.Event {
+	events := make([]operations.Event, n)
 	for i := range events {
-		events[i] = LogEvent{Kind: LogLine,
+		events[i] = operations.Event{Kind: operations.EventLog,
 			Text: fmt.Sprintf(`{"level":"%s","msg":"event %d"}`, level, i)}
 	}
 	return events

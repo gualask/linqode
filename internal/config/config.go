@@ -24,10 +24,11 @@ type Host struct {
 	Host string `toml:"host"`
 	// ComposeDir is the directory on the server containing compose.yaml.
 	ComposeDir string `toml:"compose_dir"`
-	// Scripts are predefined commands runnable from the TUI, name → command.
+	// Scripts are predefined server commands runnable by name from either
+	// presentation adapter. Only the TUI can run an ad-hoc command.
 	Scripts map[string]string `toml:"scripts"`
-	// HostMetrics enables the status view's system panel and the table's
-	// resource columns; unset means enabled.
+	// HostMetrics enables the TUI's resource views and the machine stats
+	// command; unset means enabled.
 	// A pointer distinguishes "not configured" from an explicit false.
 	HostMetrics *bool `toml:"host_metrics"`
 }

@@ -29,7 +29,11 @@ func TestActionsTargetOneService(t *testing.T) {
 
 func TestLogsFollowsOneService(t *testing.T) {
 	want := "cd '/srv/myapp' && docker compose logs --follow --no-color --no-log-prefix --tail 200 'web'"
-	if got := LogsCommand("/srv/myapp", "web", 200); got != want {
+	if got := LogsCommand("/srv/myapp", "web", 200, true); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	want = "cd '/srv/myapp' && docker compose logs --no-color --no-log-prefix --tail 200 'web'"
+	if got := LogsCommand("/srv/myapp", "web", 200, false); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }

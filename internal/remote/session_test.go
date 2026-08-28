@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -78,76 +77,6 @@ func TestRefusedHostKeyAbortsConnect(t *testing.T) {
 	var rejected *remote.HostKeyRejectedError
 	if !errors.As(err, &rejected) {
 		t.Fatalf("got %v, want HostKeyRejectedError", err)
-	}
-}
-
-func TestChangedHostKeyRefusesWithoutPrompting(t *testing.T) {
-	server := spawn(t, nil)
-
-	// Pin a different key for the fixture's address.
-	otherKey := genSigner(t)
-	addr := knownhosts.Normalize("127.0.0.1:" + strconv.Itoa(int(server.port)))
-	line := knownhosts.Line([]string{addr}, otherKey.PublicKey())
-	if err := os.WriteFile(server.knownHosts, []byte(line+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	p := &prompter{acceptHostKey: true}
-	_, err := remote.ConnectWith(testContext(t), server.target(), p, server.options())
-	var changed *remote.HostKeyChangedError
-	if !errors.As(err, &changed) {
-		t.Fatalf("got %v, want HostKeyChangedError", err)
-	}
-	if changed.Line != 1 {
-		t.Errorf("conflicting line %d, want 1", changed.Line)
-	}
-	if got := p.hostKeyPrompts.Load(); got != 0 {
-		t.Errorf("prompter consulted %d times on a changed key (anti-MITM: must be 0)", got)
-	}
-}
-
-func TestUnauthorizedKeyFailsAuth(t *testing.T) {
-	server := spawn(t, nil)
-
-	// An identity the server does not know.
-	key, _ := genKeyPair(t)
-	unauthorized := filepath.Join(server.dir, "id_other")
-	writeKey(t, unauthorized, key, "")
-	target := server.target()
-	target.IdentityFiles = []string{unauthorized}
-
-	_, err := remote.ConnectWith(testContext(t), target, &prompter{acceptHostKey: true}, server.options())
-	var authErr *remote.AuthFailedError
-	if !errors.As(err, &authErr) {
-		t.Fatalf("got %v, want AuthFailedError", err)
-	}
-}
-
-func TestEncryptedKeyAsksPassphrase(t *testing.T) {
-	server := spawn(t, map[string]script{"true": {}})
-
-	// Re-write the authorized identity protected by a passphrase.
-	writeKey(t, server.keyFile, server.clientKey, "sesame")
-
-	// The right passphrase gets in, after exactly one prompt.
-	p := &prompter{acceptHostKey: true, passphrase: "sesame"}
-	session := connect(t, server, p)
-	if _, err := session.Exec(testContext(t), "true"); err != nil {
-		t.Fatal(err)
-	}
-	if got := p.passPrompts.Load(); got != 1 {
-		t.Errorf("asked for the passphrase %d times, want 1", got)
-	}
-
-	// A wrong passphrase is retried, then fails the connect precisely.
-	wrong := &prompter{acceptHostKey: true, passphrase: "nope"}
-	_, err := remote.ConnectWith(testContext(t), server.target(), wrong, server.options())
-	var bad *remote.BadPassphraseError
-	if !errors.As(err, &bad) {
-		t.Fatalf("got %v, want BadPassphraseError", err)
-	}
-	if got := wrong.passPrompts.Load(); got != 3 {
-		t.Errorf("asked %d times, want 3", got)
 	}
 }
 

@@ -1,6 +1,6 @@
 # Linqode — Project Document
 
-_Last updated: 2026-08-01_
+_Last updated: 2026-08-08_
 
 Vision, scope, settled decisions, and roadmap. How the system works is in
 [architecture.md](architecture.md); testing in [tests.md](tests.md); the Go
@@ -15,6 +15,11 @@ state, follow and analyze logs, and execute commands — Docker Compose
 operations, plain Linux commands, or shell scripts. The tool is **agentless**:
 nothing is installed on the server — Linqode drives standard CLIs remotely
 over SSH and interprets their output locally.
+
+The same binary is also a constrained SSH wrapper for automation: an agent can
+use typed JSON commands and operator-configured server scripts, but cannot ask
+Linqode to execute an arbitrary command. The TUI remains the human interface;
+the machine surface is deliberately non-interactive.
 
 **Docker Compose is the flagship integration** and the whole of the MVP scope
 below, but the product direction is broader: a general remote-operations
@@ -40,6 +45,9 @@ to surface problems immediately.
      time window).
 4. **Run commands**: restart/stop/start a service; execute a predefined script
    or ad-hoc command on the host, with output captured in the TUI.
+5. **Agent-safe machine interface**: discover configured names, inspect the
+   project, run typed lifecycle actions, and invoke exact configured scripts
+   through JSON/JSONL without exposing arbitrary SSH execution.
 
 ### Non-goals (for now)
 
@@ -79,6 +87,15 @@ These decisions are settled — do not re-litigate them when implementing:
   [README](../README.md)). The `host` value is either a `~/.ssh/config` alias
   or an inline `user@host[:port]`, so servers already reachable via plain
   `ssh` need no extra setup.
+- **Agent-safe machine boundary** _(decided 2026-08-08)_. Machine commands use
+  only exact host and script names from the default operator-controlled TOML;
+  inline targets, `--config`, arbitrary execution, and runtime script arguments
+  are unavailable. Authentication never prompts or learns an unknown host key.
+  Results are JSON/JSONL and mutations are never retried after an uncertain
+  outcome. This is a capability guardrail, not an adversarial sandbox: the
+  agent must not be able to modify the config, SSH credentials, or Linqode
+  binary. The TUI keeps inline hosts, prompts, and its explicit human `!`
+  command. Exact command syntax lives in the [README](../README.md#machine-interface).
 - **Keymap: no case-variant pairs** _(decided 2026-08-01)_. Two keys that
   differ only by the shift key must never do different things. The cost is
   not confusion but damage: `s` for stop beside `S` for start puts a
@@ -127,7 +144,7 @@ These decisions are settled — do not re-litigate them when implementing:
 ### Rust MVP — reference implementation _(done, July 2026; tagged `rust-mvp`)_
 
 - **M1 — plumbing**: SSH connect + run a one-shot remote command, output in a
-  minimal ratatui screen (kept behind `--exec`).
+  minimal ratatui screen.
 - **M2 — compose status**: parse `docker compose ps --all --format json`
   (NDJSON and legacy array shapes), service table with state/health/ports
   coloring, selection, manual (`r`) and 5-second auto refresh. Restart counts
@@ -170,10 +187,11 @@ offline `go test ./...` green:
 ### E2E validation _(done, August 2026)_
 
 The `tests/fixture/` sshd + docker-in-docker fixture (see
-[tests.md](tests.md)) validates connect → ps → logs → actions against a live
-Docker daemon, behind the `e2e` build tag. This is the first time any
-milestone — Rust or Go — has run against real Docker rather than captured
-output, and the MVP feature set passed without changes to the product.
+[tests.md](tests.md)) validates connect → ps → logs → stats → actions against
+a live Docker daemon, behind the `e2e` build tag. It also invokes the compiled
+binary through representative machine reads and mutations. This is the first
+time any milestone — Rust or Go — has run against real Docker rather than
+captured output.
 
 ### MVP gaps closed _(done, August 2026)_
 
@@ -186,9 +204,15 @@ The two items the MVP scope named but the port left open:
   and an unknown count shows as `-` rather than as a zero.
 - **Ad-hoc commands** from the TUI (`!`), streaming into the same view as
   actions and scripts. This settles where user-supplied commands run:
-  scripts and `!` run in the login directory, like `ssh host 'command'` and
-  like `--exec`; only the commands Linqode builds itself are
-  project-relative.
+  scripts and `!` run in the login directory, like `ssh host 'command'`; only
+  the commands Linqode builds itself are project-relative.
+
+### Agent-safe interface _(done, August 2026)_
+
+The JSON/JSONL interface reuses the TUI's typed operations while withholding
+its ad-hoc capability. Strict local catalog selection, fail-closed SSH auth,
+streamed errors, exact remote mutation exit codes, and compiled-binary Docker
+coverage establish the boundary described in the decided policy above.
 
 ### Next
 
@@ -196,9 +220,9 @@ The two items the MVP scope named but the port left open:
   Alpine/dind environment. Real hosts bring compose version skew, larger
   projects, slower links, daemons behind `sudo`, and hosts reached through
   `~/.ssh/config` rather than an inline spec.
-- **Generic remote operations** (the broadened vision): running `.sh`
-  scripts with streamed output, PTY support for interactive commands
-  (`sudo`, prompts), monitoring plain files via `tail -F`. To be scoped
+- **Generic remote operations** (the broadened vision): additional typed
+  integrations, PTY support for interactive human commands (`sudo`, prompts),
+  and monitoring plain files via `tail -F`. To be scoped
   into milestones now that parity and e2e validation have landed. _(Host
   and per-container monitoring landed August 2026: see the dashboard cost
   budget above.)_

@@ -6,23 +6,17 @@ import (
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
+	"github.com/gualask/linqode/internal/operations"
 )
 
 // Info is the static context for the session, shown in the header.
 type Info struct {
 	// Target is the `user@host` the session is connected to.
 	Target string
-	// ComposeDir is the remote directory of the compose project, if
-	// configured.
+	// ComposeDir is the remote project directory shown in the header.
 	ComposeDir string
 	// Scripts are the predefined commands from the config, sorted by name.
-	Scripts []Script
-}
-
-// Script is a predefined command runnable from the status view.
-type Script struct {
-	Name    string
-	Command string
+	Scripts []operations.Script
 }
 
 // Fetch loads the current service list. It blocks on the SSH round-trip,
@@ -43,85 +37,67 @@ type FetchHost func() (host.Metrics, error)
 // docker needs a second of sampling to derive a CPU percentage.
 type FetchStats func() ([]compose.ContainerStats, error)
 
-// Exec starts a remote command (log follow, later actions and scripts)
-// streaming into a LogFeed. Like Fetch, it blocks briefly and runs in a
-// background command.
-type Exec func(command string) (LogFeed, error)
-
-// LogEventKind discriminates followed-stream events.
-type LogEventKind int
-
-const (
-	// LogLine is a complete log line (the followed command's stdout).
-	LogLine LogEventKind = iota
-	// LogStderrLine is a diagnostic line the remote command wrote to
-	// stderr.
-	LogStderrLine
-	// LogEnded reports that the stream terminated remotely; the events
-	// channel closes after it.
-	LogEnded
-)
-
-// LogEvent is one event of a followed log stream, ready for display.
-type LogEvent struct {
-	Kind LogEventKind
-	Text string
-	// ExitCode accompanies LogEnded; -1 when the remote reported none.
-	ExitCode int
+// Backend adapts shared operations to the TUI's background-command model.
+// Action and Script are constrained operations; AdHoc is the explicitly
+// human-only `!` path.
+type Backend struct {
+	Services      Fetch
+	Host          FetchHost
+	Stats         FetchStats
+	Logs          func(service string, tail int) (operations.Feed, error)
+	LiveStats     func() (operations.Feed, error)
+	ActionPreview func(action operations.ServiceAction, service string) string
+	Action        func(action operations.ServiceAction, service string) (operations.Feed, error)
+	Script        func(name string) (operations.Feed, error)
+	AdHoc         func(command string) (operations.Feed, error)
 }
 
-// LogFeed is the consumer end of a followed log stream. Stop cancels the
-// remote command; it must be idempotent.
-type LogFeed struct {
-	Events <-chan LogEvent
-	Stop   func()
+type openLogsMsg struct{ title, service string }
+type openActionMsg struct {
+	title, service string
+	action         operations.ServiceAction
 }
-
-// openFollowMsg asks the app to start command remotely and follow its
-// output.
-type openFollowMsg struct {
-	title   string
-	command string
-}
+type openScriptMsg struct{ title, name string }
+type openAdHocMsg struct{ title, command string }
 
 // feedMsg is the outcome of starting a follow.
 type feedMsg struct {
 	title string
-	feed  LogFeed
+	feed  operations.Feed
 	err   error
 }
 
 // closeFollowMsg asks the app to close the log view and return to status.
 type closeFollowMsg struct{}
 
-// openStatsMsg asks the app to start the status view's live resource
-// stream.
-type openStatsMsg struct {
-	command string
-}
+// openStatsMsg asks the app to start the status view's live resource stream.
+type openStatsMsg struct{}
 
 // statsFeedMsg is the outcome of starting that stream.
 type statsFeedMsg struct {
-	feed LogFeed
+	feed operations.Feed
 	err  error
 }
 
 type appModel struct {
 	info    Info
-	exec    Exec
+	backend Backend
 	status  statusModel
 	logView *logsModel
 
 	width, height int
 }
 
-// Run shows the application until the user quits. A nil fetchHost leaves
-// the system panel out, a nil fetchStats the resource columns.
-func Run(info Info, fetch Fetch, fetchHost FetchHost, fetchStats FetchStats, exec Exec) error {
-	status := newStatusModel(info, fetch)
-	status.hostFetch = fetchHost
-	status.statsFetch = fetchStats
-	app := appModel{info: info, exec: exec, status: status}
+// Run shows the application until the user quits. A nil Backend.Host leaves
+// the system panel out, and nil Backend.Stats leaves the soft resource columns
+// out.
+func Run(info Info, backend Backend) error {
+	status := newStatusModel(info, backend.Services)
+	status.hostFetch = backend.Host
+	status.statsFetch = backend.Stats
+	status.liveStats = backend.LiveStats != nil
+	status.actionPreview = backend.ActionPreview
+	app := appModel{info: info, backend: backend, status: status}
 	_, err := tea.NewProgram(app, tea.WithAltScreen()).Run()
 	return err
 }
@@ -133,58 +109,25 @@ func (m appModel) Init() tea.Cmd {
 func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
-		m.status.setSize(msg.Width, msg.Height)
-		if m.logView != nil {
-			m.logView.setSize(msg.Width, msg.Height)
-		}
-		return m, nil
-
-	case openFollowMsg:
-		exec := m.exec
-		return m, func() tea.Msg {
-			feed, err := exec(msg.command)
-			return feedMsg{title: msg.title, feed: feed, err: err}
-		}
-
+		return m.resize(msg)
+	case openLogsMsg:
+		return m.openLogs(msg)
+	case openActionMsg:
+		return m.openAction(msg)
+	case openScriptMsg:
+		return m.openScript(msg)
+	case openAdHocMsg:
+		return m.openAdHoc(msg)
 	case feedMsg:
-		if msg.err != nil {
-			m.status.setError(msg.err.Error())
-			return m, nil
-		}
-		view := newLogsModel(m.info.Target, msg.title, msg.feed)
-		view.setSize(m.width, m.height)
-		m.logView = &view
-		return m, view.init()
-
+		return m.applyFeed(msg)
 	case closeFollowMsg:
-		if m.logView != nil {
-			m.logView.feed.Stop()
-			m.logView = nil
-		}
-		// Refresh on return so an action's effect is visible immediately.
-		return m, m.status.refresh()
-
+		return m.closeFeed()
 	case autoTickMsg:
-		if m.logView != nil {
-			return m, autoTick() // keep the timer alive, skip the fetch
-		}
-
+		return m.handleAutoTick(msg)
 	case statsPollMsg:
-		// Same as above, and it matters more here: a sample occupies the
-		// server for ~2 s, which is not worth paying for a table nobody is
-		// looking at.
-		if m.logView != nil {
-			return m, statsPollTick()
-		}
-
+		return m.handleStatsPoll(msg)
 	case openStatsMsg:
-		exec := m.exec
-		return m, func() tea.Msg {
-			feed, err := exec(msg.command)
-			return statsFeedMsg{feed: feed, err: err}
-		}
-
+		return m.openLiveStats()
 	// These always belong to the status view, even while the log view is on
 	// screen: the live stream keeps running so returning to the table does
 	// not pay docker's sampling latency again, and a sample already in
@@ -192,11 +135,98 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case servicesMsg, hostMsg, statsFeedMsg, statsTickMsg, statsSampleMsg:
 		return m, m.status.update(msg)
 	}
+	return m.routeVisibleView(msg)
+}
 
+func (m appModel) resize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+	m.width, m.height = msg.Width, msg.Height
+	m.status.setSize(msg.Width, msg.Height)
+	if m.logView != nil {
+		m.logView.setSize(msg.Width, msg.Height)
+	}
+	return m, nil
+}
+
+func (m appModel) openLogs(msg openLogsMsg) (tea.Model, tea.Cmd) {
+	return m, startFeed(msg.title, func() (operations.Feed, error) {
+		return m.backend.Logs(msg.service, logTail)
+	})
+}
+
+func (m appModel) openAction(msg openActionMsg) (tea.Model, tea.Cmd) {
+	return m, startFeed(msg.title, func() (operations.Feed, error) {
+		return m.backend.Action(msg.action, msg.service)
+	})
+}
+
+func (m appModel) openScript(msg openScriptMsg) (tea.Model, tea.Cmd) {
+	return m, startFeed(msg.title, func() (operations.Feed, error) {
+		return m.backend.Script(msg.name)
+	})
+}
+
+func (m appModel) openAdHoc(msg openAdHocMsg) (tea.Model, tea.Cmd) {
+	return m, startFeed(msg.title, func() (operations.Feed, error) {
+		return m.backend.AdHoc(msg.command)
+	})
+}
+
+func (m appModel) applyFeed(msg feedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.status.setError(msg.err.Error())
+		return m, nil
+	}
+	view := newLogsModel(m.info.Target, msg.title, msg.feed)
+	view.setSize(m.width, m.height)
+	m.logView = &view
+	return m, view.init()
+}
+
+func (m appModel) closeFeed() (tea.Model, tea.Cmd) {
+	if m.logView != nil {
+		m.logView.feed.Stop()
+		m.logView = nil
+	}
+	// Refresh on return so an action's effect is visible immediately.
+	return m, m.status.refresh()
+}
+
+func (m appModel) handleAutoTick(msg autoTickMsg) (tea.Model, tea.Cmd) {
+	if m.logView != nil {
+		return m, autoTick() // keep the timer alive, skip the fetch
+	}
+	return m, m.status.update(msg)
+}
+
+func (m appModel) handleStatsPoll(msg statsPollMsg) (tea.Model, tea.Cmd) {
+	// A sample occupies the server for ~2 s, which is not worth paying for a
+	// table nobody is looking at.
+	if m.logView != nil {
+		return m, statsPollTick()
+	}
+	return m, m.status.update(msg)
+}
+
+func (m appModel) openLiveStats() (tea.Model, tea.Cmd) {
+	follow := m.backend.LiveStats
+	return m, func() tea.Msg {
+		feed, err := follow()
+		return statsFeedMsg{feed: feed, err: err}
+	}
+}
+
+func (m appModel) routeVisibleView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.logView != nil {
 		return m, m.logView.update(msg)
 	}
 	return m, m.status.update(msg)
+}
+
+func startFeed(title string, start func() (operations.Feed, error)) tea.Cmd {
+	return func() tea.Msg {
+		feed, err := start()
+		return feedMsg{title: title, feed: feed, err: err}
+	}
 }
 
 func (m appModel) View() string {

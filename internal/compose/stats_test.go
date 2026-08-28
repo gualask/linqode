@@ -114,6 +114,9 @@ func TestStatsCommand(t *testing.T) {
 	if !strings.Contains(command, `[ -z "$ids" ] ||`) {
 		t.Errorf("stats command does not guard against an empty project: %s", command)
 	}
+	if !strings.Contains(command, `docker compose ps -q) || exit $?`) {
+		t.Errorf("stats command masks project discovery failures: %s", command)
+	}
 
 	// Without a compose dir there is nothing to cd into, but the guard
 	// stays.
@@ -142,6 +145,9 @@ func TestStatsSampleCommand(t *testing.T) {
 	}
 	if !strings.Contains(command, `[ -z "$ids" ] ||`) {
 		t.Errorf("sample command does not guard against an empty project: %s", command)
+	}
+	if !strings.Contains(command, `docker compose ps -q) || exit $?`) {
+		t.Errorf("sample command masks project discovery failures: %s", command)
 	}
 }
 

@@ -27,7 +27,9 @@ intro (install, configuration, keys):
 - All documentation, code comments, commit messages, and generated reports
   are written in **English**, regardless of the conversation language.
 - One Go module (`github.com/gualask/linqode`): packages under `internal/`
-  (`config`, `remote`, `compose`, `host`, `logs`, `tui`) plus `cmd/linqode`.
+  (`cli`, `operations`, `config`, `remote`, `compose`, `host`, `logs`, `tui`)
+  plus `cmd/linqode`. See `docs/architecture.md` for package ownership and
+  dependency direction.
 - Stack: Bubble Tea + Lipgloss, `golang.org/x/crypto/ssh`,
   `kevinburke/ssh_config`, `pelletier/go-toml/v2`, stdlib elsewhere;
   `gliderlabs/ssh` in tests only. Prefer these over alternatives unless a

@@ -2,6 +2,21 @@ package remote
 
 import "fmt"
 
+// UnknownHostKeyError reports an untrusted key to a non-interactive caller.
+// It contains enough information for a human to verify and establish trust
+// separately without allowing the machine invocation to learn the key.
+type UnknownHostKeyError struct {
+	Host        string
+	Port        uint16
+	Algorithm   string
+	Fingerprint string
+}
+
+func (e *UnknownHostKeyError) Error() string {
+	return fmt.Sprintf("host key for %s:%d is unknown (%s %s)",
+		e.Host, e.Port, e.Algorithm, e.Fingerprint)
+}
+
 // HostKeyRejectedError reports that the user declined an unknown host key.
 type HostKeyRejectedError struct {
 	Host string
@@ -47,4 +62,14 @@ type BadPassphraseError struct {
 
 func (e *BadPassphraseError) Error() string {
 	return fmt.Sprintf("wrong passphrase for %s", e.Path)
+}
+
+// PassphraseRequiredError reports that a configured identity is encrypted
+// and cannot be used by a non-interactive caller.
+type PassphraseRequiredError struct {
+	Path string
+}
+
+func (e *PassphraseRequiredError) Error() string {
+	return fmt.Sprintf("identity %s requires a passphrase", e.Path)
 }

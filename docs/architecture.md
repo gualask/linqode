@@ -1,6 +1,6 @@
 # Architecture
 
-_Last updated: 2026-08-01_
+_Last updated: 2026-08-08_
 
 How Linqode works, at the level of components and flows. The vision, scope,
 and settled policy decisions live in [PROJECT.md](PROJECT.md); testing is
@@ -15,23 +15,23 @@ Everything runs on the operator's machine. The remote "API" is the standard
 forwarding.
 
 ```
-┌─────────────────────────── laptop ───────────────────────────┐
-│  TUI (Bubble Tea)                                            │
-│    │ messages / commands                                     │
-│  App model: status view ⇄ log view                           │
-│    │                          │                              │
-│  SSH session (x/crypto/ssh)  Log engine (internal/logs)      │
-│    │  exec channels           │  line assembly, tail buffer  │
-│    │  streamed stdout/stderr  │  JSONL records, filters,     │
-│    │                          │  search, stats               │
-└────┼──────────────────────────┴──────────────────────────────┘
-     │ SSH (port 22)
-┌────▼───────────── server ────────────────┐
-│  sshd → docker compose ps / logs / exec  │
-└──────────────────────────────────────────┘
+┌──────────────────────────── laptop ────────────────────────────┐
+│  TUI adapter (Bubble Tea)        JSON/JSONL CLI adapter         │
+│             └──────────────┬──────────────┘                     │
+│                    typed operations                             │
+│          status · stats · logs · actions · scripts              │
+│                  ┌─────────┴─────────┐                          │
+│       Compose/host/log parsers    SSH session                   │
+│       and command builders        streamed channels             │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │ SSH
+                    ┌────────────▼────────────┐
+                    │ sshd → docker compose  │
+                    │        or named script │
+                    └─────────────────────────┘
 ```
 
-Two principles shape the design:
+Four principles shape the design:
 
 - **The UI loop never blocks.** Every SSH round-trip runs inside a Bubble
   Tea command (a background goroutine) whose outcome comes back as a
@@ -40,12 +40,20 @@ Two principles shape the design:
 - **The log engine is Docker-agnostic**: it consumes generic streams of
   bytes and lines, so it can later be pointed at plain files (`tail -F`
   over SSH) or any other remote command without changes.
+- **Remote workflows have one owner.** The TUI and machine adapter both call
+  `internal/operations`; neither reconstructs commands or owns service/script
+  validation.
+- **The machine boundary is capability-based.** It receives typed observation,
+  lifecycle, and configured-script methods, never arbitrary execution. The
+  TUI alone receives the human `!` capability.
 
 ## Package layout
 
 | Package | Responsibility |
 | ------- | -------------- |
-| `cmd/linqode` | entry point: flags, terminal prompts, wiring session ⇄ TUI, the feed pump |
+| `cmd/linqode` | composition root: route selection, configuration loading, SSH connection, TUI/CLI wiring |
+| `internal/cli` | machine command parsing, JSON/JSONL presentation, typed errors and process exit mapping |
+| `internal/operations` | shared configured catalog and connected status/stats/log/action/script workflows; presentation-neutral streams |
 | `internal/config` | `config.toml` loading and host selection |
 | `internal/remote` | SSH: target resolution, connect, host-key policy, auth, one-shot and streaming exec with cancellation |
 | `internal/compose` | `docker compose` command builders (with shell quoting), `ps` output parsing into typed models, and both `docker stats` forms — one-shot sample and live stream |
@@ -61,19 +69,22 @@ Two principles shape the design:
 | Concurrency | goroutines + channels, `context.Context` | Cancellation and streaming map naturally onto the product |
 | JSON / JSONL | stdlib `encoding/json` with `json.Number` | Keeps numeric literals verbatim in records |
 | Config | `pelletier/go-toml/v2` | TOML host definitions and scripts |
-| CLI args | stdlib `flag` | The surface is tiny: `linqode [host] --exec --config` |
+| CLI args | stdlib `flag` | Small explicit router and one flag set per command |
 
 ## Flows
 
 ### Startup and host selection
 
-The CLI argument is either a name from the config file (which contributes
-`compose_dir` and scripts) or an inline `[user@]host[:port]` spec; with a
-single configured host, no argument is needed. The spec is then resolved
-against `~/.ssh/config` (aliases, user, port, identity files), so hosts
-reachable by plain `ssh` need no extra setup. With `--exec` the command's
-raw output streams to stdout/stderr and the exit code is propagated — no
-TUI.
+The human route is `linqode [host]` or `linqode tui [host]`. It accepts a
+configured name or inline `[user@]host[:port]`, permits a TUI-only `--config`,
+and can infer the host when the config contains exactly one. The selected spec
+is resolved against `~/.ssh/config`, including aliases, user, port, and
+identity files.
+
+Top-level machine command names are reserved. Those routes always load the
+default TOML and accept exact configured host names only; unknown values never
+fall back to inline SSH targets. `hosts` and `scripts` use the local catalog
+without resolving or connecting to SSH.
 
 ### Connecting
 
@@ -89,7 +100,23 @@ channel over it.
   lazily so no passphrase is asked for if the agent suffices; encrypted
   keys prompt with OpenSSH-style retries. Password auth is out of scope for
   the MVP.
-- Prompts run in the terminal before the TUI takes over the screen.
+- Prompts run in the terminal before the TUI takes over the screen. The machine
+  connector instead fails closed: it never learns an unknown key or requests a
+  passphrase, and maps authentication failures to typed JSON.
+
+### Machine commands
+
+The command reference and output/exit contract live in the
+[README](../README.md#machine-interface). After strict local selection, the
+composition root creates one SSH session and hands `internal/cli` a narrow
+safe interface implemented by the same `HostOperator` used by the TUI.
+
+One-shot status and stats become versioned JSON documents. Followed stats,
+logs, lifecycle actions, and scripts project the shared operation feed into
+JSON Lines. Remote stderr is an event in that stdout stream; Linqode's own
+typed errors use stderr. Read failures use Linqode exit codes, while a started
+lifecycle action or script propagates a reported non-zero remote status. No
+command is retried or reconnected automatically.
 
 ### Compose status
 
@@ -149,10 +176,9 @@ them before reading the JSON.
 Opening a service starts `docker compose logs --follow` (no prefix, no
 color, tailing recent history) on a streaming exec channel. From there:
 
-1. the feed pump (a goroutine in `cmd/linqode`) receives stdout/stderr
-   byte chunks, reassembles complete lines across arbitrary chunk
-   boundaries, and sends line events into a buffered channel (stderr is
-   tracked separately as diagnostics);
+1. the shared operation stream receives stdout/stderr byte chunks, reassembles
+   complete lines across arbitrary chunk boundaries, and emits typed events
+   through a buffered channel;
 2. the log view drains that channel every 100ms — with an upper bound per
    tick, so a log burst cannot starve input handling — into the engine's
    store: a bounded tail buffer (oldest lines drop when full) that parses
@@ -190,11 +216,13 @@ Restart/stop/start on the selected service build the corresponding
 typed at the `!` prompt, run verbatim on the host. That split is the rule:
 what Linqode builds is project-relative and gets a compose-dir `cd`, what
 the user supplies runs where `ssh host 'command'` would run it — the same
-working directory `--exec` uses.
+login directory as a normal remote shell command.
 
-All three reuse the log-follow pipeline: the command's output streams into
-the same view, the exit code is shown on completion, and the status view
-refreshes on return — so a restart's effect is visible immediately.
+All three reuse the shared operation feed. The TUI maps it into the log view,
+shows the exit code, and refreshes status on return; the machine adapter maps
+it into JSONL. Ad-hoc commands remain available only through the human `!`
+path. Machine scripts are resolved by configured name and receive no runtime
+arguments.
 
 Two input shapes carry them, and both are modal — while one is up, keys go
 to it instead of to the table:

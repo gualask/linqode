@@ -1,15 +1,15 @@
 # Testing
 
-_Last updated: 2026-08-01_
+_Last updated: 2026-08-08_
 
 How Linqode is tested, what each layer covers, and how to extend it. The
 strategy in short: pure logic is unit-tested against captured fixtures with
 no network; the SSH client is exercised for real against a scripted
 in-process server on loopback; the TUI's view models are tested directly as
-pure update/view functions; full end-to-end coverage (connect → ps → logs →
-exec against a live Docker) is the job of the `tests/fixture/` container, so
-any developer — human or LLM — can verify changes locally without access to
-a real server.
+pure update/view functions; the machine adapter and shared operations have
+contract tests; full end-to-end coverage against live SSH and Docker is the
+job of the `tests/fixture/` container. Any developer — human or LLM — can
+therefore verify changes locally without access to a real server.
 
 ## Running
 
@@ -38,6 +38,8 @@ hardened them first:
 | Package | What is covered |
 | ------- | --------------- |
 | `internal/config` | Config parsing (documented format, tolerance of future sections, missing-`host` rejection, scripts sorted by name), host selection rules, default-path loading |
+| `internal/cli` | Human/machine routing, exact operands and option placement, strict machine boundaries, JSON/JSONL payloads, streaming without whole-output buffering, typed failures, cancellation, and exit mapping |
+| `internal/operations` | Strict configured catalog, shared status/stats/log workflows, exact lifecycle/script selection, service validation, stream assembly/cancellation, and no mutation retry |
 | `internal/remote` | `[user@]host[:port]` spec parsing (IPv6, last-`@` rule, rejects incl. port 0), `~/.ssh/config` alias resolution and precedence, identity-file discovery limited to existing files, tilde expansion |
 | `internal/compose` | Command builders (`ps`, `logs`, actions, restart inspect) incl. shell quoting of hostile paths and container names; `ps --format json` parsing in both shapes (NDJSON ≥ 2.21, legacy array), null `Publishers`, sorting; port summaries collapsing IPv4/IPv6 duplicates; restart counts parsed leniently (leading slash stripped, a vanished container's error line skipped without losing the rest) and an absent count staying unknown rather than zero |
 | `internal/host` | Metrics parsing from the marked `/proc` + `df -Pk` sections; tolerance of missing sections and of garbage (both leave fields zero rather than failing the sample); derived percentages guarding against division by zero and unsigned underflow; the command asking for every section |
@@ -67,8 +69,10 @@ regression hangs the test, not CI.
 | ---- | ------ |
 | `TestTOFUAcceptsPersistsAndReconnectsSilently` | TOFU prompts exactly once, persists the normalized `[host]:port`, reconnect is silent; exec returns scripted stdout + exit 0 |
 | `TestRefusedHostKeyAbortsConnect` | Declining the prompt yields `HostKeyRejectedError` |
+| `TestNonInteractiveUnknownHostKeyFailsWithoutLearning` | Machine authentication refuses an unknown key without prompting or changing `known_hosts` |
 | `TestChangedHostKeyRefusesWithoutPrompting` | A pinned different key yields `HostKeyChangedError` with the conflicting line, without ever consulting the prompter (anti-MITM) |
 | `TestUnauthorizedKeyFailsAuth` | An unaccepted identity yields `AuthFailedError` |
+| `TestConnectCancellationInterruptsSSHHandshake` | Cancelling during handshake returns promptly instead of waiting for the SSH timeout |
 | `TestEncryptedKeyAsksPassphrase` | The right passphrase gets in after one prompt; a wrong one retries 3× then yields `BadPassphraseError` |
 | `TestExecCollectsStdoutStderrAndExitCode` | One-shot exec aggregates multi-chunk stdout, stderr, and the exit code |
 | `TestExecStreamDeliversEventsThenEnds` | Streaming exec delivers stdout/stderr/exit events, then the channel closes |
@@ -85,8 +89,8 @@ detection and override, the stats panel, the action and script menus
 (navigation, running the chosen entry, closing on esc or on the key that
 opened them), the RESTARTS column appearing only once counts exist, and the
 `!` prompt (keys type instead of acting while it is open, empty input runs
-nothing, esc cancels, and it reopens on the last command). The log view is
-fed through a hand-built `LogFeed` channel — no SSH involved.
+nothing, esc cancels, and it reopens on the last command). Views receive
+hand-built `operations.Feed` channels — no SSH involved.
 
 One test pins a design rule rather than a behavior: the keys Linqode
 invents must not differ only by case, so `R`, `S`, `C`, `X` and a bare `s`
@@ -133,6 +137,8 @@ against it.
 | `TestHostMetricsAgainstRealHost` | The header's metrics command works on a busybox userland — the `/proc` layout and `df -Pk` support that differ most from a developer's machine — and every field arrives with a sane derived percentage |
 | `TestStatsStreamAgainstRealProject` | The live panel's stream yields parseable samples for the project's running containers, and only those |
 | `TestStatsSampleAgainstRealProject` | The periodic refresh's one-shot form terminates on its own and parses into a whole sample, and logs what it cost — the measurement the 20 s interval rests on |
+| `TestRestartCountsAgainstRealProject` | Real Docker restart counters distinguish stable, policy-restarted, and manually restarted services |
+| `TestMachineBinaryCommands` | The compiled binary uses default TOML and non-interactive SSH for JSON status, bounded JSONL logs, a validated restart, an exact configured script, and exact propagation of remote exit `7` |
 
 `tests/e2e/cost_test.go` measures what candidate dashboard commands cost on
 the server. It is opt-in (`-cost.measure`) and asserts nothing; it exists so
@@ -163,16 +169,12 @@ empty `known_hosts`, so the prompt path runs each time regardless. Delete
 
 ## Known gaps
 
-- **Full-screen rendering**: view tests assert on the rendered strings,
-  not on terminal placement/ANSI details; the app-model routing between
-  views has only indirect coverage.
 - **SSH agent auth**: still skipped everywhere via `IdentitiesOnly`,
   including in the e2e fixture, which authenticates with a generated
   identity file. Covering it needs a fake agent socket, or an agent
   forwarded into the fixture.
-- **`cmd/linqode` wiring** (`startLogFeed`, `fetchServices`, flag
-  handling) has no direct tests, though all its pieces do — and the e2e
-  suite now exercises equivalent paths through the same packages.
 - **The TUI itself is never driven end-to-end**: the e2e suite calls the
-  production packages directly, not the Bubble Tea program, so keybindings
-  and view routing are covered only by the view-model tests.
+  shared production operations directly and drives the compiled binary only
+  through machine commands, not through the Bubble Tea program. Keybindings
+  and view routing are therefore covered by view-model tests rather than a
+  synthetic terminal; terminal placement and ANSI behavior are not asserted.

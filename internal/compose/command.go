@@ -95,7 +95,7 @@ func ActionCommand(composeDir string, action ServiceAction, service string) stri
 // It omits --no-stream: the first sample costs ~2 s of fixed sampling
 // latency either way, so a stream pays it once instead of per sample.
 func StatsCommand(composeDir string) string {
-	stats := `{ ids=$(docker compose ps -q); [ -z "$ids" ] || exec docker stats --format '{{json .}}' $ids; }`
+	stats := `{ ids=$(docker compose ps -q) || exit $?; [ -z "$ids" ] || exec docker stats --format '{{json .}}' $ids; }`
 	return inDir(composeDir, stats)
 }
 
@@ -107,16 +107,20 @@ func StatsCommand(composeDir string) string {
 // derive the CPU percentage — which is why it runs on its own slow interval
 // rather than alongside `compose ps` (see docs/PROJECT.md).
 func StatsSampleCommand(composeDir string) string {
-	stats := `{ ids=$(docker compose ps -q); [ -z "$ids" ] || exec docker stats --no-stream --format '{{json .}}' $ids; }`
+	stats := `{ ids=$(docker compose ps -q) || exit $?; [ -z "$ids" ] || exec docker stats --no-stream --format '{{json .}}' $ids; }`
 	return inDir(composeDir, stats)
 }
 
-// LogsCommand builds the remote command following the logs of one service,
-// starting tail lines back. `--no-log-prefix` drops the service-name prefix
-// (a single service needs none) and `--no-color` its ANSI styling; whatever
-// the container itself writes passes through untouched.
-func LogsCommand(composeDir, service string, tail int) string {
-	logs := fmt.Sprintf("docker compose logs --follow --no-color --no-log-prefix --tail %d %s",
-		tail, shellQuote(service))
+// LogsCommand builds the remote command reading the logs of one service,
+// starting tail lines back and optionally following. `--no-log-prefix` drops
+// the service-name prefix (a single service needs none) and `--no-color` its
+// ANSI styling; whatever the container itself writes passes through untouched.
+func LogsCommand(composeDir, service string, tail int, follow bool) string {
+	followFlag := ""
+	if follow {
+		followFlag = "--follow "
+	}
+	logs := fmt.Sprintf("docker compose logs %s--no-color --no-log-prefix --tail %d %s",
+		followFlag, tail, shellQuote(service))
 	return inDir(composeDir, logs)
 }
