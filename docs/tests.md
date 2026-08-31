@@ -78,7 +78,7 @@ regression hangs the test, not CI.
 | `TestExecStreamDeliversEventsThenEnds` | Streaming exec delivers stdout/stderr/exit events, then the channel closes |
 | `TestExecStreamCancelEndsAFollower` | A `holdOpen` follower streams while running; cancelling the context ends the event stream instead of hanging |
 
-### 3. View-model tests (`internal/tui/*_test.go`)
+### 3. View-model tests (under `internal/tui/`)
 
 Bubble Tea models are pure update/view functions, so the view logic that
 stayed untested in the Rust reference is covered directly here: selection

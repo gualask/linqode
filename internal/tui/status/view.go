@@ -1,4 +1,4 @@
-package tui
+package status
 
 import (
 	"fmt"
@@ -7,29 +7,18 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-)
 
-var (
-	boldStyle    = lipgloss.NewStyle().Bold(true)
-	dimStyle     = lipgloss.NewStyle().Faint(true)
-	cyanStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	redStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	greenStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	yellowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	blueStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
-	magentaStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
-	reverseStyle = lipgloss.NewStyle().Reverse(true)
-	matchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("3"))
+	"github.com/gualask/linqode/internal/tui/theme"
 )
 
 func stateStyle(state string) lipgloss.Style {
 	switch state {
 	case "running":
-		return greenStyle
+		return theme.Green
 	case "restarting", "paused", "created":
-		return yellowStyle
+		return theme.Yellow
 	case "exited", "dead":
-		return redStyle
+		return theme.Red
 	default:
 		return lipgloss.NewStyle()
 	}
@@ -38,36 +27,36 @@ func stateStyle(state string) lipgloss.Style {
 func restartStyle(n int) lipgloss.Style {
 	switch {
 	case n >= 5:
-		return redStyle
+		return theme.Red
 	case n > 0:
-		return yellowStyle
+		return theme.Yellow
 	default:
-		return dimStyle
+		return theme.Dim
 	}
 }
 
 func healthStyle(health string) lipgloss.Style {
 	switch health {
 	case "":
-		return dimStyle
+		return theme.Dim
 	case "healthy":
-		return greenStyle
+		return theme.Green
 	case "starting":
-		return yellowStyle
+		return theme.Yellow
 	case "unhealthy":
-		return redStyle
+		return theme.Red
 	default:
 		return lipgloss.NewStyle()
 	}
 }
 
-func (m *statusModel) view() string {
+func (m *Model) View() string {
 	var b strings.Builder
-	b.WriteString(boldStyle.Render(" linqode "))
+	b.WriteString(theme.Bold.Render(" linqode "))
 	b.WriteString(m.info.Target)
 	if m.info.ComposeDir != "" {
 		b.WriteString("  ")
-		b.WriteString(cyanStyle.Render(m.info.ComposeDir))
+		b.WriteString(theme.Cyan.Render(m.info.ComposeDir))
 	}
 	b.WriteString("\n")
 	sidebar := m.sidebarOn()
@@ -103,7 +92,7 @@ func (m *statusModel) view() string {
 	return b.String()
 }
 
-func (m *statusModel) renderBody(width, height int) string {
+func (m *Model) renderBody(width, height int) string {
 	if m.menu != nil {
 		return m.renderMenu(width, height)
 	}
@@ -119,11 +108,11 @@ func (m *statusModel) renderBody(width, height int) string {
 	var b strings.Builder
 	switch {
 	case len(m.services) == 0 && !m.loaded:
-		b.WriteString(dimStyle.Render("  (loading services…)"))
+		b.WriteString(theme.Dim.Render("  (loading services…)"))
 	case len(m.services) == 0 && m.errText != "":
-		b.WriteString(dimStyle.Render("  (no data — see error below)"))
+		b.WriteString(theme.Dim.Render("  (no data — see error below)"))
 	case len(m.services) == 0:
-		b.WriteString(dimStyle.Render("  (no services in this compose project)"))
+		b.WriteString(theme.Dim.Render("  (no services in this compose project)"))
 	default:
 		m.renderTable(&b, width, tableHeight-1)
 	}
@@ -135,7 +124,7 @@ type footerHint struct {
 	drop int
 }
 
-func (m *statusModel) footerHints(width int) string {
+func (m *Model) footerHints(width int) string {
 	hints := []footerHint{{"enter logs", 2}, {"c actions", 3}, {"x scripts", 6},
 		{"! run", 4}, {"r refresh", 1}, {"q quit", 0}}
 	if m.liveStats {
@@ -164,26 +153,26 @@ func (m *statusModel) footerHints(width int) string {
 	}
 }
 
-func (m *statusModel) footer() string {
+func (m *Model) footer() string {
 	var text string
 	switch {
 	case m.commandPrompt:
-		text = " $ " + m.commandText + "▏" + dimStyle.Render("  enter run · esc cancel")
+		text = " $ " + m.commandText + "▏" + theme.Dim.Render("  enter run · esc cancel")
 	case m.menu != nil:
-		text = dimStyle.Render(" j/k select · enter run · esc cancel")
+		text = theme.Dim.Render(" j/k select · enter run · esc cancel")
 	case m.errText != "":
-		text = redStyle.Render(" " + strings.ReplaceAll(m.errText, "\n", " · "))
+		text = theme.Red.Render(" " + strings.ReplaceAll(m.errText, "\n", " · "))
 	default:
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf(" %d services", len(m.services)))
 		if m.statsErr != "" {
-			b.WriteString(redStyle.Render("  ·  stats: " + m.statsErr))
+			b.WriteString(theme.Red.Render("  ·  stats: " + m.statsErr))
 		}
 		budget := 0
 		if m.width > 0 {
 			budget = m.width - lipgloss.Width(b.String()) - len("  ·  ")
 		}
-		b.WriteString(dimStyle.Render("  ·  " + m.footerHints(budget)))
+		b.WriteString(theme.Dim.Render("  ·  " + m.footerHints(budget)))
 		text = b.String()
 	}
 	if m.width > 0 {
@@ -192,7 +181,7 @@ func (m *statusModel) footer() string {
 	return text
 }
 
-func (m *statusModel) renderHostLine() string {
+func (m *Model) renderHostLine() string {
 	if !m.metricsLoaded {
 		return ""
 	}
@@ -200,7 +189,7 @@ func (m *statusModel) renderHostLine() string {
 	var parts []string
 	if metrics.HasLoad() {
 		parts = append(parts, loadStyle(metrics.LoadPerCPU()).Render(fmt.Sprintf("load %.2f", metrics.Load1))+
-			dimStyle.Render(fmt.Sprintf(" %.2f/cpu", metrics.LoadPerCPU())))
+			theme.Dim.Render(fmt.Sprintf(" %.2f/cpu", metrics.LoadPerCPU())))
 	}
 	if metrics.MemTotalKB > 0 {
 		percent := metrics.MemUsedPercent()
@@ -213,14 +202,14 @@ func (m *statusModel) renderHostLine() string {
 			formatKB(metrics.DiskTotalKB), usageStyle(percent).Render(fmt.Sprintf("%.0f%%", percent))))
 	}
 	if metrics.Uptime > 0 {
-		parts = append(parts, dimStyle.Render("up "+formatUptime(metrics.Uptime)))
+		parts = append(parts, theme.Dim.Render("up "+formatUptime(metrics.Uptime)))
 	}
 	if len(parts) == 0 {
 		return ""
 	}
 	line := " " + strings.Join(parts, "  ")
 	if m.metricsStale {
-		line += dimStyle.Render("  (stale)")
+		line += theme.Dim.Render("  (stale)")
 	}
 	return line
 }
@@ -228,22 +217,22 @@ func (m *statusModel) renderHostLine() string {
 func usageStyle(percent float64) lipgloss.Style {
 	switch {
 	case percent >= 90:
-		return redStyle
+		return theme.Red
 	case percent >= 75:
-		return yellowStyle
+		return theme.Yellow
 	default:
-		return greenStyle
+		return theme.Green
 	}
 }
 
 func loadStyle(perCPU float64) lipgloss.Style {
 	switch {
 	case perCPU >= 1:
-		return redStyle
+		return theme.Red
 	case perCPU >= 0.7:
-		return yellowStyle
+		return theme.Yellow
 	default:
-		return greenStyle
+		return theme.Green
 	}
 }
 

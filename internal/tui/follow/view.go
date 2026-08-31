@@ -1,4 +1,4 @@
-package tui
+package follow
 
 import (
 	"fmt"
@@ -7,26 +7,28 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/gualask/linqode/internal/logs"
+	"github.com/gualask/linqode/internal/tui/theme"
 )
 
-func (m *logsModel) structuredRendering() bool {
+func (m *Model) structuredRendering() bool {
 	if m.structured != nil {
 		return *m.structured
 	}
 	return m.store.LooksStructured()
 }
 
-func (m *logsModel) view() string {
+// View renders the followed feed.
+func (m *Model) View() string {
 	var b strings.Builder
-	b.WriteString(boldStyle.Render(" linqode "))
+	b.WriteString(theme.Bold.Render(" linqode "))
 	b.WriteString(m.target)
 	b.WriteString("  ")
-	b.WriteString(cyanStyle.Render(m.title))
+	b.WriteString(theme.Cyan.Render(m.title))
 	if m.structuredRendering() {
-		b.WriteString(magentaStyle.Render("  · json"))
+		b.WriteString(theme.Magenta.Render("  · json"))
 	}
 	if m.follow {
-		b.WriteString(greenStyle.Render("  · following"))
+		b.WriteString(theme.Green.Render("  · following"))
 	}
 	b.WriteString("\n")
 	statsOn := m.showStats && m.width > statsWidth+20
@@ -45,7 +47,7 @@ func (m *logsModel) view() string {
 	return b.String()
 }
 
-func (m *logsModel) logBody(width int) string {
+func (m *Model) logBody(width int) string {
 	if m.follow {
 		m.scroll = m.maxScroll()
 	} else {
@@ -59,7 +61,7 @@ func (m *logsModel) logBody(width int) string {
 		case m.ended:
 			message = "(no log output)"
 		}
-		return dimStyle.Render("  " + message)
+		return theme.Dim.Render("  " + message)
 	}
 	structured := m.structuredRendering()
 	var lines []string
@@ -70,30 +72,30 @@ func (m *logsModel) logBody(width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m *logsModel) statsView() string {
+func (m *Model) statsView() string {
 	stats := m.store.ComputeStats(m.topField)
 	lines := []string{
 		fmt.Sprintf("%d lines · %s", stats.Total,
-			magentaStyle.Render(fmt.Sprintf("%d json", stats.Parsed))),
-		"", boldStyle.Render("levels"),
+			theme.Magenta.Render(fmt.Sprintf("%d json", stats.Parsed))),
+		"", theme.Bold.Render("levels"),
 	}
 	if len(stats.Levels) == 0 {
-		lines = append(lines, dimStyle.Render("  (none)"))
+		lines = append(lines, theme.Dim.Render("  (none)"))
 	}
 	for _, level := range stats.Levels {
 		lines = append(lines, fmt.Sprintf("%7d  %s", level.N, levelStyle(level.Key).Render(level.Key)))
 	}
 	lines = append(lines, "")
 	if m.topField == "" {
-		return strings.Join(append(lines, dimStyle.Render("t: pick a top field")), "\n")
+		return strings.Join(append(lines, theme.Dim.Render("t: pick a top field")), "\n")
 	}
-	lines = append(lines, boldStyle.Render("top "+m.topField))
+	lines = append(lines, theme.Bold.Render("top "+m.topField))
 	values := stats.Values
 	if len(values) > topValues {
 		values = values[:topValues]
 	}
 	if len(values) == 0 {
-		lines = append(lines, dimStyle.Render("  (no values)"))
+		lines = append(lines, theme.Dim.Render("  (no values)"))
 	}
 	for _, value := range values {
 		lines = append(lines, fmt.Sprintf("%7d  %s", value.N, value.Key))
@@ -101,12 +103,12 @@ func (m *logsModel) statsView() string {
 	return strings.Join(lines, "\n")
 }
 
-func (m *logsModel) footer() string {
+func (m *Model) footer() string {
 	if m.input != inputNone {
 		return m.inputFooter()
 	}
 	if m.notice != "" {
-		return yellowStyle.Render(" " + m.notice)
+		return theme.Yellow.Render(" " + m.notice)
 	}
 	if m.ended {
 		return m.endedFooter()
@@ -114,7 +116,7 @@ func (m *logsModel) footer() string {
 	return m.activeFooter()
 }
 
-func (m *logsModel) inputFooter() string {
+func (m *Model) inputFooter() string {
 	prompt, hint := "", ""
 	switch m.input {
 	case inputSearch:
@@ -124,49 +126,49 @@ func (m *logsModel) inputFooter() string {
 	case inputTopField:
 		prompt, hint = " top field: ", "  empty clears · esc cancel"
 	}
-	return prompt + m.inputText + "▏" + dimStyle.Render(hint)
+	return prompt + m.inputText + "▏" + theme.Dim.Render(hint)
 }
 
-func (m *logsModel) endedFooter() string {
+func (m *Model) endedFooter() string {
 	text := "log stream ended"
-	style := yellowStyle
+	style := theme.Yellow
 	if m.exitCode > 0 {
 		text = fmt.Sprintf("log stream ended (exit %d)", m.exitCode)
-		style = redStyle
+		style = theme.Red
 	}
 	out := style.Render(" " + text)
 	if m.stderrNotice != "" {
-		out += redStyle.Render("  · " + m.stderrNotice)
+		out += theme.Red.Render("  · " + m.stderrNotice)
 	}
 	return out
 }
 
-func (m *logsModel) activeFooter() string {
+func (m *Model) activeFooter() string {
 	var out string
 	if m.store.Filter() != nil {
 		out = fmt.Sprintf(" %d/%d lines", m.store.Len(), m.store.Total())
-		out += cyanStyle.Render("  f:" + m.store.Filter().Expr())
+		out += theme.Cyan.Render("  f:" + m.store.Filter().Expr())
 	} else {
 		out = fmt.Sprintf(" %d lines", m.store.Len())
 	}
 	if m.query != "" {
-		out += yellowStyle.Render("  /" + m.query)
+		out += theme.Yellow.Render("  /" + m.query)
 	}
-	return out + dimStyle.Render("  ·  / search · f filter · s json · a stats · t field · esc back")
+	return out + theme.Dim.Render("  ·  / search · f filter · s json · a stats · t field · esc back")
 }
 
 func levelStyle(level string) lipgloss.Style {
 	switch strings.ToLower(level) {
 	case "error", "fatal", "critical", "panic":
-		return redStyle
+		return theme.Red
 	case "warn", "warning":
-		return yellowStyle
+		return theme.Yellow
 	case "info":
-		return greenStyle
+		return theme.Green
 	case "debug":
-		return blueStyle
+		return theme.Blue
 	case "trace":
-		return dimStyle
+		return theme.Dim
 	default:
 		return lipgloss.NewStyle()
 	}
@@ -182,7 +184,7 @@ func renderLogLine(line logs.LogLine, structured bool, query string, width int) 
 	}
 	record := line.Record
 	if timestamp, ok := record.Timestamp(); ok {
-		renderer.emit(timestamp+" ", dimStyle, false)
+		renderer.emit(timestamp+" ", theme.Dim, false)
 	}
 	if level, ok := record.Level(); ok {
 		renderer.emit(fmt.Sprintf("%-5s ", level), levelStyle(level).Bold(true), false)
@@ -192,7 +194,7 @@ func renderLogLine(line logs.LogLine, structured bool, query string, width int) 
 	}
 	for _, field := range record.Fields() {
 		if !logs.IsWellKnownKey(field.Key) {
-			renderer.emit(" "+field.Key+"="+field.Value, dimStyle, false)
+			renderer.emit(" "+field.Key+"="+field.Value, theme.Dim, false)
 		}
 	}
 	if renderer.builder.Len() == 0 {
@@ -247,7 +249,7 @@ func highlightIn(text, query string, base lipgloss.Style) string {
 		if index > 0 {
 			b.WriteString(base.Render(rest[:index]))
 		}
-		b.WriteString(matchStyle.Render(rest[index : index+len(query)]))
+		b.WriteString(theme.Match.Render(rest[index : index+len(query)]))
 		rest = rest[index+len(query):]
 	}
 	if b.Len() == 0 {

@@ -1,4 +1,4 @@
-package tui
+package status
 
 // Container resource usage, in the two modes the status view offers.
 //
@@ -66,7 +66,7 @@ func statsTick() tea.Cmd {
 }
 
 // statsSampleCmd takes one soft sample, or nil when none is configured.
-func (m *statusModel) statsSampleCmd() tea.Cmd {
+func (m *Model) statsSampleCmd() tea.Cmd {
 	fetch := m.statsFetch
 	if fetch == nil {
 		return nil
@@ -79,7 +79,7 @@ func (m *statusModel) statsSampleCmd() tea.Cmd {
 
 // refreshStats starts a soft sample unless one is already in flight or the
 // live stream is running — the stream feeds the same columns, faster.
-func (m *statusModel) refreshStats() tea.Cmd {
+func (m *Model) refreshStats() tea.Cmd {
 	if m.statsFetch == nil || m.statsRefreshing || m.liveActive() {
 		return nil
 	}
@@ -90,7 +90,7 @@ func (m *statusModel) refreshStats() tea.Cmd {
 // applySample replaces the readings with a whole sample. Containers absent
 // from it are dropped rather than kept: a service that stopped between two
 // samples must not keep showing the CPU it used while running.
-func (m *statusModel) applySample(sample []compose.ContainerStats) {
+func (m *Model) applySample(sample []compose.ContainerStats) {
 	stats := make(map[string]compose.ContainerStats, len(sample))
 	for _, s := range sample {
 		stats[s.Name] = s
@@ -101,21 +101,21 @@ func (m *statusModel) applySample(sample []compose.ContainerStats) {
 
 // liveActive reports whether the streaming mode is on, including the window
 // between asking for it and the stream arriving.
-func (m *statusModel) liveActive() bool {
+func (m *Model) liveActive() bool {
 	return m.statsFeed != nil || m.statsStarting
 }
 
 // statsColumns reports whether the table carries CPU and MEM. They are part
 // of the table whenever anything can fill them, and show "-" until the
 // first sample lands.
-func (m *statusModel) statsColumns() bool {
+func (m *Model) statsColumns() bool {
 	return m.statsFetch != nil || m.liveActive() || len(m.stats) > 0
 }
 
 // toggleLive turns the streaming panel on or off. Opening pays docker's ~2 s
 // of sampling latency once and then streams; closing terminates the remote
 // command, so nothing is sampled on the server while the panel is hidden.
-func (m *statusModel) toggleLive() tea.Cmd {
+func (m *Model) toggleLive() tea.Cmd {
 	if !m.liveStats {
 		return nil
 	}
@@ -128,13 +128,13 @@ func (m *statusModel) toggleLive() tea.Cmd {
 	}
 	m.statsStarting = true
 	m.statsErr = ""
-	return func() tea.Msg { return openStatsMsg{} }
+	return func() tea.Msg { return OpenStatsMsg{} }
 }
 
 // stopLive tears the stream down and forgets its history. The readings
 // themselves survive only if the soft poll is there to refresh them;
 // otherwise they would freeze on screen, and stale numbers read as live.
-func (m *statusModel) stopLive() {
+func (m *Model) stopLive() {
 	if m.statsFeed != nil {
 		m.statsFeed.Stop()
 		m.statsFeed = nil
@@ -150,7 +150,7 @@ func (m *statusModel) stopLive() {
 
 // drainStats applies pending live samples, reporting whether the stream
 // ended.
-func (m *statusModel) drainStats() bool {
+func (m *Model) drainStats() bool {
 	for range maxStatsPerTick {
 		select {
 		case event, ok := <-m.statsFeed.Events:
@@ -178,7 +178,7 @@ func (m *statusModel) drainStats() bool {
 
 // record appends a container's CPU reading to its history, dropping the
 // oldest once the window is full.
-func (m *statusModel) record(stats compose.ContainerStats) {
+func (m *Model) record(stats compose.ContainerStats) {
 	percent, ok := stats.CPUPercent()
 	if !ok {
 		return

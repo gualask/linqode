@@ -1,4 +1,4 @@
-package tui
+package status
 
 import (
 	"strings"
@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/gualask/linqode/internal/compose"
+	"github.com/gualask/linqode/internal/tui/theme"
 )
 
 type cell struct {
@@ -13,7 +14,7 @@ type cell struct {
 	style lipgloss.Style
 }
 
-func (m *statusModel) tableHeaders() []string {
+func (m *Model) tableHeaders() []string {
 	headers := []string{"SERVICE", "STATE", "HEALTH"}
 	if m.restartColumn() {
 		headers = append(headers, "RESTARTS")
@@ -24,7 +25,7 @@ func (m *statusModel) tableHeaders() []string {
 	return append(headers, "PORTS", "STATUS")
 }
 
-func (m *statusModel) restartColumn() bool {
+func (m *Model) restartColumn() bool {
 	for index := range m.services {
 		if m.services[index].Restarts != nil {
 			return true
@@ -33,7 +34,7 @@ func (m *statusModel) restartColumn() bool {
 	return false
 }
 
-func (m *statusModel) serviceRow(service compose.Service) []cell {
+func (m *Model) serviceRow(service compose.Service) []cell {
 	health := service.Health
 	if health == "" {
 		health = "-"
@@ -41,7 +42,7 @@ func (m *statusModel) serviceRow(service compose.Service) []cell {
 	row := []cell{{text: service.Service}, {text: service.State, style: stateStyle(service.State)},
 		{text: health, style: healthStyle(service.Health)}}
 	if m.restartColumn() {
-		restarts := cell{text: service.RestartsText(), style: dimStyle}
+		restarts := cell{text: service.RestartsText(), style: theme.Dim}
 		if service.Restarts != nil {
 			restarts.style = restartStyle(*service.Restarts)
 		}
@@ -53,7 +54,7 @@ func (m *statusModel) serviceRow(service compose.Service) []cell {
 	return append(row, cell{text: service.PortsSummary()}, cell{text: service.Status})
 }
 
-func (m *statusModel) renderTable(builder *strings.Builder, width, height int) {
+func (m *Model) renderTable(builder *strings.Builder, width, height int) {
 	headers := m.tableHeaders()
 	rows := make([][]cell, len(m.services))
 	for index, service := range m.services {
@@ -74,7 +75,7 @@ func (m *statusModel) renderTable(builder *strings.Builder, width, height int) {
 	for index, header := range headers {
 		padded[index] = pad(header, widths[index])
 	}
-	builder.WriteString(dimStyle.Render(line(padded)) + "\n")
+	builder.WriteString(theme.Dim.Render(line(padded)) + "\n")
 	visible := max(height-1, 1)
 	offset := 0
 	if m.selected >= visible {
@@ -86,7 +87,7 @@ func (m *statusModel) renderTable(builder *strings.Builder, width, height int) {
 			texts[column] = pad(item.text, widths[column])
 		}
 		if index == m.selected {
-			builder.WriteString(reverseStyle.Render(line(texts)))
+			builder.WriteString(theme.Reverse.Render(line(texts)))
 		} else {
 			for column, item := range rows[index] {
 				texts[column] = item.style.Render(texts[column])

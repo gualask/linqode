@@ -7,6 +7,8 @@ import (
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/operations"
+	"github.com/gualask/linqode/internal/tui/follow"
+	"github.com/gualask/linqode/internal/tui/status"
 )
 
 // Info is the static context for the session, shown in the header.
@@ -37,6 +39,8 @@ type FetchHost func() (host.Metrics, error)
 // docker needs a second of sampling to derive a CPU percentage.
 type FetchStats func() ([]compose.ContainerStats, error)
 
+const logTail = 200
+
 // Backend adapts shared operations to the TUI's background-command model.
 // Action and Script are constrained operations; AdHoc is the explicitly
 // human-only `!` path.
@@ -52,14 +56,6 @@ type Backend struct {
 	AdHoc         func(command string) (operations.Feed, error)
 }
 
-type openLogsMsg struct{ title, service string }
-type openActionMsg struct {
-	title, service string
-	action         operations.ServiceAction
-}
-type openScriptMsg struct{ title, name string }
-type openAdHocMsg struct{ title, command string }
-
 // feedMsg is the outcome of starting a follow.
 type feedMsg struct {
 	title string
@@ -67,23 +63,11 @@ type feedMsg struct {
 	err   error
 }
 
-// closeFollowMsg asks the app to close the log view and return to status.
-type closeFollowMsg struct{}
-
-// openStatsMsg asks the app to start the status view's live resource stream.
-type openStatsMsg struct{}
-
-// statsFeedMsg is the outcome of starting that stream.
-type statsFeedMsg struct {
-	feed operations.Feed
-	err  error
-}
-
 type appModel struct {
-	info    Info
-	backend Backend
-	status  statusModel
-	logView *logsModel
+	info       Info
+	backend    Backend
+	status     *status.Model
+	followView *follow.Model
 
 	width, height int
 }
@@ -92,134 +76,116 @@ type appModel struct {
 // the system panel out, and nil Backend.Stats leaves the soft resource columns
 // out.
 func Run(info Info, backend Backend) error {
-	status := newStatusModel(info, backend.Services)
-	status.hostFetch = backend.Host
-	status.statsFetch = backend.Stats
-	status.liveStats = backend.LiveStats != nil
-	status.actionPreview = backend.ActionPreview
-	app := appModel{info: info, backend: backend, status: status}
+	statusView := status.New(status.Config{
+		Target:        info.Target,
+		ComposeDir:    info.ComposeDir,
+		Scripts:       info.Scripts,
+		Services:      backend.Services,
+		Host:          backend.Host,
+		Stats:         backend.Stats,
+		LiveStats:     backend.LiveStats != nil,
+		ActionPreview: backend.ActionPreview,
+	})
+	app := appModel{info: info, backend: backend, status: statusView}
 	_, err := tea.NewProgram(app, tea.WithAltScreen()).Run()
 	return err
 }
 
 func (m appModel) Init() tea.Cmd {
-	return m.status.init()
+	return m.status.Init()
 }
 
 func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		return m.resize(msg)
-	case openLogsMsg:
+	case status.OpenLogsMsg:
 		return m.openLogs(msg)
-	case openActionMsg:
+	case status.OpenActionMsg:
 		return m.openAction(msg)
-	case openScriptMsg:
+	case status.OpenScriptMsg:
 		return m.openScript(msg)
-	case openAdHocMsg:
+	case status.OpenAdHocMsg:
 		return m.openAdHoc(msg)
 	case feedMsg:
 		return m.applyFeed(msg)
-	case closeFollowMsg:
+	case follow.CloseMsg:
 		return m.closeFeed()
-	case autoTickMsg:
-		return m.handleAutoTick(msg)
-	case statsPollMsg:
-		return m.handleStatsPoll(msg)
-	case openStatsMsg:
+	case status.OpenStatsMsg:
 		return m.openLiveStats()
-	// These always belong to the status view, even while the log view is on
-	// screen: the live stream keeps running so returning to the table does
-	// not pay docker's sampling latency again, and a sample already in
-	// flight is worth applying.
-	case servicesMsg, hostMsg, statsFeedMsg, statsTickMsg, statsSampleMsg:
-		return m, m.status.update(msg)
 	}
 	return m.routeVisibleView(msg)
 }
 
 func (m appModel) resize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width, m.height = msg.Width, msg.Height
-	m.status.setSize(msg.Width, msg.Height)
-	if m.logView != nil {
-		m.logView.setSize(msg.Width, msg.Height)
+	m.status.SetSize(msg.Width, msg.Height)
+	if m.followView != nil {
+		m.followView.SetSize(msg.Width, msg.Height)
 	}
 	return m, nil
 }
 
-func (m appModel) openLogs(msg openLogsMsg) (tea.Model, tea.Cmd) {
-	return m, startFeed(msg.title, func() (operations.Feed, error) {
-		return m.backend.Logs(msg.service, logTail)
+func (m appModel) openLogs(msg status.OpenLogsMsg) (tea.Model, tea.Cmd) {
+	return m, startFeed(msg.Title, func() (operations.Feed, error) {
+		return m.backend.Logs(msg.Service, logTail)
 	})
 }
 
-func (m appModel) openAction(msg openActionMsg) (tea.Model, tea.Cmd) {
-	return m, startFeed(msg.title, func() (operations.Feed, error) {
-		return m.backend.Action(msg.action, msg.service)
+func (m appModel) openAction(msg status.OpenActionMsg) (tea.Model, tea.Cmd) {
+	return m, startFeed(msg.Title, func() (operations.Feed, error) {
+		return m.backend.Action(msg.Action, msg.Service)
 	})
 }
 
-func (m appModel) openScript(msg openScriptMsg) (tea.Model, tea.Cmd) {
-	return m, startFeed(msg.title, func() (operations.Feed, error) {
-		return m.backend.Script(msg.name)
+func (m appModel) openScript(msg status.OpenScriptMsg) (tea.Model, tea.Cmd) {
+	return m, startFeed(msg.Title, func() (operations.Feed, error) {
+		return m.backend.Script(msg.Name)
 	})
 }
 
-func (m appModel) openAdHoc(msg openAdHocMsg) (tea.Model, tea.Cmd) {
-	return m, startFeed(msg.title, func() (operations.Feed, error) {
-		return m.backend.AdHoc(msg.command)
+func (m appModel) openAdHoc(msg status.OpenAdHocMsg) (tea.Model, tea.Cmd) {
+	return m, startFeed(msg.Title, func() (operations.Feed, error) {
+		return m.backend.AdHoc(msg.Command)
 	})
 }
 
 func (m appModel) applyFeed(msg feedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
-		m.status.setError(msg.err.Error())
+		m.status.SetError(msg.err.Error())
 		return m, nil
 	}
-	view := newLogsModel(m.info.Target, msg.title, msg.feed)
-	view.setSize(m.width, m.height)
-	m.logView = &view
-	return m, view.init()
+	view := follow.New(m.info.Target, msg.title, msg.feed)
+	view.SetSize(m.width, m.height)
+	m.followView = view
+	return m, view.Init()
 }
 
 func (m appModel) closeFeed() (tea.Model, tea.Cmd) {
-	if m.logView != nil {
-		m.logView.feed.Stop()
-		m.logView = nil
+	if m.followView != nil {
+		m.followView.Stop()
+		m.followView = nil
 	}
 	// Refresh on return so an action's effect is visible immediately.
-	return m, m.status.refresh()
-}
-
-func (m appModel) handleAutoTick(msg autoTickMsg) (tea.Model, tea.Cmd) {
-	if m.logView != nil {
-		return m, autoTick() // keep the timer alive, skip the fetch
-	}
-	return m, m.status.update(msg)
-}
-
-func (m appModel) handleStatsPoll(msg statsPollMsg) (tea.Model, tea.Cmd) {
-	// A sample occupies the server for ~2 s, which is not worth paying for a
-	// table nobody is looking at.
-	if m.logView != nil {
-		return m, statsPollTick()
-	}
-	return m, m.status.update(msg)
+	return m, m.status.Refresh()
 }
 
 func (m appModel) openLiveStats() (tea.Model, tea.Cmd) {
 	follow := m.backend.LiveStats
 	return m, func() tea.Msg {
 		feed, err := follow()
-		return statsFeedMsg{feed: feed, err: err}
+		return status.StatsFeedMsg{Feed: feed, Err: err}
 	}
 }
 
 func (m appModel) routeVisibleView(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.logView != nil {
-		return m, m.logView.update(msg)
+	if m.followView != nil {
+		if cmd, handled := m.status.UpdateBackground(msg); handled {
+			return m, cmd
+		}
+		return m, m.followView.Update(msg)
 	}
-	return m, m.status.update(msg)
+	return m, m.status.Update(msg)
 }
 
 func startFeed(title string, start func() (operations.Feed, error)) tea.Cmd {
@@ -230,8 +196,8 @@ func startFeed(title string, start func() (operations.Feed, error)) tea.Cmd {
 }
 
 func (m appModel) View() string {
-	if m.logView != nil {
-		return m.logView.view()
+	if m.followView != nil {
+		return m.followView.View()
 	}
-	return m.status.view()
+	return m.status.View()
 }

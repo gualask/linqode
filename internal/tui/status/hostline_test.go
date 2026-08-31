@@ -1,4 +1,4 @@
-package tui
+package status
 
 // Tests for the status header's host resource line: when it appears, what
 // it drops, and how it survives a failed sample.
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gualask/linqode/internal/host"
+	"github.com/gualask/linqode/internal/tui/theme"
 )
 
 func sampleMetrics() host.Metrics {
@@ -26,8 +27,8 @@ func sampleMetrics() host.Metrics {
 
 // withHostFetch returns a model that has host metrics enabled; the function
 // itself is never called by these tests, which deliver samples directly.
-func withHostFetch() statusModel {
-	m := newStatusModel(Info{}, nil)
+func withHostFetch() *Model {
+	m := New(Config{})
 	m.hostFetch = func() (host.Metrics, error) { return host.Metrics{}, nil }
 	return m
 }
@@ -35,13 +36,13 @@ func withHostFetch() statusModel {
 func TestHostLineAppearsOnlyAfterFirstSample(t *testing.T) {
 	m := withHostFetch()
 	// "/cpu" rather than "load": the empty-table placeholder says "loading".
-	if strings.Contains(m.view(), "/cpu") {
-		t.Errorf("resource line shown before any sample arrived:\n%s", m.view())
+	if strings.Contains(m.View(), "/cpu") {
+		t.Errorf("resource line shown before any sample arrived:\n%s", m.View())
 	}
 
-	m.update(hostMsg{metrics: sampleMetrics()})
+	m.Update(hostMsg{metrics: sampleMetrics()})
 
-	view := m.view()
+	view := m.View()
 	for _, want := range []string{"load 0.50", "0.12/cpu", "mem", "disk", "up 1h30m"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("resource line missing %q:\n%s", want, view)
@@ -50,7 +51,7 @@ func TestHostLineAppearsOnlyAfterFirstSample(t *testing.T) {
 }
 
 func TestNoHostLineWithoutFetch(t *testing.T) {
-	m := newStatusModel(Info{}, nil)
+	m := New(Config{})
 	// Even if a sample somehow arrived, nothing is configured to produce
 	// one, and the header stays as it was.
 	if line := m.renderHostLine(); line != "" {
@@ -65,10 +66,10 @@ func TestNoHostLineWithoutFetch(t *testing.T) {
 // flagged, exactly as a failed service refresh keeps the last good table.
 func TestFailedHostSampleKeepsLastAndMarksStale(t *testing.T) {
 	m := withHostFetch()
-	m.update(hostMsg{metrics: sampleMetrics()})
-	m.update(hostMsg{err: errors.New("connection lost")})
+	m.Update(hostMsg{metrics: sampleMetrics()})
+	m.Update(hostMsg{err: errors.New("connection lost")})
 
-	view := m.view()
+	view := m.View()
 	if !strings.Contains(view, "load 0.50") {
 		t.Errorf("previous sample dropped after a failure:\n%s", view)
 	}
@@ -81,9 +82,9 @@ func TestFailedHostSampleKeepsLastAndMarksStale(t *testing.T) {
 		t.Errorf("host metrics error leaked into the view:\n%s", view)
 	}
 
-	m.update(hostMsg{metrics: sampleMetrics()})
-	if strings.Contains(m.view(), "stale") {
-		t.Errorf("stale flag survived a good sample:\n%s", m.view())
+	m.Update(hostMsg{metrics: sampleMetrics()})
+	if strings.Contains(m.View(), "stale") {
+		t.Errorf("stale flag survived a good sample:\n%s", m.View())
 	}
 }
 
@@ -91,7 +92,7 @@ func TestFailedHostSampleKeepsLastAndMarksStale(t *testing.T) {
 // line from the rest.
 func TestHostLineDropsUnreportedParts(t *testing.T) {
 	m := withHostFetch()
-	m.update(hostMsg{metrics: host.Metrics{Load1: 1.5, CPUs: 2}})
+	m.Update(hostMsg{metrics: host.Metrics{Load1: 1.5, CPUs: 2}})
 
 	line := m.renderHostLine()
 	if !strings.Contains(line, "load 1.50") {
@@ -113,7 +114,7 @@ func TestHostRefreshDoesNotOverlap(t *testing.T) {
 	if cmd := m.refreshHost(); cmd != nil {
 		t.Error("second refresh started while one was in flight")
 	}
-	m.update(hostMsg{metrics: sampleMetrics()})
+	m.Update(hostMsg{metrics: sampleMetrics()})
 	if cmd := m.refreshHost(); cmd == nil {
 		t.Error("refresh did not resume after the sample arrived")
 	}
@@ -157,19 +158,19 @@ func TestFormatUptime(t *testing.T) {
 // The thresholds are what make the line scannable; pin them so a refactor
 // cannot quietly turn every value green.
 func TestUsageAndLoadThresholds(t *testing.T) {
-	if usageStyle(50).GetForeground() != greenStyle.GetForeground() {
+	if usageStyle(50).GetForeground() != theme.Green.GetForeground() {
 		t.Error("50% should render green")
 	}
-	if usageStyle(80).GetForeground() != yellowStyle.GetForeground() {
+	if usageStyle(80).GetForeground() != theme.Yellow.GetForeground() {
 		t.Error("80% should render yellow")
 	}
-	if usageStyle(95).GetForeground() != redStyle.GetForeground() {
+	if usageStyle(95).GetForeground() != theme.Red.GetForeground() {
 		t.Error("95% should render red")
 	}
-	if loadStyle(0.5).GetForeground() != greenStyle.GetForeground() {
+	if loadStyle(0.5).GetForeground() != theme.Green.GetForeground() {
 		t.Error("half-busy load should render green")
 	}
-	if loadStyle(1.2).GetForeground() != redStyle.GetForeground() {
+	if loadStyle(1.2).GetForeground() != theme.Red.GetForeground() {
 		t.Error("load above one per core should render red")
 	}
 }

@@ -1,4 +1,4 @@
-package tui
+package status
 
 // The system panel: the machine's own resources down the right-hand side of
 // the status view, next to the service table.
@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/gualask/linqode/internal/tui/theme"
 )
 
 const (
@@ -31,27 +33,27 @@ const (
 
 // sidebarOn reports whether the system panel is shown. It needs a host
 // sample to show and a terminal wide enough not to squeeze the table.
-func (m *statusModel) sidebarOn() bool {
+func (m *Model) sidebarOn() bool {
 	return m.hostFetch != nil && m.width >= sidebarWidth+sidebarMinTable
 }
 
 // renderSystemPanel is the panel's text, unpadded and unbordered — the view
 // places it.
-func (m *statusModel) renderSystemPanel() string {
+func (m *Model) renderSystemPanel() string {
 	var lines []string
 	add := func(format string, args ...any) {
 		lines = append(lines, fmt.Sprintf(format, args...))
 	}
 
-	header := boldStyle.Render("system")
+	header := theme.Bold.Render("system")
 	if m.metricsStale {
-		header += dimStyle.Render("  (stale)")
+		header += theme.Dim.Render("  (stale)")
 	}
 	add("%s", header)
 	add("")
 
 	if !m.metricsLoaded {
-		add("%s", dimStyle.Render("(sampling…)"))
+		add("%s", theme.Dim.Render("(sampling…)"))
 	} else {
 		lines = append(lines, m.systemMetricLines()...)
 	}
@@ -66,7 +68,7 @@ func (m *statusModel) renderSystemPanel() string {
 // systemMetricLines is one labelled reading per resource, each followed by
 // its bar. A reading the host did not report is dropped entirely, like in
 // the compact line.
-func (m *statusModel) systemMetricLines() []string {
+func (m *Model) systemMetricLines() []string {
 	metrics := m.metrics
 	var lines []string
 	add := func(format string, args ...any) {
@@ -77,7 +79,7 @@ func (m *statusModel) systemMetricLines() []string {
 		perCPU := metrics.LoadPerCPU()
 		add("%-5s %s %s", "load",
 			loadStyle(perCPU).Render(fmt.Sprintf("%.2f", metrics.Load1)),
-			dimStyle.Render(fmt.Sprintf("%.2f/cpu", perCPU)))
+			theme.Dim.Render(fmt.Sprintf("%.2f/cpu", perCPU)))
 		// Load is not a percentage of anything, but per-CPU load is: 1.0 is
 		// a full machine, and beyond that the bar simply stays full.
 		add("%s", loadStyle(perCPU).Render(bar(perCPU*100, sidebarContent)))
@@ -100,7 +102,7 @@ func (m *statusModel) systemMetricLines() []string {
 		add("")
 	}
 	if metrics.Uptime > 0 {
-		add("%-5s %s", "up", dimStyle.Render(formatUptime(metrics.Uptime)))
+		add("%-5s %s", "up", theme.Dim.Render(formatUptime(metrics.Uptime)))
 	}
 	return lines
 }
@@ -108,7 +110,7 @@ func (m *statusModel) systemMetricLines() []string {
 // projectSummary counts the services by state, with anything unhealthy
 // called out: on a long table that one line is what says whether the
 // project is in trouble.
-func (m *statusModel) projectSummary() []string {
+func (m *Model) projectSummary() []string {
 	if len(m.services) == 0 {
 		return nil
 	}
@@ -139,9 +141,9 @@ func (m *statusModel) projectSummary() []string {
 	for _, state := range names {
 		parts = append(parts, stateStyle(state).Render(fmt.Sprintf("%d %s", states[state], state)))
 	}
-	lines := []string{strings.Join(parts, dimStyle.Render(" · "))}
+	lines := []string{strings.Join(parts, theme.Dim.Render(" · "))}
 	if unhealthy > 0 {
-		lines = append(lines, redStyle.Render(fmt.Sprintf("%d unhealthy", unhealthy)))
+		lines = append(lines, theme.Red.Render(fmt.Sprintf("%d unhealthy", unhealthy)))
 	}
 	return lines
 }

@@ -1,4 +1,4 @@
-package tui
+package status
 
 // Tests for the two resource modes: the periodic soft sample behind the
 // table's CPU and MEM columns, and the live stream behind the panel below
@@ -34,11 +34,11 @@ func liveReading(service, cpu, mem string) operations.Event {
 
 // withStatsFetch returns a model with the soft sample enabled. The function
 // itself is never called: these tests deliver samples directly.
-func withStatsFetch() statusModel {
-	m := newStatusModel(Info{ComposeDir: "/srv/app"}, nil)
+func withStatsFetch() *Model {
+	m := New(Config{ComposeDir: "/srv/app"})
 	m.statsFetch = func() ([]compose.ContainerStats, error) { return nil, nil }
 	m.liveStats = true
-	m.setSize(120, 24)
+	m.SetSize(120, 24)
 	return m
 }
 
@@ -57,18 +57,18 @@ func (s *statsStream) feed() operations.Feed {
 }
 
 // openLive drives the model through the toggle → feed handshake.
-func openLive(t *testing.T, m *statusModel) *statsStream {
+func openLive(t *testing.T, m *Model) *statsStream {
 	t.Helper()
-	cmd := m.update(key("a"))
+	cmd := m.Update(key("a"))
 	if cmd == nil {
 		t.Fatal("`a` did not start the live stream")
 	}
-	_, ok := cmd().(openStatsMsg)
+	_, ok := cmd().(OpenStatsMsg)
 	if !ok {
-		t.Fatalf("`a` produced %T, want openStatsMsg", cmd())
+		t.Fatalf("`a` produced %T, want OpenStatsMsg", cmd())
 	}
 	stream := newStatsStream()
-	m.update(statsFeedMsg{feed: stream.feed()})
+	m.Update(StatsFeedMsg{Feed: stream.feed()})
 	return stream
 }
 
@@ -77,29 +77,29 @@ func openLive(t *testing.T, m *statusModel) *statsStream {
 // table growing a column later.
 func TestStatsColumnsPresentBeforeFirstSample(t *testing.T) {
 	m := withStatsFetch()
-	m.update(servicesMsg{services: services("web", "db")})
+	m.Update(servicesMsg{services: services("web", "db")})
 
-	view := m.view()
+	view := m.View()
 	if !strings.Contains(view, "CPU") || !strings.Contains(view, "MEM") {
 		t.Errorf("resource columns missing before the first sample:\n%s", view)
 	}
 
 	// Without a fetch configured there is nothing to fill them, and they
 	// stay out of the table entirely.
-	off := newStatusModel(Info{}, nil)
-	off.setSize(120, 24)
-	off.update(servicesMsg{services: services("web")})
-	if strings.Contains(off.view(), "CPU") {
-		t.Errorf("resource columns present with no way to fill them:\n%s", off.view())
+	off := New(Config{})
+	off.SetSize(120, 24)
+	off.Update(servicesMsg{services: services("web")})
+	if strings.Contains(off.View(), "CPU") {
+		t.Errorf("resource columns present with no way to fill them:\n%s", off.View())
 	}
 }
 
 func TestSoftSampleFillsColumns(t *testing.T) {
 	m := withStatsFetch()
-	m.update(servicesMsg{services: services("web", "db")})
-	m.update(statsSampleMsg{stats: sample(reading("web", "12.34%", "153.6MiB"))})
+	m.Update(servicesMsg{services: services("web", "db")})
+	m.Update(statsSampleMsg{stats: sample(reading("web", "12.34%", "153.6MiB"))})
 
-	view := m.view()
+	view := m.View()
 	if !strings.Contains(view, "12.34%") {
 		t.Errorf("CPU reading not shown:\n%s", view)
 	}
@@ -120,15 +120,15 @@ func TestSoftSampleFillsColumns(t *testing.T) {
 // stopped, and its last numbers must not linger as if they were current.
 func TestSoftSampleReplacesPreviousReadings(t *testing.T) {
 	m := withStatsFetch()
-	m.update(servicesMsg{services: services("web", "db")})
-	m.update(statsSampleMsg{stats: sample(
+	m.Update(servicesMsg{services: services("web", "db")})
+	m.Update(statsSampleMsg{stats: sample(
 		reading("web", "12.34%", "153.6MiB"),
 		reading("db", "3.20%", "64MiB"),
 	)})
-	m.update(statsSampleMsg{stats: sample(reading("web", "12.34%", "153.6MiB"))})
+	m.Update(statsSampleMsg{stats: sample(reading("web", "12.34%", "153.6MiB"))})
 
-	if strings.Contains(m.view(), "3.20%") {
-		t.Errorf("reading of a vanished container survived the next sample:\n%s", m.view())
+	if strings.Contains(m.View(), "3.20%") {
+		t.Errorf("reading of a vanished container survived the next sample:\n%s", m.View())
 	}
 }
 
@@ -136,11 +136,11 @@ func TestSoftSampleReplacesPreviousReadings(t *testing.T) {
 // the header: a blip is not worth blanking the columns for.
 func TestFailedSoftSampleKeepsReadings(t *testing.T) {
 	m := withStatsFetch()
-	m.update(servicesMsg{services: services("web")})
-	m.update(statsSampleMsg{stats: sample(reading("web", "12.34%", "153.6MiB"))})
-	m.update(statsSampleMsg{err: errors.New("cannot connect to the docker daemon")})
+	m.Update(servicesMsg{services: services("web")})
+	m.Update(statsSampleMsg{stats: sample(reading("web", "12.34%", "153.6MiB"))})
+	m.Update(statsSampleMsg{err: errors.New("cannot connect to the docker daemon")})
 
-	view := m.view()
+	view := m.View()
 	if !strings.Contains(view, "12.34%") {
 		t.Errorf("readings dropped after a failed sample:\n%s", view)
 	}
@@ -148,8 +148,8 @@ func TestFailedSoftSampleKeepsReadings(t *testing.T) {
 		t.Errorf("sample failure not reported:\n%s", view)
 	}
 
-	m.update(statsSampleMsg{stats: sample(reading("web", "1.00%", "150MiB"))})
-	if strings.Contains(m.view(), "cannot connect") {
+	m.Update(statsSampleMsg{stats: sample(reading("web", "1.00%", "150MiB"))})
+	if strings.Contains(m.View(), "cannot connect") {
 		t.Error("error survived a good sample")
 	}
 }
@@ -162,7 +162,7 @@ func TestSoftSampleDoesNotOverlap(t *testing.T) {
 	if cmd := m.refreshStats(); cmd != nil {
 		t.Error("second sample started while one was in flight")
 	}
-	m.update(statsSampleMsg{stats: nil})
+	m.Update(statsSampleMsg{stats: nil})
 	if cmd := m.refreshStats(); cmd == nil {
 		t.Error("sampling did not resume after the previous one landed")
 	}
@@ -170,13 +170,13 @@ func TestSoftSampleDoesNotOverlap(t *testing.T) {
 
 func TestStatsPollTickKeepsTicking(t *testing.T) {
 	m := withStatsFetch()
-	if cmd := m.update(statsPollMsg{}); cmd == nil {
+	if cmd := m.Update(statsPollMsg{}); cmd == nil {
 		t.Error("the poll tick did not schedule the next one")
 	}
 	// With no fetch configured the tick still reschedules; only the sample
 	// is skipped.
-	off := newStatusModel(Info{}, nil)
-	if cmd := off.update(statsPollMsg{}); cmd == nil {
+	off := New(Config{})
+	if cmd := off.Update(statsPollMsg{}); cmd == nil {
 		t.Error("the poll tick stopped when no sample is configured")
 	}
 }

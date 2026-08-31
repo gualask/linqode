@@ -1,4 +1,4 @@
-package tui
+package status
 
 // Compose status view: the project's services in a table, refreshed
 // manually with `r` and automatically on an interval. A failed refresh
@@ -17,9 +17,6 @@ import (
 
 const autoRefresh = 5 * time.Second
 
-// logTail is how many lines of history `docker compose logs` starts with.
-const logTail = 200
-
 // servicesMsg is the outcome of a refresh, delivered asynchronously so the
 // UI never blocks on the SSH round-trip.
 type servicesMsg struct {
@@ -36,14 +33,14 @@ type hostMsg struct {
 	err     error
 }
 
-type statusModel struct {
-	info  Info
-	fetch Fetch
+type Model struct {
+	info  Config
+	fetch func() ([]compose.Service, error)
 	// actionPreview supplies the exact operations-owned command shown by the
 	// human confirmation menu.
 	actionPreview func(operations.ServiceAction, string) string
 	// hostFetch is optional: without it the header shows no resource line.
-	hostFetch FetchHost
+	hostFetch func() (host.Metrics, error)
 
 	// metrics is the last good host sample. A failed sample keeps it on
 	// screen and flags it stale, the same way a failed service refresh
@@ -54,7 +51,7 @@ type statusModel struct {
 	metricsRefreshing bool
 
 	// statsFetch is optional: without it the table has no resource columns.
-	statsFetch FetchStats
+	statsFetch func() ([]compose.ContainerStats, error)
 	// liveStats reports whether the backend exposes the on-demand stream.
 	liveStats bool
 
@@ -99,8 +96,15 @@ type statusModel struct {
 	width, height int
 }
 
-func newStatusModel(info Info, fetch Fetch) statusModel {
-	return statusModel{info: info, fetch: fetch}
+func New(config Config) *Model {
+	return &Model{
+		info:          config,
+		fetch:         config.Services,
+		hostFetch:     config.Host,
+		statsFetch:    config.Stats,
+		liveStats:     config.LiveStats,
+		actionPreview: config.ActionPreview,
+	}
 }
 
 // init returns the startup commands. It must not mutate state: Bubble Tea
@@ -109,13 +113,16 @@ func newStatusModel(info Info, fetch Fetch) statusModel {
 // The three fetches run on their own intervals — services and host metrics
 // every autoRefresh, container stats every statsPollInterval — so the slow
 // one never delays the cheap ones.
-func (m *statusModel) init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	return tea.Batch(m.refreshCmd(), m.hostRefreshCmd(), m.statsSampleCmd(),
 		autoTick(), statsPollTick())
 }
 
-func (m *statusModel) refreshCmd() tea.Cmd {
+func (m *Model) refreshCmd() tea.Cmd {
 	fetch := m.fetch
+	if fetch == nil {
+		return nil
+	}
 	return func() tea.Msg {
 		services, err := fetch()
 		return servicesMsg{services: services, err: err}
@@ -125,7 +132,7 @@ func (m *statusModel) refreshCmd() tea.Cmd {
 // hostRefreshCmd samples the host metrics, or nil when none are configured.
 // Separate from the service fetch: it is a different command on the server
 // (~2 ms against ~60 ms), and one failing must not blank the other.
-func (m *statusModel) hostRefreshCmd() tea.Cmd {
+func (m *Model) hostRefreshCmd() tea.Cmd {
 	fetch := m.hostFetch
 	if fetch == nil {
 		return nil
@@ -137,7 +144,7 @@ func (m *statusModel) hostRefreshCmd() tea.Cmd {
 }
 
 // refresh starts a fetch unless one is already running.
-func (m *statusModel) refresh() tea.Cmd {
+func (m *Model) Refresh() tea.Cmd {
 	if m.refreshing {
 		return nil
 	}
@@ -146,7 +153,7 @@ func (m *statusModel) refresh() tea.Cmd {
 }
 
 // refreshHost samples host metrics unless a sample is already in flight.
-func (m *statusModel) refreshHost() tea.Cmd {
+func (m *Model) refreshHost() tea.Cmd {
 	if m.hostFetch == nil || m.metricsRefreshing {
 		return nil
 	}
@@ -158,135 +165,10 @@ func autoTick() tea.Cmd {
 	return tea.Tick(autoRefresh, func(time.Time) tea.Msg { return autoTickMsg{} })
 }
 
-func (m *statusModel) setSize(width, height int) {
+func (m *Model) SetSize(width, height int) {
 	m.width, m.height = width, height
 }
 
-func (m *statusModel) setError(text string) {
+func (m *Model) SetError(text string) {
 	m.errText = text
-}
-
-func (m *statusModel) update(msg tea.Msg) tea.Cmd {
-	switch msg := msg.(type) {
-	case servicesMsg:
-		m.refreshing = false
-		m.loaded = true
-		if msg.err != nil {
-			m.errText = msg.err.Error()
-			return nil
-		}
-		// Keep the cursor on the same service across refreshes; if it is
-		// gone, stay at the same position, clamped into range.
-		if m.selected < len(m.services) {
-			name := m.services[m.selected].Name
-			for i, s := range msg.services {
-				if s.Name == name {
-					m.selected = i
-					break
-				}
-			}
-		}
-		m.services = msg.services
-		m.selected = min(m.selected, max(0, len(m.services)-1))
-		m.errText = ""
-
-	case statsSampleMsg:
-		m.statsRefreshing = false
-		if msg.err != nil {
-			// Like a failed host sample: the columns keep their last values
-			// and the table's own error reporting stays free for refresh
-			// failures, which are the ones worth acting on.
-			m.statsErr = msg.err.Error()
-			return nil
-		}
-		m.statsErr = ""
-		m.applySample(msg.stats)
-
-	case statsPollMsg:
-		return tea.Batch(m.refreshStats(), statsPollTick())
-
-	case statsFeedMsg:
-		m.statsStarting = false
-		if msg.err != nil {
-			m.statsErr = msg.err.Error()
-			return nil
-		}
-		feed := msg.feed
-		m.statsFeed = &feed
-		if m.stats == nil {
-			m.stats = map[string]compose.ContainerStats{}
-		}
-		return statsTick()
-
-	case statsTickMsg:
-		if m.statsFeed == nil {
-			return nil
-		}
-		if ended := m.drainStats(); ended {
-			// The stream stopped on its own (the project went away, or
-			// docker exited). Keep the last samples on screen but stop
-			// ticking for a feed that will never produce again, and let the
-			// soft poll take the columns back.
-			m.statsFeed.Stop()
-			m.statsFeed = nil
-			// The history ends with the stream: a later one would append to
-			// it across a gap and draw the two as if they were continuous.
-			m.history = nil
-			return m.refreshStats()
-		}
-		return statsTick()
-
-	case hostMsg:
-		m.metricsRefreshing = false
-		if msg.err != nil {
-			// Keep the last sample visible, marked stale: a blip in the
-			// metrics is not worth clearing the header for, and the service
-			// list carries its own error reporting.
-			m.metricsStale = true
-			return nil
-		}
-		m.metrics = msg.metrics
-		m.metricsLoaded = true
-		m.metricsStale = false
-
-	case autoTickMsg:
-		return tea.Batch(m.refresh(), m.refreshHost(), autoTick())
-
-	case tea.KeyMsg:
-		if m.commandPrompt {
-			return m.handleCommandKey(msg)
-		}
-		if m.menu != nil {
-			return m.handleMenuKey(msg)
-		}
-		switch msg.String() {
-		case "q", "esc", "ctrl+c":
-			return tea.Quit
-		case "j", "down":
-			m.move(1)
-		case "k", "up":
-			m.move(-1)
-		case "g", "home":
-			m.selected = 0
-		case "G", "end":
-			m.selected = max(0, len(m.services)-1)
-		case "r":
-			return m.refresh()
-		case "enter", "l":
-			if m.selected < len(m.services) {
-				service := m.services[m.selected].Service
-				return openLogs("logs: "+service, service)
-			}
-		case "c":
-			m.openActionMenu()
-		case "x":
-			m.openScriptMenu()
-		case "!":
-			m.commandPrompt, m.commandText = true, m.lastCommand
-			m.errText = ""
-		case "a":
-			return m.toggleLive()
-		}
-	}
-	return nil
 }

@@ -1,4 +1,4 @@
-package tui
+package status
 
 // Tests for the system panel: when it takes over from the compact host
 // line, what it reports, and that it never pushes the table off screen.
@@ -25,11 +25,11 @@ func headerLine(view string) string {
 
 func TestSidebarReplacesHostLineWhenWide(t *testing.T) {
 	m := withHostFetch()
-	m.setSize(120, 24)
-	m.update(servicesMsg{services: services("web")})
-	m.update(hostMsg{metrics: sampleMetrics()})
+	m.SetSize(120, 24)
+	m.Update(servicesMsg{services: services("web")})
+	m.Update(hostMsg{metrics: sampleMetrics()})
 
-	view := m.view()
+	view := m.View()
 	if !strings.Contains(view, "system") {
 		t.Errorf("system panel missing on a wide terminal:\n%s", view)
 	}
@@ -47,11 +47,11 @@ func TestSidebarReplacesHostLineWhenWide(t *testing.T) {
 // compact line comes back and the panel goes away.
 func TestSidebarYieldsToTheTableWhenNarrow(t *testing.T) {
 	m := withHostFetch()
-	m.setSize(80, 24)
-	m.update(servicesMsg{services: services("web")})
-	m.update(hostMsg{metrics: sampleMetrics()})
+	m.SetSize(80, 24)
+	m.Update(servicesMsg{services: services("web")})
+	m.Update(hostMsg{metrics: sampleMetrics()})
 
-	view := m.view()
+	view := m.View()
 	if strings.Contains(view, "system") {
 		t.Errorf("panel shown on a narrow terminal:\n%s", view)
 	}
@@ -63,32 +63,32 @@ func TestSidebarYieldsToTheTableWhenNarrow(t *testing.T) {
 // Host metrics off means no panel, however wide the terminal is: the whole
 // point of that switch is that nothing extra runs on the server.
 func TestNoSidebarWithoutHostMetrics(t *testing.T) {
-	m := newStatusModel(Info{}, nil)
-	m.setSize(200, 24)
-	m.update(servicesMsg{services: services("web")})
+	m := New(Config{})
+	m.SetSize(200, 24)
+	m.Update(servicesMsg{services: services("web")})
 
-	if strings.Contains(m.view(), "system") {
-		t.Errorf("panel shown with host metrics disabled:\n%s", m.view())
+	if strings.Contains(m.View(), "system") {
+		t.Errorf("panel shown with host metrics disabled:\n%s", m.View())
 	}
 }
 
 func TestSidebarBeforeFirstSample(t *testing.T) {
 	m := withHostFetch()
-	m.setSize(120, 24)
-	m.update(servicesMsg{services: services("web")})
+	m.SetSize(120, 24)
+	m.Update(servicesMsg{services: services("web")})
 
-	if !strings.Contains(m.view(), "sampling") {
-		t.Errorf("panel does not say it is waiting for its first sample:\n%s", m.view())
+	if !strings.Contains(m.View(), "sampling") {
+		t.Errorf("panel does not say it is waiting for its first sample:\n%s", m.View())
 	}
 }
 
 func TestSidebarFlagsStaleSample(t *testing.T) {
 	m := withHostFetch()
-	m.setSize(120, 24)
-	m.update(hostMsg{metrics: sampleMetrics()})
-	m.update(hostMsg{err: errors.New("connection lost")})
+	m.SetSize(120, 24)
+	m.Update(hostMsg{metrics: sampleMetrics()})
+	m.Update(hostMsg{err: errors.New("connection lost")})
 
-	view := m.view()
+	view := m.View()
 	if !strings.Contains(view, "stale") {
 		t.Errorf("stale sample not flagged in the panel:\n%s", view)
 	}
@@ -101,15 +101,15 @@ func TestSidebarFlagsStaleSample(t *testing.T) {
 // reading every row.
 func TestSidebarSummarisesTheProject(t *testing.T) {
 	m := withHostFetch()
-	m.setSize(120, 24)
-	m.update(servicesMsg{services: []compose.Service{
+	m.SetSize(120, 24)
+	m.Update(servicesMsg{services: []compose.Service{
 		{Service: "web", Name: "app-web-1", State: "running", Status: "Up"},
 		{Service: "api", Name: "app-api-1", State: "running", Status: "Up"},
 		{Service: "cache", Name: "app-cache-1", State: "running", Health: "unhealthy", Status: "Up"},
 		{Service: "migrate", Name: "app-migrate-1", State: "exited", Status: "Exited (0)"},
 	}})
 
-	view := m.view()
+	view := m.View()
 	for _, want := range []string{"3 running", "1 exited", "1 unhealthy"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("summary missing %q:\n%s", want, view)
@@ -122,18 +122,18 @@ func TestSidebarSummarisesTheProject(t *testing.T) {
 func TestSidebarKeepsTheViewWithinTheTerminal(t *testing.T) {
 	m := withHostFetch()
 	m.statsFetch = func() ([]compose.ContainerStats, error) { return nil, nil }
-	m.setSize(110, 24)
-	m.update(servicesMsg{services: services("web", "db", "cache")})
-	m.update(hostMsg{metrics: sampleMetrics()})
-	m.update(statsSampleMsg{stats: sample(reading("web", "12.34%", "153.6MiB"))})
+	m.SetSize(110, 24)
+	m.Update(servicesMsg{services: services("web", "db", "cache")})
+	m.Update(hostMsg{metrics: sampleMetrics()})
+	m.Update(statsSampleMsg{stats: sample(reading("web", "12.34%", "153.6MiB"))})
 
-	for i, line := range strings.Split(m.view(), "\n") {
+	for i, line := range strings.Split(m.View(), "\n") {
 		if width := lipgloss.Width(line); width > 110 {
 			t.Errorf("line %d is %d columns wide, terminal is 110: %q", i, width, line)
 		}
 	}
 	// The table keeps its columns next to the panel.
-	view := m.view()
+	view := m.View()
 	for _, want := range []string{"SERVICE", "STATE", "HEALTH", "CPU", "MEM", "STATUS"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("column %q lost to the panel:\n%s", want, view)

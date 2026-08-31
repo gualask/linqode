@@ -1,19 +1,20 @@
-package tui
+package status
 
 import (
 	"fmt"
 	"strings"
 
 	"github.com/gualask/linqode/internal/compose"
+	"github.com/gualask/linqode/internal/tui/theme"
 )
 
 // statsCells are a container's CPU and memory readings, dimmed placeholders
 // until its first sample arrives — a container can appear in `ps` before
 // stats have been taken for it.
-func (m *statusModel) statsCells(container string) []cell {
+func (m *Model) statsCells(container string) []cell {
 	stats, ok := m.stats[container]
 	if !ok {
-		return []cell{{text: "-", style: dimStyle}, {text: "-", style: dimStyle}}
+		return []cell{{text: "-", style: theme.Dim}, {text: "-", style: theme.Dim}}
 	}
 	cpu := cell{text: stats.CPUPerc}
 	if percent, ok := stats.CPUPercent(); ok {
@@ -26,7 +27,7 @@ func (m *statusModel) statsCells(container string) []cell {
 	return []cell{cpu, mem}
 }
 
-func (m *statusModel) liveRows() []compose.Service {
+func (m *Model) liveRows() []compose.Service {
 	var rows []compose.Service
 	for _, service := range m.services {
 		if _, ok := m.stats[service.Name]; ok {
@@ -39,24 +40,24 @@ func (m *statusModel) liveRows() []compose.Service {
 	return rows
 }
 
-func (m *statusModel) liveHeight() int {
+func (m *Model) liveHeight() int {
 	if !m.liveActive() {
 		return 0
 	}
 	return 2 + max(len(m.liveRows()), 1)
 }
 
-func (m *statusModel) renderLivePanel(width int) string {
+func (m *Model) renderLivePanel(width int) string {
 	rows := m.liveRows()
 	title := m.liveTitle()
-	rule := dimStyle.Render(" ──" + title + strings.Repeat("─", max(width-len(title)-4, 0)))
+	rule := theme.Dim.Render(" ──" + title + strings.Repeat("─", max(width-len(title)-4, 0)))
 	if len(rows) == 0 {
-		return rule + "\n" + dimStyle.Render("  "+m.emptyLiveHint())
+		return rule + "\n" + theme.Dim.Render("  "+m.emptyLiveHint())
 	}
 	return rule + "\n" + strings.Join(m.renderLiveRows(rows, width), "\n")
 }
 
-func (m *statusModel) liveTitle() string {
+func (m *Model) liveTitle() string {
 	if m.statsStarting {
 		return " live · starting… "
 	}
@@ -70,14 +71,14 @@ func (m *statusModel) liveTitle() string {
 	return " live "
 }
 
-func (m *statusModel) emptyLiveHint() string {
+func (m *Model) emptyLiveHint() string {
 	if m.statsStarting {
 		return "(waiting for the first sample…)"
 	}
 	return "(no running containers to sample)"
 }
 
-func (m *statusModel) renderLiveRows(rows []compose.Service, width int) []string {
+func (m *Model) renderLiveRows(rows []compose.Service, width int) []string {
 	nameWidth := 0
 	for _, service := range rows {
 		nameWidth = max(nameWidth, len(service.Service))
@@ -95,7 +96,7 @@ func (m *statusModel) renderLiveRows(rows []compose.Service, width int) []string
 	return lines
 }
 
-func (m *statusModel) renderLiveRow(service compose.Service, nameWidth, sparkWidth int) string {
+func (m *Model) renderLiveRow(service compose.Service, nameWidth, sparkWidth int) string {
 	const cpuWidth, memWidth = 7, 9
 	stats := m.stats[service.Name]
 	series := m.history[service.Name]
@@ -105,11 +106,11 @@ func (m *statusModel) renderLiveRow(service compose.Service, nameWidth, sparkWid
 	}
 	line := fmt.Sprintf(" %-*s  %s", nameWidth, service.Service, cpuText)
 	if sparkWidth > 0 {
-		line += "  " + cyanStyle.Render(sparkline(series, sparkWidth))
+		line += "  " + theme.Cyan.Render(sparkline(series, sparkWidth))
 	}
 	line += fmt.Sprintf("  %*s", memWidth, stats.MemAmount())
 	if peak := peakOf(series); peak > 0 {
-		line += dimStyle.Render(fmt.Sprintf("  peak %5.1f%%", peak))
+		line += theme.Dim.Render(fmt.Sprintf("  peak %5.1f%%", peak))
 	}
 	return line
 }

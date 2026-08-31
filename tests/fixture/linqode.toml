@@ -19,7 +19,7 @@ compose_dir = "/srv/demo"
 
 # Something for the scripts menu (`x`) to run.
 [hosts.fixture.scripts]
-disk = "df -h"
+disk = "df -h /"
 uptime = "uptime"
 containers = "docker ps --format 'table {{.Names}}\t{{.Status}}'"
 images = "docker images"

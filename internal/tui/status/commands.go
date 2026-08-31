@@ -1,4 +1,4 @@
-package tui
+package status
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/gualask/linqode/internal/operations"
+	"github.com/gualask/linqode/internal/tui/theme"
 )
 
 type menuEntry struct {
@@ -22,7 +23,7 @@ type menu struct {
 	key      string
 }
 
-func (m *statusModel) move(delta int) {
+func (m *Model) move(delta int) {
 	if len(m.services) == 0 {
 		return
 	}
@@ -34,10 +35,10 @@ func openRequest(message tea.Msg) tea.Cmd {
 }
 
 func openLogs(title, service string) tea.Cmd {
-	return openRequest(openLogsMsg{title: title, service: service})
+	return openRequest(OpenLogsMsg{Title: title, Service: service})
 }
 
-func (m *statusModel) openActionMenu() {
+func (m *Model) openActionMenu() {
 	if m.selected >= len(m.services) {
 		return
 	}
@@ -53,15 +54,15 @@ func (m *statusModel) openActionMenu() {
 		}
 		entries[index] = menuEntry{
 			label: action.Verb() + " " + service, detail: detail,
-			request: openActionMsg{
-				title: action.Verb() + ": " + service, service: service, action: action,
+			request: OpenActionMsg{
+				Title: action.Verb() + ": " + service, Service: service, Action: action,
 			},
 		}
 	}
 	m.menu = &menu{entries: entries, key: "c"}
 }
 
-func (m *statusModel) openScriptMenu() {
+func (m *Model) openScriptMenu() {
 	if len(m.info.Scripts) == 0 {
 		m.errText = "no scripts configured for this host"
 		return
@@ -70,13 +71,13 @@ func (m *statusModel) openScriptMenu() {
 	for index, script := range m.info.Scripts {
 		entries[index] = menuEntry{
 			label: script.Name, detail: script.Command,
-			request: openScriptMsg{title: "script: " + script.Name, name: script.Name},
+			request: OpenScriptMsg{Title: "script: " + script.Name, Name: script.Name},
 		}
 	}
 	m.menu = &menu{entries: entries, key: "x"}
 }
 
-func (m *statusModel) handleCommandKey(key tea.KeyMsg) tea.Cmd {
+func (m *Model) handleCommandKey(key tea.KeyMsg) tea.Cmd {
 	switch key.String() {
 	case "esc":
 		m.commandPrompt, m.commandText = false, ""
@@ -94,17 +95,17 @@ func (m *statusModel) handleCommandKey(key tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-func (m *statusModel) submitAdHocCommand() tea.Cmd {
+func (m *Model) submitAdHocCommand() tea.Cmd {
 	command := strings.TrimSpace(m.commandText)
 	m.commandPrompt, m.commandText = false, ""
 	if command == "" {
 		return nil
 	}
 	m.lastCommand = command
-	return openRequest(openAdHocMsg{title: "$ " + command, command: command})
+	return openRequest(OpenAdHocMsg{Title: "$ " + command, Command: command})
 }
 
-func (m *statusModel) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
 	case "esc", "q", m.menu.key:
 		m.menu = nil
@@ -120,7 +121,7 @@ func (m *statusModel) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-func (m *statusModel) renderMenu(width, height int) string {
+func (m *Model) renderMenu(width, height int) string {
 	labelWidth := 0
 	for _, entry := range m.menu.entries {
 		labelWidth = max(labelWidth, len(entry.label))
@@ -129,9 +130,9 @@ func (m *statusModel) renderMenu(width, height int) string {
 	for index, entry := range m.menu.entries {
 		line := fmt.Sprintf(" %-*s  ", labelWidth, entry.label)
 		if index == m.menu.selected {
-			lines = append(lines, reverseStyle.Render(line+entry.detail+" "))
+			lines = append(lines, theme.Reverse.Render(line+entry.detail+" "))
 		} else {
-			lines = append(lines, boldStyle.Render(line)+dimStyle.Render(entry.detail+" "))
+			lines = append(lines, theme.Bold.Render(line)+theme.Dim.Render(entry.detail+" "))
 		}
 	}
 	view := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).

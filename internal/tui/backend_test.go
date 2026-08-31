@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gualask/linqode/internal/operations"
+	"github.com/gualask/linqode/internal/tui/status"
 )
 
 func TestAppRoutesLogsThroughTypedBackend(t *testing.T) {
@@ -21,7 +22,7 @@ func TestAppRoutesLogsThroughTypedBackend(t *testing.T) {
 	}
 	model := appModel{backend: backend}
 
-	_, command := model.Update(openLogsMsg{title: "logs: web", service: "web"})
+	_, command := model.Update(status.OpenLogsMsg{Title: "logs: web", Service: "web"})
 	message, ok := command().(feedMsg)
 	if !ok || message.err != nil {
 		t.Fatalf("message = %#v", command())
@@ -46,8 +47,8 @@ func TestAppRoutesActionsThroughTypedBackend(t *testing.T) {
 	}
 	model := appModel{backend: backend}
 
-	_, command := model.Update(openActionMsg{
-		title: "restart: web", action: operations.ActionRestart, service: "web",
+	_, command := model.Update(status.OpenActionMsg{
+		Title: "restart: web", Action: operations.ActionRestart, Service: "web",
 	})
 	message, ok := command().(feedMsg)
 	if !ok || message.err != nil {
@@ -72,7 +73,7 @@ func TestAppRoutesScriptsByConfiguredName(t *testing.T) {
 	}
 	model := appModel{backend: backend}
 
-	_, command := model.Update(openScriptMsg{title: "script: deploy", name: "deploy"})
+	_, command := model.Update(status.OpenScriptMsg{Title: "script: deploy", Name: "deploy"})
 	message, ok := command().(feedMsg)
 	if !ok || message.err != nil {
 		t.Fatalf("message = %#v", command())
@@ -92,7 +93,7 @@ func TestAppKeepsHumanCommandsOnAdHocBackend(t *testing.T) {
 	}
 	model := appModel{backend: backend}
 
-	_, command := model.Update(openAdHocMsg{title: "$ uptime", command: "uptime"})
+	_, command := model.Update(status.OpenAdHocMsg{Title: "$ uptime", Command: "uptime"})
 	message, ok := command().(feedMsg)
 	if !ok || message.err != nil {
 		t.Fatalf("message = %#v", command())
@@ -111,9 +112,9 @@ func TestAppRoutesLiveStatsThroughTypedBackend(t *testing.T) {
 		},
 	}}
 
-	_, command := model.Update(openStatsMsg{})
-	message, ok := command().(statsFeedMsg)
-	if !ok || message.err != nil {
+	_, command := model.Update(status.OpenStatsMsg{})
+	message, ok := command().(status.StatsFeedMsg)
+	if !ok || message.Err != nil {
 		t.Fatalf("message = %#v", command())
 	}
 	if !called {

@@ -5,11 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"strconv"
 	"strings"
-	"sync"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -44,27 +42,6 @@ type ExecOutput struct {
 	Stdout []byte
 	Stderr []byte
 	// ExitCode is -1 when the remote side reported none.
-	ExitCode int
-}
-
-// ExecEventKind discriminates the events of a streaming command.
-type ExecEventKind int
-
-const (
-	// ExecStdout carries a chunk of standard output in Data.
-	ExecStdout ExecEventKind = iota
-	// ExecStderr carries a chunk of standard error in Data.
-	ExecStderr
-	// ExecExit carries the command's exit code in ExitCode; it is the last
-	// event when the remote side reports one.
-	ExecExit
-)
-
-// ExecEvent is one chunk of output, or the exit report, of a streaming
-// remote command.
-type ExecEvent struct {
-	Kind     ExecEventKind
-	Data     []byte
 	ExitCode int
 }
 
@@ -232,93 +209,6 @@ func (s *Session) Exec(ctx context.Context, command string) (ExecOutput, error) 
 		return out, err
 	}
 	return out, nil
-}
-
-// ExecStream starts command and streams its output as events. The channel
-// closes when the command ends; ExecExit is the last event when the remote
-// side reports an exit code. Cancelling ctx terminates the remote command
-// (SIGTERM, honored by modern sshd, then channel close — a follower that
-// misses the signal dies of SIGPIPE on its next write) and closes the
-// channel, so an abandoned stream never leaks a follower process.
-func (s *Session) ExecStream(ctx context.Context, command string) (<-chan ExecEvent, error) {
-	sess, err := s.client.NewSession()
-	if err != nil {
-		return nil, err
-	}
-	stdout, err := sess.StdoutPipe()
-	if err != nil {
-		sess.Close()
-		return nil, err
-	}
-	stderr, err := sess.StderrPipe()
-	if err != nil {
-		sess.Close()
-		return nil, err
-	}
-	if err := sess.Start(command); err != nil {
-		sess.Close()
-		return nil, err
-	}
-
-	events := make(chan ExecEvent, 32)
-	send := func(ev ExecEvent) bool {
-		select {
-		case events <- ev:
-			return true
-		case <-ctx.Done():
-			return false
-		}
-	}
-
-	var readers sync.WaitGroup
-	pump := func(r io.Reader, kind ExecEventKind) {
-		defer readers.Done()
-		buf := make([]byte, 32*1024)
-		for {
-			n, err := r.Read(buf)
-			if n > 0 {
-				if !send(ExecEvent{Kind: kind, Data: bytes.Clone(buf[:n])}) {
-					return
-				}
-			}
-			if err != nil {
-				return
-			}
-		}
-	}
-	readers.Add(2)
-	go pump(stdout, ExecStdout)
-	go pump(stderr, ExecStderr)
-
-	// The controller tears the command down on cancel, which unblocks the
-	// readers; with no cancel it waits for them and reports the exit.
-	go func() {
-		defer close(events)
-		finished := make(chan struct{})
-		go func() {
-			readers.Wait()
-			close(finished)
-		}()
-		select {
-		case <-ctx.Done():
-			terminate(sess)
-			<-finished
-			return
-		case <-finished:
-		}
-		err := sess.Wait()
-		sess.Close()
-		var exitErr *ssh.ExitError
-		switch {
-		case err == nil:
-			send(ExecEvent{Kind: ExecExit, ExitCode: 0})
-		case errors.As(err, &exitErr):
-			send(ExecEvent{Kind: ExecExit, ExitCode: exitErr.ExitStatus()})
-		default:
-			// Cancelled or transport gone: no exit to report.
-		}
-	}()
-	return events, nil
 }
 
 // terminate ends a remote command: terminate signal, then channel close.

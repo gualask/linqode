@@ -1,4 +1,4 @@
-package tui
+package status
 
 // Unit tests for the status model: Bubble Tea models are pure
 // update/view functions, so view logic that stayed untested in the Rust
@@ -31,33 +31,67 @@ func key(k string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
 }
 
+func TestUpdateBackgroundKeepsTimersWithoutStartingHiddenFetches(t *testing.T) {
+	servicesCalls, statsCalls := 0, 0
+	m := New(Config{
+		Services: func() ([]compose.Service, error) {
+			servicesCalls++
+			return nil, nil
+		},
+		Stats: func() ([]compose.ContainerStats, error) {
+			statsCalls++
+			return nil, nil
+		},
+	})
+
+	if cmd, handled := m.UpdateBackground(autoTickMsg{}); !handled || cmd == nil {
+		t.Fatal("background auto tick was not rescheduled")
+	}
+	if cmd, handled := m.UpdateBackground(statsPollMsg{}); !handled || cmd == nil {
+		t.Fatal("background stats poll was not rescheduled")
+	}
+	if servicesCalls != 0 || statsCalls != 0 || m.refreshing || m.statsRefreshing {
+		t.Fatal("background timers started a hidden fetch")
+	}
+
+	if _, handled := m.UpdateBackground(servicesMsg{services: services("web")}); !handled {
+		t.Fatal("in-flight status result was not handled in the background")
+	}
+	if !m.loaded || len(m.services) != 1 {
+		t.Fatal("in-flight status result was not applied")
+	}
+	if _, handled := m.UpdateBackground(key("j")); handled {
+		t.Fatal("status handled a key while hidden")
+	}
+}
+
 func TestRefreshPreservesSelectionByName(t *testing.T) {
-	m := newStatusModel(Info{}, nil)
-	m.update(servicesMsg{services: services("db", "web", "worker")})
-	m.update(key("j")) // select "web"
+	m := New(Config{})
+	m.Update(servicesMsg{services: services("db", "web", "worker")})
+	m.Update(key("j")) // select "web"
 
 	// "db" disappeared: the cursor must stay on "web", now at index 0.
-	m.update(servicesMsg{services: services("web", "worker")})
+	m.Update(servicesMsg{services: services("web", "worker")})
 	if m.services[m.selected].Service != "web" {
 		t.Errorf("selected %q, want web", m.services[m.selected].Service)
 	}
 
 	// The selected service disappeared: the cursor clamps into range.
-	m.update(servicesMsg{services: services("worker")})
+	m.Update(servicesMsg{services: services("worker")})
 	if m.selected != 0 {
 		t.Errorf("selected index %d, want 0", m.selected)
 	}
 }
 
 func TestFailedRefreshKeepsServicesAndShowsError(t *testing.T) {
-	m := newStatusModel(Info{}, nil)
-	m.update(servicesMsg{services: services("db", "web")})
-	m.update(servicesMsg{err: errors.New("connection lost")})
+	m := New(Config{})
+	m.Update(servicesMsg{services: services("db", "web")})
+	m.Update(servicesMsg{err: errors.New("connection lost")})
 
 	if len(m.services) != 2 {
 		t.Errorf("previous services dropped: %+v", m.services)
 	}
-	view := m.view()
+	view := m.View()
 	if !strings.Contains(view, "connection lost") {
 		t.Errorf("error not shown:\n%s", view)
 	}
@@ -66,65 +100,65 @@ func TestFailedRefreshKeepsServicesAndShowsError(t *testing.T) {
 	}
 
 	// The next successful refresh clears the error.
-	m.update(servicesMsg{services: services("db", "web")})
-	if strings.Contains(m.view(), "connection lost") {
+	m.Update(servicesMsg{services: services("db", "web")})
+	if strings.Contains(m.View(), "connection lost") {
 		t.Error("error not cleared after a good refresh")
 	}
 }
 
 func TestSelectionClampsAtBounds(t *testing.T) {
-	m := newStatusModel(Info{}, nil)
-	m.update(servicesMsg{services: services("a", "b")})
+	m := New(Config{})
+	m.Update(servicesMsg{services: services("a", "b")})
 
-	m.update(key("k"))
+	m.Update(key("k"))
 	if m.selected != 0 {
 		t.Errorf("selected %d after k at top, want 0", m.selected)
 	}
-	m.update(key("j"))
-	m.update(key("j"))
+	m.Update(key("j"))
+	m.Update(key("j"))
 	if m.selected != 1 {
 		t.Errorf("selected %d after j at bottom, want 1", m.selected)
 	}
-	m.update(key("g"))
+	m.Update(key("g"))
 	if m.selected != 0 {
 		t.Errorf("selected %d after g, want 0", m.selected)
 	}
-	m.update(key("G"))
+	m.Update(key("G"))
 	if m.selected != 1 {
 		t.Errorf("selected %d after G, want 1", m.selected)
 	}
 }
 
 func TestViewStatesWithoutServices(t *testing.T) {
-	m := newStatusModel(Info{Target: "deploy@prod"}, nil)
-	if view := m.view(); !strings.Contains(view, "loading") {
+	m := New(Config{Target: "deploy@prod"})
+	if view := m.View(); !strings.Contains(view, "loading") {
 		t.Errorf("initial view:\n%s", view)
 	}
-	m.update(servicesMsg{services: nil})
-	if view := m.view(); !strings.Contains(view, "no services") {
+	m.Update(servicesMsg{services: nil})
+	if view := m.View(); !strings.Contains(view, "no services") {
 		t.Errorf("empty view:\n%s", view)
 	}
-	m2 := newStatusModel(Info{}, nil)
-	m2.update(servicesMsg{err: errors.New("boom")})
-	if view := m2.view(); !strings.Contains(view, "no data") {
+	m2 := New(Config{})
+	m2.Update(servicesMsg{err: errors.New("boom")})
+	if view := m2.View(); !strings.Contains(view, "no data") {
 		t.Errorf("error-without-data view:\n%s", view)
 	}
 }
 
 func TestRestartsColumnAppearsOnlyWithCounts(t *testing.T) {
-	m := newStatusModel(Info{Target: "deploy@prod"}, nil)
-	m.setSize(120, 20)
-	m.update(servicesMsg{services: services("web", "db")})
-	if strings.Contains(m.view(), "RESTARTS") {
-		t.Errorf("column shown without any count:\n%s", m.view())
+	m := New(Config{Target: "deploy@prod"})
+	m.SetSize(120, 20)
+	m.Update(servicesMsg{services: services("web", "db")})
+	if strings.Contains(m.View(), "RESTARTS") {
+		t.Errorf("column shown without any count:\n%s", m.View())
 	}
 
 	// A refresh whose inspect answered brings the column with it.
 	list := services("web", "db")
 	compose.ApplyRestarts(list, map[string]int{"app-web-1": 0, "app-db-1": 12})
-	m.update(servicesMsg{services: list})
+	m.Update(servicesMsg{services: list})
 
-	view := m.view()
+	view := m.View()
 	if !strings.Contains(view, "RESTARTS") {
 		t.Errorf("column missing:\n%s", view)
 	}
@@ -148,37 +182,37 @@ func TestRestartStyleEscalatesWithTheCount(t *testing.T) {
 }
 
 func TestAdHocCommandPromptRunsWhatWasTyped(t *testing.T) {
-	m := newStatusModel(Info{ComposeDir: "/srv/app"}, nil)
-	m.update(servicesMsg{services: services("web")})
-	m.update(key("!"))
+	m := New(Config{ComposeDir: "/srv/app"})
+	m.Update(servicesMsg{services: services("web")})
+	m.Update(key("!"))
 	if !m.commandPrompt {
 		t.Fatal("! should open the prompt")
 	}
 	// While the prompt is open the keys type instead of acting: `q` must
 	// not quit, `j` must not move the selection.
 	for _, k := range []string{"q", "j", " ", "-", "h"} {
-		if cmd := m.update(key(k)); cmd != nil {
+		if cmd := m.Update(key(k)); cmd != nil {
 			t.Fatalf("key %q acted while typing", k)
 		}
 	}
 	if m.commandText != "qj -h" {
 		t.Errorf("typed text %q", m.commandText)
 	}
-	if !strings.Contains(m.view(), "$ qj -h") {
-		t.Errorf("prompt not shown:\n%s", m.view())
+	if !strings.Contains(m.View(), "$ qj -h") {
+		t.Errorf("prompt not shown:\n%s", m.View())
 	}
 
-	cmd := m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("enter should run the command")
 	}
-	msg, ok := cmd().(openAdHocMsg)
+	msg, ok := cmd().(OpenAdHocMsg)
 	if !ok {
 		t.Fatalf("got %T", cmd())
 	}
 	// Sent as typed: what the user writes runs where plain ssh would run
 	// it, not inside the compose directory.
-	if msg.command != "qj -h" || msg.title != "$ qj -h" {
+	if msg.Command != "qj -h" || msg.Title != "$ qj -h" {
 		t.Errorf("%+v", msg)
 	}
 	if m.commandPrompt {
@@ -187,33 +221,33 @@ func TestAdHocCommandPromptRunsWhatWasTyped(t *testing.T) {
 }
 
 func TestAdHocPromptCancelsAndRemembers(t *testing.T) {
-	m := newStatusModel(Info{}, nil)
-	m.update(servicesMsg{services: services("web")})
+	m := New(Config{})
+	m.Update(servicesMsg{services: services("web")})
 
 	// An empty command is a no-op, not a remote `sh -c ''`.
-	m.update(key("!"))
-	if cmd := m.update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+	m.Update(key("!"))
+	if cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
 		t.Error("empty command should not run")
 	}
 
-	m.update(key("!"))
-	m.update(key("d"))
-	m.update(key("f"))
-	m.update(tea.KeyMsg{Type: tea.KeyBackspace})
-	m.update(key("h"))
-	m.update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(key("!"))
+	m.Update(key("d"))
+	m.Update(key("f"))
+	m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m.Update(key("h"))
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	// Esc cancels without running, and the prompt reopens on the last
 	// command so a typo is edited rather than retyped.
-	m.update(key("!"))
+	m.Update(key("!"))
 	if m.commandText != "dh" {
 		t.Errorf("prompt reopened with %q, want the last command", m.commandText)
 	}
-	m.update(tea.KeyMsg{Type: tea.KeyEsc})
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if m.commandPrompt {
 		t.Error("esc should close the prompt")
 	}
-	if m.update(key("j")); m.selected != 0 {
+	if m.Update(key("j")); m.selected != 0 {
 		t.Error("keys should act again after esc")
 	}
 }

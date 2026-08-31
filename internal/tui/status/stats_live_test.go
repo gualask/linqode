@@ -1,4 +1,4 @@
-package tui
+package status
 
 import (
 	"errors"
@@ -14,17 +14,17 @@ import (
 
 func TestSoftPollStandsDownWhileLive(t *testing.T) {
 	m := withStatsFetch()
-	m.update(servicesMsg{services: services("web")})
-	stream := openLive(t, &m)
+	m.Update(servicesMsg{services: services("web")})
+	stream := openLive(t, m)
 	if cmd := m.refreshStats(); cmd != nil {
 		t.Error("a soft sample started while the live stream was running")
 	}
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
-	m.update(statsTickMsg{})
-	if !strings.Contains(m.view(), "12.34%") {
-		t.Errorf("live samples did not reach the columns:\n%s", m.view())
+	m.Update(statsTickMsg{})
+	if !strings.Contains(m.View(), "12.34%") {
+		t.Errorf("live samples did not reach the columns:\n%s", m.View())
 	}
-	m.update(key("a"))
+	m.Update(key("a"))
 	if cmd := m.refreshStats(); cmd == nil {
 		t.Error("the soft poll did not resume after the stream closed")
 	}
@@ -32,35 +32,35 @@ func TestSoftPollStandsDownWhileLive(t *testing.T) {
 
 func TestClosingLiveKeepsReadingsOnlyWhenPolled(t *testing.T) {
 	m := withStatsFetch()
-	m.update(servicesMsg{services: services("web")})
-	stream := openLive(t, &m)
+	m.Update(servicesMsg{services: services("web")})
+	stream := openLive(t, m)
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
-	m.update(statsTickMsg{})
-	m.update(key("a"))
+	m.Update(statsTickMsg{})
+	m.Update(key("a"))
 	if !stream.stopped {
 		t.Error("closing the panel left the remote docker stats running")
 	}
-	if !strings.Contains(m.view(), "12.34%") {
-		t.Errorf("readings dropped although the soft poll owns them:\n%s", m.view())
+	if !strings.Contains(m.View(), "12.34%") {
+		t.Errorf("readings dropped although the soft poll owns them:\n%s", m.View())
 	}
-	unpolled := newStatusModel(Info{ComposeDir: "/srv/app"}, nil)
+	unpolled := New(Config{ComposeDir: "/srv/app"})
 	unpolled.liveStats = true
-	unpolled.setSize(120, 24)
-	unpolled.update(servicesMsg{services: services("web")})
-	stream = openLive(t, &unpolled)
+	unpolled.SetSize(120, 24)
+	unpolled.Update(servicesMsg{services: services("web")})
+	stream = openLive(t, unpolled)
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
-	unpolled.update(statsTickMsg{})
-	unpolled.update(key("a"))
-	view := unpolled.view()
+	unpolled.Update(statsTickMsg{})
+	unpolled.Update(key("a"))
+	view := unpolled.View()
 	if strings.Contains(view, "12.34%") || strings.Contains(view, "CPU") {
 		t.Errorf("stale live readings survived without a poller:\n%s", view)
 	}
 }
 
 func TestLiveStatsUnavailableWithoutCapability(t *testing.T) {
-	m := newStatusModel(Info{ComposeDir: "/srv/app"}, nil)
-	m.setSize(120, 24)
-	if cmd := m.update(key("a")); cmd != nil {
+	m := New(Config{ComposeDir: "/srv/app"})
+	m.SetSize(120, 24)
+	if cmd := m.Update(key("a")); cmd != nil {
 		t.Fatal("`a` started live stats without the configured capability")
 	}
 	if strings.Contains(m.footerHints(0), "a live") {
@@ -70,10 +70,10 @@ func TestLiveStatsUnavailableWithoutCapability(t *testing.T) {
 
 func TestLiveToggleWhileStartingCancels(t *testing.T) {
 	m := withStatsFetch()
-	if cmd := m.update(key("a")); cmd == nil {
+	if cmd := m.Update(key("a")); cmd == nil {
 		t.Fatal("first press did not start")
 	}
-	if cmd := m.update(key("a")); cmd != nil {
+	if cmd := m.Update(key("a")); cmd != nil {
 		t.Error("second press should cancel, not start another stream")
 	}
 	if m.statsStarting {
@@ -83,11 +83,11 @@ func TestLiveToggleWhileStartingCancels(t *testing.T) {
 
 func TestLiveStreamEndingStopsTicking(t *testing.T) {
 	m := withStatsFetch()
-	m.update(servicesMsg{services: services("web")})
-	stream := openLive(t, &m)
+	m.Update(servicesMsg{services: services("web")})
+	stream := openLive(t, m)
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
 	stream.events <- operations.Event{Kind: operations.EventExit, ExitCode: 0}
-	cmd := m.update(statsTickMsg{})
+	cmd := m.Update(statsTickMsg{})
 	if !stream.stopped {
 		t.Error("ended stream was not cleaned up")
 	}
@@ -96,52 +96,52 @@ func TestLiveStreamEndingStopsTicking(t *testing.T) {
 			t.Error("kept ticking after the stream ended")
 		}
 	}
-	if !strings.Contains(m.view(), "12.34%") || m.history != nil {
-		t.Errorf("ended stream state was not retained correctly:\n%s", m.view())
+	if !strings.Contains(m.View(), "12.34%") || m.history != nil {
+		t.Errorf("ended stream state was not retained correctly:\n%s", m.View())
 	}
 }
 
 func TestLiveFailureReported(t *testing.T) {
 	m := withStatsFetch()
-	m.update(servicesMsg{services: services("web")})
-	m.update(key("a"))
-	m.update(statsFeedMsg{err: errors.New("permission denied")})
-	if m.statsStarting || !strings.Contains(m.view(), "permission denied") {
-		t.Errorf("live failure not reported:\n%s", m.view())
+	m.Update(servicesMsg{services: services("web")})
+	m.Update(key("a"))
+	m.Update(StatsFeedMsg{Err: errors.New("permission denied")})
+	if m.statsStarting || !strings.Contains(m.View(), "permission denied") {
+		t.Errorf("live failure not reported:\n%s", m.View())
 	}
 }
 
 func TestLiveStderrSurfacedWithoutStopping(t *testing.T) {
 	m := withStatsFetch()
-	m.update(servicesMsg{services: services("web")})
-	stream := openLive(t, &m)
+	m.Update(servicesMsg{services: services("web")})
+	stream := openLive(t, m)
 	stream.events <- operations.Event{Kind: operations.EventStderr, Text: "cannot read stats for app-web-1"}
-	if cmd := m.update(statsTickMsg{}); cmd == nil {
+	if cmd := m.Update(statsTickMsg{}); cmd == nil {
 		t.Error("a stderr line should not stop the stream")
 	}
-	if !strings.Contains(m.view(), "cannot read stats") {
-		t.Errorf("stderr not surfaced:\n%s", m.view())
+	if !strings.Contains(m.View(), "cannot read stats") {
+		t.Errorf("stderr not surfaced:\n%s", m.View())
 	}
 }
 
 func TestStatsTickWithoutStreamIsInert(t *testing.T) {
-	m := newStatusModel(Info{}, nil)
-	if cmd := m.update(statsTickMsg{}); cmd != nil {
+	m := New(Config{})
+	if cmd := m.Update(statsTickMsg{}); cmd != nil {
 		t.Error("a stray tick scheduled another with no stream running")
 	}
 }
 
 func TestLivePanelShowsSeriesPerContainer(t *testing.T) {
 	m := withStatsFetch()
-	m.update(servicesMsg{services: services("web")})
-	if strings.Contains(m.view(), "samples") {
-		t.Errorf("live panel on screen before it was opened:\n%s", m.view())
+	m.Update(servicesMsg{services: services("web")})
+	if strings.Contains(m.View(), "samples") {
+		t.Errorf("live panel on screen before it was opened:\n%s", m.View())
 	}
-	stream := openLive(t, &m)
+	stream := openLive(t, m)
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
 	stream.events <- liveReading("web", "6.00%", "150MiB")
-	m.update(statsTickMsg{})
-	view := m.view()
+	m.Update(statsTickMsg{})
+	view := m.View()
 	for _, text := range []string{"2 samples", "peak  12.3%", "a live off"} {
 		if !strings.Contains(view, text) {
 			t.Errorf("%q missing from panel:\n%s", text, view)
@@ -154,25 +154,25 @@ func TestLivePanelShowsSeriesPerContainer(t *testing.T) {
 
 func TestLivePanelAnnouncesStartup(t *testing.T) {
 	m := withStatsFetch()
-	m.update(servicesMsg{services: services("web")})
-	m.update(key("a"))
-	if !strings.Contains(m.view(), "starting") {
-		t.Errorf("startup not announced:\n%s", m.view())
+	m.Update(servicesMsg{services: services("web")})
+	m.Update(key("a"))
+	if !strings.Contains(m.View(), "starting") {
+		t.Errorf("startup not announced:\n%s", m.View())
 	}
 }
 
 func TestLivePanelLeavesTableAndFooterOnScreen(t *testing.T) {
 	m := withStatsFetch()
 	m.hostFetch = func() (host.Metrics, error) { return host.Metrics{}, nil }
-	m.setSize(120, 20)
-	m.update(servicesMsg{services: services("web", "db", "cache")})
-	m.update(hostMsg{metrics: sampleMetrics()})
-	stream := openLive(t, &m)
+	m.SetSize(120, 20)
+	m.Update(servicesMsg{services: services("web", "db", "cache")})
+	m.Update(hostMsg{metrics: sampleMetrics()})
+	stream := openLive(t, m)
 	for _, name := range []string{"web", "db", "cache"} {
 		stream.events <- liveReading(name, "12.34%", "153.6MiB")
 	}
-	m.update(statsTickMsg{})
-	view := m.view()
+	m.Update(statsTickMsg{})
+	view := m.View()
 	if lines := strings.Count(view, "\n") + 1; lines > 20 {
 		t.Errorf("view is %d lines, taller than terminal:\n%s", lines, view)
 	}
