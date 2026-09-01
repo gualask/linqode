@@ -10,9 +10,16 @@ nothing to install on the server.
 
 ## Getting started
 
+Download the archive for your platform from
+[GitHub Releases](https://github.com/gualask/linqode/releases), extract it, and
+put the `linqode` binary somewhere on your `PATH`. Alternatively, with Go
+installed:
+
 ```bash
-go build -o linqode ./cmd/linqode    # or: go install ./cmd/linqode
+go install github.com/gualask/linqode/cmd/linqode@latest
 ```
+
+To build from a local checkout, run `go build -o linqode ./cmd/linqode`.
 
 The TUI reuses your existing SSH setup: keys from the agent or `~/.ssh`,
 aliases from `~/.ssh/config`, host verification against `~/.ssh/known_hosts`
