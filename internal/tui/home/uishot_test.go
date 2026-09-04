@@ -215,15 +215,19 @@ func busyHost() host.Metrics {
 func shotServices() []compose.Service {
 	count := func(n int) *int { return &n }
 	return []compose.Service{
-		{Service: "nginx", Name: "myapp-nginx-1", State: "running", Health: "healthy",
+		{Service: "nginx", Name: "myapp-nginx-1", ID: "id-nginx", Pid: 100,
+			State: "running", Health: "healthy",
 			Status: "Up 3 days (healthy)", Restarts: count(0),
 			Publishers: []compose.Publisher{{PublishedPort: 443, TargetPort: 443, Protocol: "tcp"}}},
-		{Service: "api", Name: "myapp-api-1", State: "running", Health: "healthy",
+		{Service: "api", Name: "myapp-api-1", ID: "id-api", Pid: 101,
+			State: "running", Health: "healthy",
 			Status: "Up 3 days (healthy)", Restarts: count(2),
 			Publishers: []compose.Publisher{{PublishedPort: 8080, TargetPort: 3000, Protocol: "tcp"}}},
-		{Service: "postgres", Name: "myapp-postgres-1", State: "running", Health: "starting",
+		{Service: "postgres", Name: "myapp-postgres-1", ID: "id-postgres", Pid: 102,
+			State: "running", Health: "starting",
 			Status: "Up 4 seconds (health: starting)", Restarts: count(0)},
-		{Service: "cache", Name: "myapp-cache-1", State: "running", Health: "unhealthy",
+		{Service: "cache", Name: "myapp-cache-1", ID: "id-cache", Pid: 103,
+			State: "running", Health: "unhealthy",
 			Status: "Up 2 hours (unhealthy)", Restarts: count(0)},
 		{Service: "migrate", Name: "myapp-migrate-1", State: "exited",
 			Status: "Exited (0) 3 days ago", Restarts: count(0)},
@@ -232,17 +236,34 @@ func shotServices() []compose.Service {
 	}
 }
 
-func shotReadings() []compose.ContainerStats {
-	reading := func(name, cpu, mem, net, block string) compose.ContainerStats {
-		return compose.ContainerStats{Name: name, CPUPerc: cpu, MemUsage: mem,
-			MemPerc: "12.5%", NetIO: net, BlockIO: block, PIDs: "14"}
+// shotCgroups is a pair of readings a few seconds apart, so the frames show
+// what the second one derives: a CPU percentage per container, memory against
+// the machine's, and the I/O totals.
+func shotCgroups(round int) compose.CgroupSample {
+	// Microseconds of CPU per round. Five seconds pass between rounds, so
+	// each value is the percentage the frame should show times fifty
+	// thousand: 5_617_000 reads as 112.34%, an api using more than a core.
+	busy := map[string]uint64{"nginx": 7_500, "api": 5_617_000, "postgres": 151_000,
+		"cache": 4_405_000}
+	memory := map[string]uint64{"nginx": 12_939_428, "api": 1_325_142_016,
+		"postgres": 886_244_147, "cache": 31_030_896_230}
+	sample := compose.CgroupSample{
+		At:         time.Date(2026, 9, 4, 12, 0, round*5, 0, time.UTC),
+		Containers: map[string]compose.CgroupReading{},
+		Networks:   map[int]compose.CgroupReading{},
 	}
-	return []compose.ContainerStats{
-		reading("myapp-nginx-1", "0.15%", "12.34MiB / 31.31GiB", "1.45GB / 892.3MB", "4.1kB / 0B"),
-		reading("myapp-api-1", "112.34%", "1.234GiB / 31.31GiB", "892.3MB / 1.45GB", "1.23GB / 4.56GB"),
-		reading("myapp-postgres-1", "3.02%", "845.2MiB / 31.31GiB", "12.3kB / 8.9kB", "45.6MB / 12.3GB"),
-		reading("myapp-cache-1", "88.10%", "28.9GiB / 31.31GiB", "5.2MB / 3.1MB", "900MB / 1.1GB"),
+	for index, service := range []string{"nginx", "api", "postgres", "cache"} {
+		sample.Containers["id-"+service] = compose.CgroupReading{
+			CPUMicros:  busy[service] * uint64(round),
+			MemBytes:   memory[service],
+			ReadBytes:  4_100 + uint64(index)*1_230_000_000,
+			WriteBytes: uint64(index) * 4_560_000_000,
+			PIDs:       14,
+		}
+		sample.Networks[100+index] = compose.CgroupReading{
+			RxBytes: 1_450_000_000 >> (index * 3), TxBytes: 892_300_000 >> (index * 2)}
 	}
+	return sample
 }
 
 // shotScreen assembles a home over a services panel filled with the fixtures
@@ -251,11 +272,15 @@ func shotReadings() []compose.ContainerStats {
 func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 	panel := status.New(status.Config{Stats: true, LiveStats: true})
 	feed := &hostFeed{metrics: busyHost()}
+	round := 0
 	config := Config{
 		Target:     "deploy@app-prod-01",
 		ComposeDir: "/srv/myapp",
 		Services:   func() ([]compose.Service, error) { return shotServices(), nil },
-		Stats:      func() ([]compose.ContainerStats, error) { return shotReadings(), nil },
+		Stats: func([]compose.Service) (compose.CgroupSample, error) {
+			round++
+			return shotCgroups(round), nil
+		},
 	}
 	if hostMetrics {
 		config.Host = feed.sample
@@ -263,6 +288,11 @@ func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 	screen := New(config, panel)
 	screen.SetSize(width, height)
 	sampleAll(screen)
+	// The container counters have nothing to address until the first service
+	// list has landed, and a percentage is the difference between two
+	// readings — so the frames take three passes to show a full table.
+	resample(screen)
+	resample(screen)
 	if hostErr != nil {
 		feed.err = hostErr
 		resample(screen)

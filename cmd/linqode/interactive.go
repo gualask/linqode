@@ -70,8 +70,14 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 		backend.Host = func() (host.Metrics, error) {
 			return operator.HostMetrics(ctx)
 		}
-		backend.Stats = func() ([]compose.ContainerStats, error) {
-			return operator.ContainerStats(ctx)
+		backend.Stats = func(services []compose.Service) (compose.CgroupSample, error) {
+			pids := make([]int, 0, len(services))
+			for _, service := range services {
+				if service.Pid > 0 {
+					pids = append(pids, service.Pid)
+				}
+			}
+			return operator.ContainerCgroups(ctx, pids)
 		}
 		backend.LiveStats = func() (operations.Feed, error) {
 			return operator.FollowStats(ctx)

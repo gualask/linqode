@@ -199,8 +199,13 @@ a lit bar. The gap between columns is the widest of four, three or
 two spaces whose layout still fits, so a wide terminal spends its slack on
 breathing room and a narrow one spends it on content.
 
-Per-container CPU and memory are a third source on a third interval, because
-they cost two orders of magnitude more: `docker stats` needs ~2 seconds to
+Per-container CPU, memory and I/O are a third source, read from the kernel
+rather than asked of the daemon: the cgroup files under `/sys/fs/cgroup`, plus
+`/proc/<pid>/net/dev` for the network counters, whose pids arrive with the
+restart counts. All of it is world-readable, so the operator account needs no
+privilege it did not already have. Percentages are the difference between two
+readings, which is the work `docker stats` spends two seconds doing on the
+server — 6 ms against 2 s, measured. Two modes follow from that: `docker stats` needs ~2 seconds to
 answer whatever the project's size, since the daemon reads each container's
 cgroups twice, a second apart, to derive a CPU percentage (measured
 alongside the other commands in `tests/e2e/cost_test.go`). Two modes come

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
@@ -67,6 +68,22 @@ func (o *HostOperator) HostMetrics(ctx context.Context) (host.Metrics, error) {
 		return host.Metrics{}, ParseError{Err: err}
 	}
 	return metrics, nil
+}
+
+// ContainerCgroups reads the project's container resources from the kernel:
+// the cgroup counters, and the network counters of the given processes. It is
+// what the TUI samples, because it costs a couple of milliseconds against the
+// ~2 s `docker stats` needs to derive a CPU percentage the client can derive
+// itself from two readings.
+//
+// Missing sources stay soft, as everywhere else that reads /proc and /sys: a
+// host without the pids controller reports every other counter.
+func (o *HostOperator) ContainerCgroups(ctx context.Context, pids []int) (compose.CgroupSample, error) {
+	out, err := o.executor.Exec(ctx, compose.StatsCgroupCommand(pids))
+	if err != nil {
+		return compose.CgroupSample{}, err
+	}
+	return compose.ParseCgroupSample(out.Stdout, time.Now()), nil
 }
 
 // ContainerStats returns one resource sample for the project's containers.
@@ -151,7 +168,7 @@ func (o *HostOperator) addRestarts(ctx context.Context, services []compose.Servi
 			names = append(names, service.Name)
 		}
 	}
-	command := compose.InspectRestartsCommand(names)
+	command := compose.InspectCommand(names)
 	if command == "" {
 		return
 	}
@@ -159,7 +176,7 @@ func (o *HostOperator) addRestarts(ctx context.Context, services []compose.Servi
 	if err != nil {
 		return
 	}
-	compose.ApplyRestarts(services, compose.ParseRestarts(out.Stdout))
+	compose.ApplyInspected(services, compose.ParseInspected(out.Stdout))
 }
 
 func commandFailure(out remote.ExecOutput) RemoteCommandError {

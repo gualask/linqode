@@ -124,9 +124,19 @@ func (s *sampler) read(id sourceID) tea.Cmd {
 	return s.begin(source, s.now())
 }
 
+// begin starts a read, unless the source turns out to have nothing to read
+// right now: the container counters are addressed by container, so they have
+// nothing to ask about until the first service list has landed. A source that
+// declines is left exactly as it was, so the next beat can try again — marking
+// it in flight would strand it there forever, since no answer is coming back
+// to say it finished.
 func (s *sampler) begin(source *source, now time.Time) tea.Cmd {
+	cmd := source.start()
+	if cmd == nil {
+		return nil
+	}
 	source.inFlight, source.started = true, now
-	return source.start()
+	return cmd
 }
 
 // setInterval changes what a source asks for. It is how watching the daemon

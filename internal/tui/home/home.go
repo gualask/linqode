@@ -43,14 +43,13 @@ const (
 	// hostRefresh is the meters' cadence. At ~2 ms it is noise beside the
 	// `ps` on the same clock.
 	hostRefresh = 5 * time.Second
-	// statsRefresh is the container readings' cadence. A sample costs ~2 s
-	// on the server whatever the project's size — the daemon reads each
-	// container's cgroups twice, a second apart, to derive a CPU percentage
-	// — so at 20 s the command is in flight a tenth of the time. Halving it
-	// would double that and say nothing new: each reading is already an
-	// average over docker's own sampling second. Watching fluctuation is
-	// what the live mode is for.
-	statsRefresh = 20 * time.Second
+	// statsRefresh is the container readings' cadence. It used to be twenty
+	// seconds because `docker stats` costs ~2 s of server time; reading the
+	// cgroups directly costs what any other /proc read costs, so the limit
+	// is now what an operator can use rather than what the server can bear.
+	// Five seconds also means the first CPU percentage — which needs two
+	// readings to exist at all — arrives while they are still looking.
+	statsRefresh = 5 * time.Second
 )
 
 // The samples, delivered asynchronously so the UI never blocks on an SSH
@@ -65,8 +64,8 @@ type (
 		err     error
 	}
 	statsSampleMsg struct {
-		stats []compose.ContainerStats
-		err   error
+		sample compose.CgroupSample
+		err    error
 	}
 )
 
@@ -89,7 +88,10 @@ type Config struct {
 	// cadence, and nothing on screen that would sit empty waiting for it.
 	Services func() ([]compose.Service, error)
 	Host     func() (host.Metrics, error)
-	Stats    func() ([]compose.ContainerStats, error)
+	// Stats reads the container counters for the services it is given. The
+	// screen keeps the previous reading, because a percentage is the
+	// difference between two of them.
+	Stats func(services []compose.Service) (compose.CgroupSample, error)
 
 	// Watch streams the daemon's changes to this project's containers. Nil
 	// leaves the service list on its timer, which is what it falls back to
@@ -126,6 +128,12 @@ type Model struct {
 	// watch is the daemon's event stream while it is up, nil otherwise.
 	watch         *operations.Feed
 	watchStarting bool
+	// containers is the service list the last reading described, kept
+	// because the counters are addressed by container id and by process.
+	containers []compose.Service
+	// previousCgroups is the reading the next one is measured against.
+	previousCgroups compose.CgroupSample
+
 	// servicesStale records that something changed while a read was already
 	// in flight: that read answers a question older than the news, so
 	// another one follows it.
@@ -161,10 +169,7 @@ func New(config Config, services *status.Model) *Model {
 		// while it runs the screen stops paying two seconds for a staler
 		// answer.
 		sourceStats: {every: statsRefresh, gate: func() bool { return !services.LiveActive() },
-			start: read(config.Stats,
-				func(stats []compose.ContainerStats, err error) tea.Msg {
-					return statsSampleMsg{stats: stats, err: err}
-				})},
+			start: m.readCgroups},
 	})
 	// Top to bottom, the way `tab` walks them. Focus starts on the table:
 	// the band is what an operator reads, the table is what they act on.
@@ -273,8 +278,11 @@ func (m *Model) applySample(msg tea.Msg) tea.Cmd {
 	case servicesSampleMsg:
 		m.services.SetServices(msg.services, msg.err)
 		m.sampler.finished(sourceServices)
-		if len(msg.services) > 0 {
-			m.project = msg.services[0].Project
+		if msg.err == nil {
+			m.containers = msg.services
+			if len(msg.services) > 0 {
+				m.project = msg.services[0].Project
+			}
 		}
 		if m.servicesStale {
 			// News arrived while this read was in flight, so it answers a
@@ -287,7 +295,7 @@ func (m *Model) applySample(msg tea.Msg) tea.Cmd {
 		m.system.SetSample(msg.metrics, msg.err)
 		m.sampler.finished(sourceHost)
 	case statsSampleMsg:
-		m.services.SetStats(msg.stats, msg.err)
+		m.applyCgroups(msg)
 		m.sampler.finished(sourceStats)
 	}
 	return nil
@@ -357,4 +365,35 @@ func (m *Model) open() tea.Cmd {
 
 func openRequest(message tea.Msg) tea.Cmd {
 	return func() tea.Msg { return message }
+}
+
+// readCgroups samples the container counters for the services the last
+// reading described. Nothing is read before there is a service list: the
+// counters are addressed by container id and by process, and both come from
+// `ps` and the inspect that follows it.
+func (m *Model) readCgroups() tea.Cmd {
+	if m.info.Stats == nil || len(m.containers) == 0 {
+		return nil
+	}
+	fetch, containers := m.info.Stats, m.containers
+	return func() tea.Msg {
+		sample, err := fetch(containers)
+		return statsSampleMsg{sample: sample, err: err}
+	}
+}
+
+// applyCgroups turns two readings into what the table shows. The first one
+// after connecting has nothing to be measured against, so it fills in
+// everything except the percentages and leaves those for the next.
+func (m *Model) applyCgroups(msg statsSampleMsg) {
+	if msg.err != nil {
+		m.services.SetStats(nil, msg.err)
+		return
+	}
+	// A container with no limit of its own is bounded by the machine, which
+	// is the number docker shows too — and which the meters already know.
+	hostMemBytes := m.system.Metrics().MemTotalKB * 1024
+	m.services.SetStats(
+		m.previousCgroups.Delta(msg.sample, m.containers, hostMemBytes), nil)
+	m.previousCgroups = msg.sample
 }

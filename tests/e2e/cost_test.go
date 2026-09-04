@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -44,7 +45,11 @@ func TestRemoteCommandCost(t *testing.T) {
 		{"host metrics", "uptime && free -m && df -h /"},
 		{"compose ps (current refresh)", compose.PsCommand(composeDir)},
 		{"docker stats --no-stream", "docker stats --no-stream --format '{{json .}}'"},
+		{"container cgroups", compose.StatsCgroupCommand(runningPids(t, session))},
 	}
+	// The event stream is deliberately absent: a stream has no round-trip to
+	// measure, and what it costs is the traffic it carries, which the watch
+	// tests exercise instead.
 
 	running := strings.TrimSpace(string(execOrFail(t, session, "docker ps -q | wc -l").Stdout))
 	t.Logf("containers running: %s", running)
@@ -79,6 +84,20 @@ func execOrFail(t *testing.T, session *remote.Session, command string) remote.Ex
 		t.Fatalf("running %q: %v", command, err)
 	}
 	return out
+}
+
+// runningPids is what the cgroup sample needs to reach the network counters:
+// the same pids the refresh already learns from its inspect.
+func runningPids(t *testing.T, session *remote.Session) []int {
+	t.Helper()
+	out := execOrFail(t, session, "docker inspect --format '{{.State.Pid}}' $(docker ps -q)")
+	var pids []int
+	for _, line := range strings.Fields(string(out.Stdout)) {
+		if pid, err := strconv.Atoi(line); err == nil && pid > 0 {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
 }
 
 func round(d time.Duration) string {

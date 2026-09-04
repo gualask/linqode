@@ -142,6 +142,7 @@ TUI against it. The script with no command prints what it can do.
 | `TestRestartCountsAgainstRealProject` | Real Docker restart counters distinguish stable, policy-restarted, and manually restarted services |
 | `TestWatchReportsProjectChanges` | The event stream a restart is noticed through: the change reaches the client without anything being asked, health-check `exec_*` noise never does (the demo project probes two services every two seconds), and neither does a container started outside the project — the label filter being the only thing scoping `docker events` to this session |
 | `TestWatchStopsWithItsContext` | Closing the stream ends the remote `docker events`, which would otherwise outlive every session that opened one |
+| `TestContainerCgroupsAgainstRealProject` | The cgroup globs find the layout a real daemon uses, the ids in those paths reconcile with the short ones `ps` reports, the unprivileged operator account can read all of it — including `/proc/<pid>/net/dev` — and two readings a couple of seconds apart derive a plausible CPU percentage |
 | `TestMachineBinaryCommands` | The compiled binary uses default TOML and non-interactive SSH for JSON status, bounded JSONL logs, a validated restart, an exact configured script, and exact propagation of remote exit `7` |
 
 `tests/e2e/cost_test.go` measures what candidate dashboard commands cost on

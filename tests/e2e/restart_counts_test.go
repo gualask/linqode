@@ -22,12 +22,12 @@ func TestRestartCountsAgainstRealProject(t *testing.T) {
 			names = append(names, service.Name)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), guardTimeout)
-		out, err := session.Exec(ctx, compose.InspectRestartsCommand(names))
+		out, err := session.Exec(ctx, compose.InspectCommand(names))
 		cancel()
 		if err != nil {
 			t.Fatalf("docker inspect: %v", err)
 		}
-		compose.ApplyRestarts(services, compose.ParseRestarts(out.Stdout))
+		compose.ApplyInspected(services, compose.ParseInspected(out.Stdout))
 		if flaky := index(services)["flaky"]; flaky.Restarts != nil && *flaky.Restarts >= 3 {
 			break
 		}

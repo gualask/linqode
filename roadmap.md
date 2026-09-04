@@ -288,7 +288,16 @@ became a sixty-second safety net. Absorbed phase D2, which is why the events
 the command and its filtering on a throwaway project, then the whole path
 over SSH inside the fixture.
 
-**B3 — cgroups instead of `docker stats`** _(next)_.
+**B3 — cgroups instead of `docker stats`** _(done, September 2026)_. The
+container counters come off the kernel: `/sys/fs/cgroup` for CPU, memory and
+block I/O, `/proc/<pid>/net/dev` for the network, with the pids arriving on
+the inspect that already answers the restart counts. Measured at **6 ms
+against 2.03 s**, which is why the interval went from twenty seconds to five
+rather than the other way. Two things worth remembering: the network counters
+need no privilege (the ptrace check that guards `environ` does not apply to
+`net`), and the frame viewer earned its place again by showing every column
+empty — a source whose read declines was being marked in flight forever, which
+would have left the columns blank in every real session.
 
 - One batched exec for all cheap readings, extending the existing marker
   sections and best-effort parsing (a missing section leaves its fields zero).

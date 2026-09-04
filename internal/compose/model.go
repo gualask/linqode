@@ -18,6 +18,10 @@ type Service struct {
 	// Service is the compose service name, e.g. `db`.
 	Service string `json:"Service"`
 
+	// ID is the container id, which is what its cgroup directory is named
+	// after: the key that ties a row to the kernel's counters for it.
+	ID string `json:"ID"`
+
 	// Project is the compose project the container belongs to. It is what
 	// scopes the daemon's event stream to this session's containers, and it
 	// comes from `ps` rather than from the directory name because a project
@@ -39,6 +43,17 @@ type Service struct {
 	// separate `docker inspect` — so it stays nil when that reading is
 	// unavailable, which the view shows differently from a genuine zero.
 	Restarts *int `json:"-"`
+
+	// Pid is the container's main process, the one whose network namespace
+	// carries its traffic counters. Zero for anything not running, and
+	// filled by the same inspect as Restarts.
+	Pid int `json:"-"`
+}
+
+// Inspected is what `docker inspect` adds to what `ps` already said.
+type Inspected struct {
+	Restarts int
+	Pid      int
 }
 
 // ApplyRestarts attaches restart counts to the services they belong to,
@@ -49,6 +64,21 @@ func ApplyRestarts(services []Service, counts map[string]int) {
 		if n, ok := counts[services[i].Name]; ok {
 			services[i].Restarts = &n
 		}
+	}
+}
+
+// ApplyInspected attaches what inspect reported to the services it belongs
+// to. Like ApplyRestarts it is best-effort: a container that disappeared
+// between the two commands simply keeps what `ps` said about it.
+func ApplyInspected(services []Service, inspected map[string]Inspected) {
+	for i := range services {
+		found, ok := inspected[services[i].Name]
+		if !ok {
+			continue
+		}
+		restarts := found.Restarts
+		services[i].Restarts = &restarts
+		services[i].Pid = found.Pid
 	}
 }
 

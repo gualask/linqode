@@ -33,12 +33,16 @@ type Fetch func() ([]compose.Service, error)
 // background command.
 type FetchHost func() (host.Metrics, error)
 
-// FetchStats takes one sample of the containers' resource usage, for the
-// status table's CPU and MEM columns. Nil leaves those columns out, the
-// same escape hatch FetchHost is for the resource panel. Like Fetch, it
-// runs in a background command — it is the slowest of the three, since
-// docker needs a second of sampling to derive a CPU percentage.
-type FetchStats func() ([]compose.ContainerStats, error)
+// FetchCgroups reads the containers' resource counters off the kernel, for
+// the status table's CPU, MEM, NET and IO columns. Nil leaves those columns
+// out, the same escape hatch FetchHost is for the meters. It takes the
+// current services because the counters are addressed by container id and by
+// process, both of which `ps` and its inspect already reported.
+//
+// The readings are cumulative: it takes two samples to say what a percentage
+// is, which is exactly the work `docker stats` spends two seconds doing on
+// the server.
+type FetchCgroups func(services []compose.Service) (compose.CgroupSample, error)
 
 const logTail = 200
 
@@ -48,7 +52,7 @@ const logTail = 200
 type Backend struct {
 	Services  Fetch
 	Host      FetchHost
-	Stats     FetchStats
+	Stats     FetchCgroups
 	Logs      func(service string, tail int) (operations.Feed, error)
 	LiveStats func() (operations.Feed, error)
 	// Watch streams the daemon's changes to the project's containers, which

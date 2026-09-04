@@ -195,9 +195,18 @@ func TestContainerReadingsStandDownWhileTheStreamIsOpen(t *testing.T) {
 	panel := status.New(status.Config{Stats: true, LiveStats: true})
 	calls := 0
 	screen := New(Config{
-		Stats: func() ([]compose.ContainerStats, error) { calls++; return nil, nil },
+		Services: func() ([]compose.Service, error) {
+			return []compose.Service{{Service: "web", Name: "app-web-1", ID: "abc"}}, nil
+		},
+		Stats: func([]compose.Service) (compose.CgroupSample, error) {
+			calls++
+			return compose.CgroupSample{}, nil
+		},
 	}, panel)
 
+	// The counters are addressed by container: nothing is read before `ps`
+	// has said which containers there are.
+	applyScreen(screen, screen.sampler.read(sourceServices))
 	applyScreen(screen, screen.sampler.due())
 	if calls != 1 {
 		t.Fatalf("%d readings taken on the first beat, want 1", calls)
@@ -210,5 +219,34 @@ func TestContainerReadingsStandDownWhileTheStreamIsOpen(t *testing.T) {
 	}
 	if cmd := screen.sampler.due(); cmd != nil {
 		t.Error("a reading was taken while the stream was feeding the columns")
+	}
+}
+
+// A source that cannot read right now — the container counters before the
+// first service list, which have nothing to address — must not be left marked
+// in flight. Nothing would come back to say it finished, and it would never
+// read again.
+func TestASourceThatDeclinesIsNotStranded(t *testing.T) {
+	ready := false
+	calls := 0
+	declining := &source{every: time.Second, start: func() tea.Cmd {
+		if !ready {
+			return nil
+		}
+		calls++
+		return func() tea.Msg { return nil }
+	}}
+	sampler, clock := newTestSampler(map[sourceID]*source{sourceStats: declining})
+
+	sampler.due()
+	if declining.inFlight {
+		t.Fatal("a source that read nothing was marked in flight")
+	}
+
+	ready = true
+	clock.tick(2 * time.Second)
+	sampler.due()
+	if calls != 1 {
+		t.Errorf("%d reads once the source had something to ask about, want 1", calls)
 	}
 }

@@ -115,27 +115,41 @@ These decisions are settled — do not re-litigate them when implementing:
   | ------- | ------------ | ------------- |
   | exec overhead (`true`) | 1 ms | 1 ms |
   | host metrics (`/proc` + `df -Pk`) | 2 ms | 2 ms |
+  | container cgroups (`/sys/fs/cgroup` + `/proc/<pid>/net/dev`) | 6 ms | — |
   | `compose ps --all --format json` | 64 ms | 60 ms |
   | `docker stats --no-stream` | 2.01 s | 2.07 s |
+
+  _(cgroups measured 2026-09-04; the others 2026-08-01. All against the
+  loopback fixture, which is why they say what a command costs on the server
+  and nothing about what a real link adds — see the sampler's stretch rule.)_
 
   Host metrics therefore belong in the automatic refresh: their cost is
   noise beside the `ps` already being paid, so they are always on
   (`host_metrics = false` opts out for hosts where even that is unwelcome).
 
-  `docker stats` gets its own, slower interval. Its ~2 s is fixed sampling
-  latency (docker reads each container's cgroups twice, a second apart, to
-  compute CPU%), not a per-container cost — so it scales better than `ps`
-  but can never be made quick. Two modes follow from that _(revised
-  2026-08-01: the columns were previously live-only)_:
+  `docker stats` is not on that path any more _(revised 2026-09-04)_. Its
+  ~2 s is fixed sampling latency — the daemon reads each container's cgroups
+  twice, a second apart, to compute CPU% — so it can never be made quick.
+  **The TUI reads the same cgroups itself**, at 6 ms, because the second
+  reading is the previous sample, which the client already has. Everything
+  needed is world-readable: the cgroup files, and `/proc/<pid>/net/dev` for
+  the network counters, whose pids come from the `docker inspect` the refresh
+  already runs. Two modes follow:
 
-  - **Soft**, always on: `docker stats --no-stream` every **20 s**, behind
-    the table's CPU, MEM, NET RX/TX and IO R/W columns. The command is in flight
-    a tenth of the time; at 10 s it would be a fifth, and no more
-    informative, since each reading is already an average over docker's own
-    sampling second.
-  - **Live**, on request (`a`): the streaming form, a sample per second,
-    for as long as the panel is open. The soft poll stands down while it
-    runs, and the remote command is terminated when it closes.
+  - **Sampled**, always on: the cgroup counters every **5 s**, behind the
+    table's CPU, MEM, NET RX/TX and IO R/W columns. The interval is now what
+    an operator can use rather than what the server can bear, and five
+    seconds means the first CPU percentage — which needs two readings to
+    exist at all — arrives while they are still looking.
+  - **Live**, on request (`a`): `docker stats` in its streaming form, a
+    sample per second, for as long as the panel is open. Streaming is the
+    one form where docker's own sampling is not a tax, and it stays the
+    source of the sparklines. The sampled source stands down while it runs,
+    and the remote command is terminated when it closes.
+
+  `docker stats --no-stream` remains the machine interface's one-shot: an
+  agent asking once for a JSON reading is not holding a dashboard open, and
+  a single answer that needs no previous reading is worth two seconds to it.
 
   The rule this encodes: **a server pays a small fixed rent for what is on
   screen, and pays by the second only while someone is watching**.

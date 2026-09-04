@@ -45,26 +45,32 @@ func ParsePS(raw []byte) ([]Service, error) {
 	return services, nil
 }
 
-// ParseRestarts parses the output of InspectRestartsCommand into restart
-// counts keyed by container name, as `compose ps` reports it — docker
-// inspect prints the name with a leading slash, which is stripped here.
+// ParseInspected parses the output of InspectCommand into what it adds to
+// `ps`, keyed by container name as `compose ps` reports it — docker inspect
+// prints the name with a leading slash, which is stripped here.
 //
 // It returns no error by design: a container that vanished between `ps` and
 // `inspect` makes the command fail while the lines for the others are still
 // good, so an unparseable line is skipped rather than discarding a whole
 // reading that is mostly usable.
-func ParseRestarts(raw []byte) map[string]int {
-	counts := make(map[string]int)
+func ParseInspected(raw []byte) map[string]Inspected {
+	found := make(map[string]Inspected)
 	for line := range strings.Lines(string(raw)) {
-		name, count, ok := strings.Cut(strings.TrimSpace(line), " ")
-		if !ok {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 2 {
 			continue
 		}
-		n, err := strconv.Atoi(count)
+		restarts, err := strconv.Atoi(fields[1])
 		if err != nil {
 			continue
 		}
-		counts[strings.TrimPrefix(name, "/")] = n
+		entry := Inspected{Restarts: restarts}
+		if len(fields) > 2 {
+			// A container that is not running has no process; docker
+			// reports 0, which is what it stays.
+			entry.Pid, _ = strconv.Atoi(fields[2])
+		}
+		found[strings.TrimPrefix(fields[0], "/")] = entry
 	}
-	return counts
+	return found
 }

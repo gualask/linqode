@@ -47,6 +47,11 @@ func (m *Model) SetSample(metrics host.Metrics, err error) {
 	m.metrics, m.loaded, m.stale = metrics, true, false
 }
 
+// Metrics is the last good sample, for a caller that needs a number this
+// panel happens to hold — the container readings borrow the machine's memory
+// as the ceiling for a container that has no limit of its own.
+func (m *Model) Metrics() host.Metrics { return m.metrics }
+
 // Title names the view in its top rule. The band has no rule to put it in.
 func (m *Model) Title() string { return "system" }
 

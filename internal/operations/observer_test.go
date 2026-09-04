@@ -65,7 +65,7 @@ func TestStatusOwnsComposeFetchAndSoftRestartEnrichment(t *testing.T) {
 	}
 	want := []string{
 		"cd '/srv/app' && docker compose ps --all --format json",
-		"docker inspect --format '{{.Name}} {{.RestartCount}}' 'app-web-1'",
+		"docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}}' 'app-web-1'",
 	}
 	if !slices.Equal(executor.commands, want) {
 		t.Fatalf("commands = %q, want %q", executor.commands, want)

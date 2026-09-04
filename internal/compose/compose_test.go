@@ -125,39 +125,42 @@ func TestPortsSummaryCollapsesIPv4IPv6Duplicates(t *testing.T) {
 	}
 }
 
-func TestInspectRestartsNamesTheContainersDirectly(t *testing.T) {
-	want := "docker inspect --format '{{.Name}} {{.RestartCount}}' 'myapp-db-1' 'myapp-web-1'"
-	if got := InspectRestartsCommand([]string{"myapp-db-1", "myapp-web-1"}); got != want {
+func TestInspectNamesTheContainersDirectly(t *testing.T) {
+	want := "docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}}' " +
+		"'myapp-db-1' 'myapp-web-1'"
+	if got := InspectCommand([]string{"myapp-db-1", "myapp-web-1"}); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	// Nothing to inspect must not produce a command that inspects everything.
-	if got := InspectRestartsCommand(nil); got != "" {
+	if got := InspectCommand(nil); got != "" {
 		t.Errorf("empty list built %q", got)
 	}
-	want = `docker inspect --format '{{.Name}} {{.RestartCount}}' 'a'\''; rm -rf $HOME'`
-	if got := InspectRestartsCommand([]string{"a'; rm -rf $HOME"}); got != want {
+	want = "docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}}' " +
+		`'a'\''; rm -rf $HOME'`
+	if got := InspectCommand([]string{"a'; rm -rf $HOME"}); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
-func TestParseRestartsStripsTheLeadingSlash(t *testing.T) {
-	counts := ParseRestarts([]byte("/myapp-db-1 0\n/myapp-web-1 7\n"))
-	if len(counts) != 2 || counts["myapp-db-1"] != 0 || counts["myapp-web-1"] != 7 {
-		t.Errorf("got %+v", counts)
+func TestParseInspectedStripsTheLeadingSlash(t *testing.T) {
+	found := ParseInspected([]byte("/myapp-db-1 0 4242\n/myapp-web-1 7 0\n"))
+	if len(found) != 2 || found["myapp-db-1"] != (Inspected{Restarts: 0, Pid: 4242}) ||
+		found["myapp-web-1"] != (Inspected{Restarts: 7}) {
+		t.Errorf("got %+v", found)
 	}
 }
 
 // A container that disappears between `ps` and `inspect` makes the command
 // fail and print an error line, while the containers that are still there
 // report normally. That partial reading is worth keeping.
-func TestParseRestartsSkipsUnparseableLines(t *testing.T) {
-	raw := []byte("Error: No such object: myapp-gone-1\n/myapp-web-1 3\n\nrubbish\n/x notanumber\n")
-	counts := ParseRestarts(raw)
-	if len(counts) != 1 || counts["myapp-web-1"] != 3 {
-		t.Errorf("got %+v", counts)
+func TestParseInspectedSkipsUnparseableLines(t *testing.T) {
+	raw := []byte("Error: No such object: myapp-gone-1\n/myapp-web-1 3 99\n\nrubbish\n/x notanumber\n")
+	found := ParseInspected(raw)
+	if len(found) != 1 || found["myapp-web-1"] != (Inspected{Restarts: 3, Pid: 99}) {
+		t.Errorf("got %+v", found)
 	}
-	if got := ParseRestarts(nil); len(got) != 0 {
-		t.Errorf("no output should yield no counts, got %+v", got)
+	if got := ParseInspected(nil); len(got) != 0 {
+		t.Errorf("no output should yield nothing, got %+v", got)
 	}
 }
 

@@ -50,6 +50,23 @@ func (h *hostFeed) sample() (host.Metrics, error) {
 	return h.metrics, nil
 }
 
+// cgroupsFor builds a reading that yields the given docker-shaped stats when
+// measured against a zero previous sample: the memory and I/O totals survive
+// that, and the percentages are what a first reading cannot have.
+func cgroupsFor(services []compose.Service, stats []compose.ContainerStats) compose.CgroupSample {
+	sample := compose.CgroupSample{At: time.Now(),
+		Containers: map[string]compose.CgroupReading{},
+		Networks:   map[int]compose.CgroupReading{}}
+	for index, service := range services {
+		if index >= len(stats) {
+			break
+		}
+		sample.Containers[service.ID] = compose.CgroupReading{
+			MemBytes: 161061273, ReadBytes: 4100, WriteBytes: 8190}
+	}
+	return sample
+}
+
 type screenOptions struct {
 	width, height int
 	services      []compose.Service
@@ -67,7 +84,9 @@ func buildScreen(options screenOptions) (*Model, *status.Model) {
 		config.Host = options.host.sample
 	}
 	if options.stats != nil {
-		config.Stats = func() ([]compose.ContainerStats, error) { return options.stats, nil }
+		config.Stats = func([]compose.Service) (compose.CgroupSample, error) {
+			return cgroupsFor(options.services, options.stats), nil
+		}
 	}
 	screen := New(config, panel)
 	screen.SetSize(options.width, options.height)

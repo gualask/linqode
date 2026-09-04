@@ -40,7 +40,7 @@ func PsCommand(composeDir string) string {
 // about as much as the first, while a bare `docker inspect` is one cheap
 // daemon round-trip. No `cd` either — container names are absolute
 // references, not project-relative ones.
-func InspectRestartsCommand(names []string) string {
+func InspectCommand(names []string) string {
 	if len(names) == 0 {
 		return ""
 	}
@@ -48,7 +48,8 @@ func InspectRestartsCommand(names []string) string {
 	for i, name := range names {
 		quoted[i] = shellQuote(name)
 	}
-	return "docker inspect --format '{{.Name}} {{.RestartCount}}' " + strings.Join(quoted, " ")
+	return "docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}}' " +
+		strings.Join(quoted, " ")
 }
 
 // ServiceAction is a lifecycle action on one compose service.
