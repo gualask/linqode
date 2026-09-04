@@ -25,6 +25,8 @@ func reading(service, cpu, mem string) compose.ContainerStats {
 		CPUPerc:  cpu,
 		MemUsage: mem + " / 2GiB",
 		MemPerc:  "7.50%",
+		NetIO:    "1.2kB / 640B",
+		BlockIO:  "0B / 8.19kB",
 	}
 }
 
@@ -80,8 +82,26 @@ func TestStatsColumnsPresentBeforeFirstSample(t *testing.T) {
 	m.Update(servicesMsg{services: services("web", "db")})
 
 	view := m.View()
-	if !strings.Contains(view, "CPU") || !strings.Contains(view, "MEM") {
-		t.Errorf("resource columns missing before the first sample:\n%s", view)
+	for _, header := range []string{"CPU", "MEM", "NET RX/TX", "IO R/W"} {
+		if !strings.Contains(view, header) {
+			t.Errorf("resource column %s missing before the first sample:\n%s", header, view)
+		}
+	}
+
+	// The I/O pairs are the first thing given up when the terminal is the
+	// constraint: ellipsized, "1.45GB/8…" has lost the half that made it a
+	// pair, while CPU and MEM stay readable at any width.
+	m.SetSize(ioColumnsMinWidth-1, 24)
+	narrow := m.View()
+	for _, header := range []string{"NET RX/TX", "IO R/W"} {
+		if strings.Contains(narrow, header) {
+			t.Errorf("%s kept below %d columns:\n%s", header, ioColumnsMinWidth, narrow)
+		}
+	}
+	for _, header := range []string{"CPU", "MEM"} {
+		if !strings.Contains(narrow, header) {
+			t.Errorf("%s dropped along with the I/O columns:\n%s", header, narrow)
+		}
 	}
 
 	// Without a fetch configured there is nothing to fill them, and they
@@ -109,6 +129,14 @@ func TestSoftSampleFillsColumns(t *testing.T) {
 	}
 	if strings.Contains(view, "2GiB") {
 		t.Errorf("memory limit should not take table width:\n%s", view)
+	}
+	// The I/O pairs keep both halves, with docker's spaces squeezed out so
+	// they cannot be mistaken for the table's own column gap.
+	if !strings.Contains(view, "1.2kB/640B") {
+		t.Errorf("network reading not shown:\n%s", view)
+	}
+	if !strings.Contains(view, "0B/8.19kB") {
+		t.Errorf("block I/O reading not shown:\n%s", view)
 	}
 	// db has no reading yet, and must still render a row.
 	if !strings.Contains(view, "db") {

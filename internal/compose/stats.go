@@ -86,6 +86,28 @@ func (s ContainerStats) MemAmount() string {
 	return strings.TrimSpace(used)
 }
 
+// NetAmount and BlockAmount are the received/sent and read/written pairs
+// with docker's spacing tightened ("1.2kB / 640B" → "1.2kB/640B"). Both
+// halves carry information, unlike memory's limit, so neither is dropped;
+// the spaces go because " / " reads like the table's own column gap.
+//
+// Both are totals accumulated since the container started, not rates: a big
+// number means a long uptime as much as a busy container.
+func (s ContainerStats) NetAmount() string { return compactPair(s.NetIO) }
+
+// BlockAmount is the block-device counterpart of NetAmount.
+func (s ContainerStats) BlockAmount() string { return compactPair(s.BlockIO) }
+
+// compactPair squeezes "a / b" into "a/b", leaving anything without a
+// separator alone — a container being torn down reports "--".
+func compactPair(raw string) string {
+	left, right, found := strings.Cut(raw, "/")
+	if !found {
+		return strings.TrimSpace(raw)
+	}
+	return strings.TrimSpace(left) + "/" + strings.TrimSpace(right)
+}
+
 // stripANSI removes CSI escape sequences (ESC [ … final-byte), which is
 // everything `docker stats` uses to reposition its cursor.
 func stripANSI(s string) string {

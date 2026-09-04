@@ -8,13 +8,19 @@ import (
 	"github.com/gualask/linqode/internal/tui/theme"
 )
 
-// statsCells are a container's CPU and memory readings, dimmed placeholders
-// until its first sample arrives — a container can appear in `ps` before
-// stats have been taken for it.
+// statsCells are a container's CPU, memory and I/O readings, dimmed
+// placeholders until its first sample arrives — a container can appear in
+// `ps` before stats have been taken for it. The I/O pair is only asked for
+// when the terminal has the width for it; see ioColumns.
 func (m *Model) statsCells(container string) []cell {
+	blank := cell{text: "-", style: theme.Dim}
 	stats, ok := m.stats[container]
 	if !ok {
-		return []cell{{text: "-", style: theme.Dim}, {text: "-", style: theme.Dim}}
+		cells := []cell{blank, blank}
+		if m.ioColumns() {
+			cells = append(cells, blank, blank)
+		}
+		return cells
 	}
 	cpu := cell{text: stats.CPUPerc}
 	if percent, ok := stats.CPUPercent(); ok {
@@ -24,7 +30,16 @@ func (m *Model) statsCells(container string) []cell {
 	if percent, ok := stats.MemPercent(); ok {
 		mem.style = usageStyle(percent)
 	}
-	return []cell{cpu, mem}
+	cells := []cell{cpu, mem}
+	if m.ioColumns() {
+		// The I/O pairs are totals since the container started, so there is
+		// no threshold to color them against. Dimming keeps the eye on CPU
+		// and MEM, which are the readings that can actually be alarming.
+		cells = append(cells,
+			cell{text: stats.NetAmount(), style: theme.Dim},
+			cell{text: stats.BlockAmount(), style: theme.Dim})
+	}
+	return cells
 }
 
 func (m *Model) liveRows() []compose.Service {

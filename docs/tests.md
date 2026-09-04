@@ -98,7 +98,9 @@ are asserted to do nothing. The vim pairs (`g`/`G`, `n`/`N`) are exempt by
 decision — see [architecture.md](architecture.md).
 
 Assertions about color compare styles, not rendered strings: tests run
-without a TTY, where lipgloss drops the very colors under test.
+without a TTY, where lipgloss drops the very colors under test. That leaves
+a gap no assertion closes, which is what [Looking at the
+UI](#looking-at-the-ui) is for.
 
 ### 4. Docker fixture (`tests/fixture/`, driven by `tests/e2e/`)
 
@@ -123,8 +125,8 @@ fixture's own layout is documented in
 [tests/fixture/README.md](../tests/fixture/README.md).
 
 The same fixture doubles as a live server for manual work:
-`scripts/dev-fixture.sh` starts the engine, brings it up, and runs the TUI
-against it.
+`scripts/dev-fixture.sh run` starts the engine, brings it up, and runs the
+TUI against it. The script with no command prints what it can do.
 
 | Test | Proves |
 | ---- | ------ |
@@ -153,6 +155,71 @@ hand. TOFU is still exercised for real: every test connects with its own
 empty `known_hosts`, so the prompt path runs each time regardless. Delete
 `.keys/` to force new keys.
 
+## Looking at the UI
+
+**A change to how the interface looks is not finished until someone has
+looked at it in color.** This is not a suggestion born of taste: two
+defects shipped precisely because nobody could. A gauge rendered its empty
+track in the same saturated color as its fill, so the part meaning "unused"
+shouted as loudly as the part meaning "used". A heading band was shaded
+close enough to the selected row that the two read as the same thing. Both
+passed every assertion, because assertions compare styles and the tests run
+without a TTY where lipgloss emits no color at all.
+
+`internal/tui/status/uishot_test.go` renders a captured frame's escape
+sequences as HTML, and drives the model into the states worth seeing —
+every health and state color, a selected row, the narrow layout, the stale
+flag — writing them to one page:
+
+```bash
+LINQODE_UI_SHOT=/tmp/shot.html go test ./internal/tui/status/ -run TestUIShot
+open /tmp/shot.html
+```
+
+Without the environment variable the test skips, so a normal run pays
+nothing for it. It asserts nothing and nothing depends on its output: it is
+a viewer, and the assertions stay in the tests beside it. When a view grows
+a state worth inspecting, add a frame rather than a new test.
+
+It lives in a `_test.go` file, not a package of its own, because it is not
+production code: anything under `internal/` is compiled by `go build ./...`
+and linted as shipping code, while `_test.go` is compiled only for tests.
+The stdlib does promote test support into real packages — `httptest`,
+`iotest` — but that earns its place when several packages share it. With
+one caller, a helper beside its test is the smaller thing. If the log view
+wants frames too, copy it before promoting it: the converter is a hundred
+lines, and a little duplication is cheaper than a package that ships for
+nobody.
+
+One thing it deliberately does not do: it renders a frame, not a session,
+so cursor placement, the alternate screen, and resize behavior are still
+unasserted (see [Known gaps](#known-gaps)).
+
+It used to carry a second caveat — that its palette was only one plausible
+terminal's, so it could not show what any given operator would see. That
+stopped being true when `internal/tui/theme` moved from the ANSI slots to
+named colors: the frame now says which colors it wants, and the viewer
+renders those. The caveat survives only for a sixteen-color terminal, where
+lipgloss degrades each value to its nearest slot and the operator's scheme
+decides again.
+
+### Why not VHS
+
+[VHS](https://github.com/charmbracelet/vhs) is the obvious candidate — same
+authors as Bubble Tea and Lipgloss, scripted `.tape` files, a real headless
+terminal, GIF and PNG output. It is the right tool for a **demo
+recording**, and if the README ever wants one, that is what should make it.
+
+It is the wrong tool for this job. VHS drives the compiled binary, and
+Linqode's binary does nothing without a host to connect to: seeing an
+unhealthy service next to a restarting one would mean bringing up Colima,
+the fixture, and the demo project, then contriving the demo project into
+that state. `TestUIShot` sets the state directly, in-process, in
+milliseconds, and can render conditions the fixture cannot easily produce
+at all — a stale host sample, a load average above one per core. Neither
+does it need a terminal, ffmpeg, or a recording to be diffed frame by
+frame.
+
 ## Conventions for new tests
 
 - Default to the lowest layer that can catch the regression: parsing and
@@ -178,3 +245,5 @@ empty `known_hosts`, so the prompt path runs each time regardless. Delete
   through machine commands, not through the Bubble Tea program. Keybindings
   and view routing are therefore covered by view-model tests rather than a
   synthetic terminal; terminal placement and ANSI behavior are not asserted.
+  [Looking at the UI](#looking-at-the-ui) covers what a frame *looks* like,
+  which is a different question from how the terminal is driven.

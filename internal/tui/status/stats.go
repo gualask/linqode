@@ -105,9 +105,9 @@ func (m *Model) liveActive() bool {
 	return m.statsFeed != nil || m.statsStarting
 }
 
-// statsColumns reports whether the table carries CPU and MEM. They are part
-// of the table whenever anything can fill them, and show "-" until the
-// first sample lands.
+// statsColumns reports whether the table carries the per-container readings
+// — CPU, MEM, NET and BLOCK. They are part of the table whenever anything
+// can fill them, and show "-" until the first sample lands.
 func (m *Model) statsColumns() bool {
 	return m.statsFetch != nil || m.liveActive() || len(m.stats) > 0
 }

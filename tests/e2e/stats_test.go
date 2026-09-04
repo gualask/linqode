@@ -129,6 +129,22 @@ func assertStats(t *testing.T, name string, stats compose.ContainerStats) {
 	if stats.MemAmount() == "" {
 		t.Errorf("%s: empty memory amount from %q", name, stats.MemUsage)
 	}
+	// The I/O readings are pairs, and the table prints both halves. Only
+	// this layer sees docker's real output, so it is the only place a
+	// release that changed "a / b" into something else would be caught.
+	for _, pair := range []struct{ label, raw, shown string }{
+		{"network", stats.NetIO, stats.NetAmount()},
+		{"block I/O", stats.BlockIO, stats.BlockAmount()},
+	} {
+		if !strings.Contains(pair.shown, "/") {
+			t.Errorf("%s: %s reading %q is not a pair (from %q)",
+				name, pair.label, pair.shown, pair.raw)
+		}
+		if strings.Contains(pair.shown, " ") {
+			t.Errorf("%s: %s reading %q kept docker's spacing, which reads as a column break",
+				name, pair.label, pair.shown)
+		}
+	}
 }
 
 func keys(m map[string]compose.ContainerStats) []string {

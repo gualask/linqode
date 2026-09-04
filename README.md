@@ -117,16 +117,24 @@ container — a count that climbs is a service crash-looping rather than
 recovering. It comes from a `docker inspect` alongside the refresh, and
 reads `-` on a host where that command did not answer.
 
-The machine's load, memory, disk and uptime go in a panel down the right
-side — or, on a terminal too narrow for it, in a line under the header.
-Either way they are sampled every 5 seconds, which costs about 2 ms.
+The machine's load, memory, disk and uptime go in a band of meters under
+the header, labelled `host` because CPU and memory appear twice on this
+screen — once for the machine, once per container in the table. One gauge
+per resource: the bar is the percentage and the numbers inside it are the
+absolute amounts. They are sampled every 5 seconds, which costs about 2 ms.
+Beside the target on the title line, a count of services by state says
+whether the project is in trouble without reading every row.
 
-The table's CPU and MEM columns are refreshed every 20 seconds instead: a
-`docker stats` sample takes the daemon ~2 seconds to produce, whatever the
-project's size, because it reads the cgroups twice to derive a percentage.
-When you want to watch resources move rather than glance at them, `a` opens
-the live panel, which streams a sample per second for as long as it is open
-and stops the remote command when you close it.
+The table's per-container columns are refreshed every 20 seconds instead:
+CPU and memory, plus the network and block-device totals docker accumulates
+since each container started (NET RX/TX and IO R/W, each keeping both
+halves of the pair; below 120 columns those two are dropped rather than
+ellipsized, since half a pair is not a reading). A `docker stats` sample
+takes the daemon ~2 seconds to produce, whatever the project's size,
+because it reads the cgroups twice to derive a percentage. When you want to
+watch resources move rather than glance at them, `a` opens the live panel,
+which streams a sample per second for as long as it is open and stops the
+remote command when you close it.
 
 **Log view** — follow mode with scrollback:
 

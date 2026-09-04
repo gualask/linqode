@@ -1,16 +1,8 @@
 #!/usr/bin/env bash
 # Local development driver: brings up the e2e fixture (sshd + docker-in-docker
-# with the demo Compose project) and runs the TUI against it.
-#
-#   scripts/dev-fixture.sh          # docker engine -> fixture -> build -> TUI
-#   scripts/dev-fixture.sh up       # fixture only, leave it running
-#   scripts/dev-fixture.sh ssh      # shell on the fixture, as the operator would
-#   scripts/dev-fixture.sh status   # what is running
-#   scripts/dev-fixture.sh down     # tear the fixture down (add --colima to stop the VM)
-#
-# The fixture is left running after the TUI exits, so repeated runs are fast.
-# Everything it needs — SSH keys, the image, the demo project — is created on
-# first use and reused afterwards; see tests/fixture/README.md.
+# with the demo Compose project) and runs the TUI against it. See usage()
+# below, which is what the script prints when asked — no command, no side
+# effects.
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -243,14 +235,40 @@ cmd_ssh() {
 	ssh_fixture
 }
 
-case "${1:-run}" in
+# usage is the script's own documentation, and what a bare invocation prints.
+# Starting a VM, building images and launching a TUI is a lot to do for
+# someone who just typed the script's name to see what it is, so the default
+# is to say what it can do rather than to do the biggest thing it can.
+usage() {
+	cat <<'EOF'
+Drives the e2e fixture — sshd + docker-in-docker running the demo Compose
+project — for working on Linqode by hand.
+
+usage: scripts/dev-fixture.sh <command>
+
+  run       docker engine -> fixture -> build linqode -> TUI against it
+  up        bring the fixture up and leave it running, without the TUI
+  ssh       shell on the fixture, as the operator would have
+  status    what is running: engine, fixture container, demo project
+  down      tear the fixture down; --colima also stops the VM
+  help      this text
+
+The fixture is left running after the TUI exits, so repeated runs are fast.
+Everything it needs — SSH keys, the image, the demo project — is created on
+first use and reused afterwards; see tests/fixture/README.md.
+EOF
+}
+
+case "${1:-}" in
 run) cmd_run ;;
 up) cmd_up ;;
 down) shift; cmd_down "$@" ;;
 status) cmd_status ;;
 ssh) cmd_ssh ;;
--h | --help | help)
-	sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+"" | -h | --help | help) usage ;;
+*)
+	usage >&2
+	echo >&2
+	die "unknown command '$1'"
 	;;
-*) die "unknown command '$1' — try: run | up | down | status | ssh" ;;
 esac

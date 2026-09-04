@@ -4,12 +4,22 @@
 #
 # Scripts are bind-mounted from this directory, which is /srv/demo inside the
 # fixture container.
+#
+# The image is pinned by digest and shared through an anchor, so a rebuild
+# cannot pick up a different busybox and there is one place to bump. A
+# floating `busybox:1.37` would re-pull whenever upstream moved the tag and
+# could change behaviour under a test run for reasons that have nothing to
+# do with this repo.
+#
+# To bump: `docker pull busybox:1.37` then
+# `docker image inspect busybox:1.37 --format '{{index .RepoDigests 0}}'`.
+x-image: &busybox busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
 
 services:
   # Plain-text logs plus a published port, so PortsSummary has something to
   # collapse.
   web:
-    image: busybox:1.37
+    image: *busybox
     working_dir: /app
     volumes:
       - .:/app:ro
@@ -19,7 +29,7 @@ services:
 
   # JSONL logs: structured rendering, field filters, and stats.
   api:
-    image: busybox:1.37
+    image: *busybox
     working_dir: /app
     volumes:
       - .:/app:ro
@@ -27,7 +37,7 @@ services:
 
   # Reports healthy, to exercise the Health column.
   db:
-    image: busybox:1.37
+    image: *busybox
     command: ["sh", "-c", "while true; do sleep 3600; done"]
     healthcheck:
       test: ["CMD", "true"]
@@ -38,7 +48,7 @@ services:
 
   # Reports unhealthy, for the failure coloring.
   cache:
-    image: busybox:1.37
+    image: *busybox
     command: ["sh", "-c", "while true; do sleep 3600; done"]
     healthcheck:
       test: ["CMD", "false"]
@@ -49,7 +59,7 @@ services:
 
   # Exits immediately: `ps --all` must still list it, with State=exited.
   migrate:
-    image: busybox:1.37
+    image: *busybox
     command: ["sh", "-c", "echo 'migration complete'"]
     restart: "no"
 
@@ -60,6 +70,6 @@ services:
   # Bounded on purpose, so the fixture ends up in a steady state rather than
   # churning for as long as it is running.
   flaky:
-    image: busybox:1.37
+    image: *busybox
     command: ["sh", "-c", "exit 1"]
     restart: on-failure:3

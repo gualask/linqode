@@ -57,9 +57,10 @@ Four principles shape the design:
 | `internal/config` | `config.toml` loading and host selection |
 | `internal/remote` | SSH: target resolution, connect, host-key policy, auth, one-shot and streaming exec with cancellation |
 | `internal/compose` | `docker compose` command builders (with shell quoting), `ps` output parsing into typed models, and both `docker stats` forms — one-shot sample and live stream |
-| `internal/host` | machine resource metrics for the status view's system panel: one command over `/proc` and `df -Pk`, parsed into a typed sample |
+| `internal/host` | machine resource metrics for the status view's meter band: one command over `/proc` and `df -Pk`, parsed into a typed sample |
 | `internal/logs` | log engine: line assembly, tail buffer, JSONL records, field filters, stats, search |
-| `internal/tui` | Bubble Tea application: app model, status and log views, the system panel and resource modes, keymaps |
+| `internal/tui` | Bubble Tea application: app model, status and log views, the meter band and resource modes, keymaps |
+| `internal/tui/theme` | the visual tokens every view shares: named adaptive colors rather than the terminal's ANSI slots, so what an operator sees does not depend on their color scheme |
 
 | Concern | Library | Rationale |
 | ------- | ------- | --------- |
@@ -143,10 +144,23 @@ The same tick samples the host's load, memory, disk and uptime, as a second
 exec: independent so one failing cannot blank the other, and cheap enough
 (~2 ms) that the separation costs nothing. A failed sample keeps the last
 one on screen, marked stale, mirroring how the table survives a failed
-refresh. Those readings render as a panel down the right-hand side, with
-per-resource bars and a count of services by state; below a terminal width
-of 100 the panel would cost the table more than it is worth, and the same
-sample collapses into a single line under the header instead.
+refresh. Those readings render as a band of htop-style meters under the
+header: one per resource, the bar carrying the percentage and the text
+inside it the absolute amounts, so the percentage is never printed twice.
+The bars share whatever the labels leave, stretching with the terminal, and
+shed the least urgent parts — uptime first, then meters from the bottom up
+— rather than overflowing, and are capped at thirty cells because past
+that a gauge adds resolution nobody reads. The band is labelled `host`: CPU
+and memory appear twice on this screen, and without the word it reads as an
+aggregate of the rows below. The count of services by state rides on the
+title line beside the target.
+
+The table draws its heading as a band across the full width, the way htop
+and k9s do, so a table narrower than the terminal reads as occupying the
+screen rather than trailing off part way; a blank line separates it from
+the header block. The gap between columns is the widest of four, three or
+two spaces whose layout still fits, so a wide terminal spends its slack on
+breathing room and a narrow one spends it on content.
 
 Per-container CPU and memory are a third exec on a third interval, because
 they cost two orders of magnitude more: `docker stats` needs ~2 seconds to
@@ -156,9 +170,9 @@ alongside the other commands in `tests/e2e/cost_test.go`). Two modes come
 out of that:
 
 - **Soft**, the default: one `docker stats --no-stream` every 20 seconds,
-  filling the table's CPU and MEM columns. A whole sample replaces the
-  previous one, so a container that stopped between two samples loses its
-  numbers rather than freezing them.
+  filling the table's CPU, MEM, NET RX/TX and IO R/W columns. A whole sample
+  replaces the previous one, so a container that stopped between two
+  samples loses its numbers rather than freezing them.
 - **Live**, on `a`: the **streaming** form over the log-follow pipeline,
   emitting a block per second into a panel below the table — current
   readings plus a CPU sparkline per container, scaled to its own peak so

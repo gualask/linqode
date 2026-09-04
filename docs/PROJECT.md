@@ -129,9 +129,10 @@ These decisions are settled — do not re-litigate them when implementing:
   2026-08-01: the columns were previously live-only)_:
 
   - **Soft**, always on: `docker stats --no-stream` every **20 s**, behind
-    the table's CPU and MEM columns. The command is in flight a tenth of
-    the time; at 10 s it would be a fifth, and no more informative, since
-    each reading is already an average over docker's own sampling second.
+    the table's CPU, MEM, NET RX/TX and IO R/W columns. The command is in flight
+    a tenth of the time; at 10 s it would be a fifth, and no more
+    informative, since each reading is already an average over docker's own
+    sampling second.
   - **Live**, on request (`a`): the streaming form, a sample per second,
     for as long as the panel is open. The soft poll stands down while it
     runs, and the remote command is terminated when it closes.

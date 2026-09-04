@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/theme"
 )
 
@@ -52,42 +53,43 @@ func healthStyle(health string) lipgloss.Style {
 
 func (m *Model) View() string {
 	var b strings.Builder
-	b.WriteString(theme.Bold.Render(" linqode "))
-	b.WriteString(m.info.Target)
-	if m.info.ComposeDir != "" {
-		b.WriteString("  ")
-		b.WriteString(theme.Cyan.Render(m.info.ComposeDir))
-	}
-	b.WriteString("\n")
-	sidebar := m.sidebarOn()
-	headerLines := 2
-	if !sidebar {
-		if line := m.renderHostLine(); line != "" {
-			b.WriteString(line + "\n")
-			headerLines++
+	// Both header lines are clipped rather than trusted to fit: a line
+	// wider than the terminal wraps, and everything below it shifts down by
+	// a row for as long as the reading stays wide.
+	clip := func(line string) string {
+		if m.width <= 0 {
+			return line
 		}
+		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
 	}
+	var title strings.Builder
+	title.WriteString(theme.Bold.Render(" linqode "))
+	title.WriteString(m.info.Target)
+	if m.info.ComposeDir != "" {
+		title.WriteString("  ")
+		title.WriteString(theme.Cyan.Render(m.info.ComposeDir))
+	}
+	if summary := m.projectSummary(); summary != "" {
+		title.WriteString("  " + summary)
+	}
+	b.WriteString(clip(title.String()) + "\n")
+	headerLines := 2
+	if line := m.renderHostLine(); line != "" {
+		b.WriteString(clip(line) + "\n")
+		headerLines++
+	}
+	// A blank line, not a rule: the table draws its own heading as a band
+	// across the width, so a rule here would be a second separator stacked
+	// on the first. What the header block needs from this line is air.
 	b.WriteString("\n")
 	bodyHeight := max(m.height-headerLines-1, 1)
-	bodyWidth := m.width
-	if sidebar {
-		bodyWidth = m.width - sidebarWidth
-	}
 	fit := func(style lipgloss.Style) lipgloss.Style {
 		if m.height <= 0 {
 			return style
 		}
 		return style.Height(bodyHeight).MaxHeight(bodyHeight)
 	}
-	body := fit(lipgloss.NewStyle()).Render(m.renderBody(bodyWidth, bodyHeight))
-	if sidebar {
-		body = lipgloss.JoinHorizontal(lipgloss.Top,
-			fit(lipgloss.NewStyle().Width(bodyWidth)).Render(body),
-			fit(lipgloss.NewStyle().Width(sidebarInner)).
-				Border(lipgloss.NormalBorder(), false, false, false, true).
-				BorderForeground(lipgloss.Color("8")).PaddingLeft(1).
-				Render(m.renderSystemPanel()))
-	}
+	body := fit(lipgloss.NewStyle()).Render(m.renderBody(m.width, bodyHeight))
 	b.WriteString(body + "\n" + m.footer())
 	return b.String()
 }
@@ -119,38 +121,22 @@ func (m *Model) renderBody(width, height int) string {
 	return strings.TrimRight(b.String(), "\n") + live
 }
 
-type footerHint struct {
-	text string
-	drop int
-}
-
+// footerHints is what the status screen answers to. The order of the Drop
+// values is the order these are given up in when the line does not fit; the
+// dropping itself belongs to the footer, not to this view, and lives in
+// internal/tui/panel.
 func (m *Model) footerHints(width int) string {
-	hints := []footerHint{{"enter logs", 2}, {"c actions", 3}, {"x scripts", 6},
-		{"! run", 4}, {"r refresh", 1}, {"q quit", 0}}
+	hints := []panel.Hint{{Text: "enter logs", Drop: 2}, {Text: "c actions", Drop: 3},
+		{Text: "x scripts", Drop: 6}, {Text: "! run", Drop: 4},
+		{Text: "r refresh", Drop: 1}, {Text: "q quit", Drop: 0}}
 	if m.liveStats {
 		live := "a live"
 		if m.liveActive() {
 			live = "a live off"
 		}
-		hints = slices.Insert(hints, 4, footerHint{live, 5})
+		hints = slices.Insert(hints, 4, panel.Hint{Text: live, Drop: 5})
 	}
-	for {
-		texts := make([]string, len(hints))
-		for index, hint := range hints {
-			texts[index] = hint.text
-		}
-		joined := strings.Join(texts, " · ")
-		if width <= 0 || len(hints) == 1 || lipgloss.Width(joined) <= width {
-			return joined
-		}
-		worst := 0
-		for index, hint := range hints {
-			if hint.drop >= hints[worst].drop {
-				worst = index
-			}
-		}
-		hints = slices.Delete(hints, worst, worst+1)
-	}
+	return panel.JoinHints(hints, width)
 }
 
 func (m *Model) footer() string {
@@ -179,39 +165,6 @@ func (m *Model) footer() string {
 		return lipgloss.NewStyle().MaxWidth(m.width).Render(text)
 	}
 	return text
-}
-
-func (m *Model) renderHostLine() string {
-	if !m.metricsLoaded {
-		return ""
-	}
-	metrics := m.metrics
-	var parts []string
-	if metrics.HasLoad() {
-		parts = append(parts, loadStyle(metrics.LoadPerCPU()).Render(fmt.Sprintf("load %.2f", metrics.Load1))+
-			theme.Dim.Render(fmt.Sprintf(" %.2f/cpu", metrics.LoadPerCPU())))
-	}
-	if metrics.MemTotalKB > 0 {
-		percent := metrics.MemUsedPercent()
-		parts = append(parts, fmt.Sprintf("mem %s/%s %s", formatKB(metrics.MemUsedKB()),
-			formatKB(metrics.MemTotalKB), usageStyle(percent).Render(fmt.Sprintf("%.0f%%", percent))))
-	}
-	if metrics.DiskTotalKB > 0 {
-		percent := metrics.DiskUsedPercent()
-		parts = append(parts, fmt.Sprintf("disk %s/%s %s", formatKB(metrics.DiskUsedKB),
-			formatKB(metrics.DiskTotalKB), usageStyle(percent).Render(fmt.Sprintf("%.0f%%", percent))))
-	}
-	if metrics.Uptime > 0 {
-		parts = append(parts, theme.Dim.Render("up "+formatUptime(metrics.Uptime)))
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	line := " " + strings.Join(parts, "  ")
-	if m.metricsStale {
-		line += theme.Dim.Render("  (stale)")
-	}
-	return line
 }
 
 func usageStyle(percent float64) lipgloss.Style {

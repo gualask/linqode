@@ -14,7 +14,10 @@ intro (install, configuration, keys):
 - **`docs/architecture.md`** — components, package layout, and the main
   flows (connect, status, log follow, structured logs, actions).
 - **`docs/tests.md`** — testing strategy, layers, conventions for new tests,
-  known gaps.
+  known gaps. Includes "Looking at the UI": a change to how the interface
+  looks is not finished until a frame has been rendered in color and
+  looked at, because the tests run without a TTY and cannot see color at
+  all.
 - **`docs/docker-setup.md`** — getting a Docker engine for the e2e fixture
   (Colima on macOS), lifecycle and disk cleanup. Not needed for
   `go test ./...`.

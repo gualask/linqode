@@ -30,6 +30,14 @@ func TestParseStats(t *testing.T) {
 	if got := stats.MemAmount(); got != "153.6MiB" {
 		t.Errorf("MemAmount = %q, want 153.6MiB", got)
 	}
+	// Both halves of the I/O pairs are kept, minus the spaces docker puts
+	// around the separator.
+	if got := stats.NetAmount(); got != "1.2kB/640B" {
+		t.Errorf("NetAmount = %q, want 1.2kB/640B", got)
+	}
+	if got := stats.BlockAmount(); got != "0B/0B" {
+		t.Errorf("BlockAmount = %q, want 0B/0B", got)
+	}
 }
 
 // Captured from a real `docker stats` writing to a pipe: it still emits
@@ -79,7 +87,8 @@ func TestParseStatsRejectsNonStatsLines(t *testing.T) {
 // A container being torn down reports placeholders instead of numbers; the
 // row must survive without them.
 func TestParseStatsToleratesPlaceholders(t *testing.T) {
-	stats, ok := ParseStats(`{"Name":"demo-db-1","CPUPerc":"--","MemPerc":"--","MemUsage":"-- / --"}`)
+	stats, ok := ParseStats(`{"Name":"demo-db-1","CPUPerc":"--","MemPerc":"--","MemUsage":"-- / --",` +
+		`"NetIO":"-- / --","BlockIO":"-- / --"}`)
 	if !ok {
 		t.Fatal("placeholder sample rejected")
 	}
@@ -91,6 +100,11 @@ func TestParseStatsToleratesPlaceholders(t *testing.T) {
 	}
 	if got := stats.MemAmount(); got != "--" {
 		t.Errorf("MemAmount = %q, want --", got)
+	}
+	// A pair of placeholders stays a pair — collapsing it would hide that
+	// this column reports two numbers.
+	if got := stats.NetAmount(); got != "--/--" {
+		t.Errorf("NetAmount = %q, want --/--", got)
 	}
 }
 
