@@ -129,6 +129,15 @@ func (s *sampler) begin(source *source, now time.Time) tea.Cmd {
 	return source.start()
 }
 
+// setInterval changes what a source asks for. It is how watching the daemon
+// pushes the service list onto a slow safety net, and how losing the stream
+// puts it back on a short one.
+func (s *sampler) setInterval(id sourceID, every time.Duration) {
+	if source, ok := s.sources[id]; ok {
+		source.every = every
+	}
+}
+
 // finished records that a read came back, and what it cost. The cost is kept
 // as-is rather than averaged: a link that just got slow should be believed
 // immediately, and one that got fast again shortens the wait on its next

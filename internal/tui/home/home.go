@@ -31,9 +31,15 @@ import (
 // The intervals the screen asks for. What it actually gets is stretched by
 // the sampler when a link is slow enough to earn it.
 const (
-	// servicesRefresh is the fallback cadence of `compose ps`, ~60 ms of
-	// server time per read (docs/PROJECT.md, dashboard cost budget).
+	// servicesRefresh is the cadence of `compose ps` when nothing is telling
+	// the screen what changed: ~60 ms of server time per read
+	// (docs/PROJECT.md, dashboard cost budget).
 	servicesRefresh = 5 * time.Second
+	// servicesWatched is that cadence once the daemon's event stream is up.
+	// It is a safety net, not the mechanism: it catches what no event
+	// describes and a stream that quietly stopped delivering, at a twelfth
+	// of the round-trips.
+	servicesWatched = 60 * time.Second
 	// hostRefresh is the meters' cadence. At ~2 ms it is noise beside the
 	// `ps` on the same clock.
 	hostRefresh = 5 * time.Second
@@ -84,6 +90,11 @@ type Config struct {
 	Services func() ([]compose.Service, error)
 	Host     func() (host.Metrics, error)
 	Stats    func() ([]compose.ContainerStats, error)
+
+	// Watch streams the daemon's changes to this project's containers. Nil
+	// leaves the service list on its timer, which is what it falls back to
+	// if the stream fails or ends.
+	Watch func(project string) (operations.Feed, error)
 }
 
 type Model struct {
@@ -109,6 +120,16 @@ type Model struct {
 
 	// sampler owns what is read off the host and how often.
 	sampler *sampler
+	// project is what `ps` reported this session's containers belong to, and
+	// what scopes the daemon's event stream.
+	project string
+	// watch is the daemon's event stream while it is up, nil otherwise.
+	watch         *operations.Feed
+	watchStarting bool
+	// servicesStale records that something changed while a read was already
+	// in flight: that read answers a question older than the news, so
+	// another one follows it.
+	servicesStale bool
 
 	// menu is the open modal list, nil when none is. While one is open every
 	// key routes to it instead of to the focused panel.
@@ -217,6 +238,12 @@ func (m *Model) UpdateBackground(msg tea.Msg) (tea.Cmd, bool) {
 	case servicesSampleMsg, hostSampleMsg, statsSampleMsg:
 		// A read already in flight when the view opened still lands.
 		return m.applySample(msg), true
+	case watchTickMsg:
+		// The stream keeps draining: a log view is exactly when a container
+		// is most likely to change, and its channel must not fill up.
+		return m.handleWatchTick(), true
+	case watchFeedMsg:
+		return m.applyWatchFeed(msg), true
 	}
 	return m.services.UpdateBackground(msg)
 }
@@ -229,6 +256,10 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return tea.Batch(m.sampler.due(), heartbeat())
 	case servicesSampleMsg, hostSampleMsg, statsSampleMsg:
 		return m.applySample(msg)
+	case watchFeedMsg:
+		return m.applyWatchFeed(msg)
+	case watchTickMsg:
+		return m.handleWatchTick()
 	}
 	// Everything else belongs to the table: its live stream, and the ticks
 	// that drain it.
@@ -242,6 +273,16 @@ func (m *Model) applySample(msg tea.Msg) tea.Cmd {
 	case servicesSampleMsg:
 		m.services.SetServices(msg.services, msg.err)
 		m.sampler.finished(sourceServices)
+		if len(msg.services) > 0 {
+			m.project = msg.services[0].Project
+		}
+		if m.servicesStale {
+			// News arrived while this read was in flight, so it answers a
+			// question that is already out of date.
+			m.servicesStale = false
+			return tea.Batch(m.startWatching(), m.sampler.read(sourceServices))
+		}
+		return m.startWatching()
 	case hostSampleMsg:
 		m.system.SetSample(msg.metrics, msg.err)
 		m.sampler.finished(sourceHost)

@@ -140,6 +140,27 @@ These decisions are settled — do not re-litigate them when implementing:
   The rule this encodes: **a server pays a small fixed rent for what is on
   screen, and pays by the second only while someone is watching**.
 
+- **The daemon is watched, not polled** _(decided 2026-09-04)_. The service
+  list is re-read when `docker events` says something changed, not on a
+  five-second timer: an idle deployment costs nothing to keep on screen, and
+  a container that dies appears as soon as it dies rather than within the
+  next interval. Three things make this a policy rather than an optimisation:
+
+  - The stream is **filtered on the server**, by project label and by an
+    explicit list of actions. Health checks emit `exec_create`, `exec_start`
+    and `exec_die` for every probe of every container — measured at thirty of
+    thirty-seven events in ten seconds against a single container probing
+    every two seconds — so an unfiltered stream would cost more bandwidth on
+    an idle project than the polling it replaces. The project label is what
+    keeps another tenant's containers on a shared host out of this session.
+  - The timer **steps back rather than away**: while the stream is up the
+    service list still refreshes every sixty seconds, for what no event
+    describes and for a stream that stopped delivering without saying so.
+    Losing the stream restores the short interval.
+  - Watching is an **optimisation, not a capability**. A daemon that refuses
+    the stream leaves the screen on its timer and says nothing: there is
+    nothing an operator could do about it.
+
 ## Roadmap
 
 ### Rust MVP — reference implementation _(done, July 2026; tagged `rust-mvp`)_

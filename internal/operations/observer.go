@@ -97,6 +97,17 @@ func (o *HostOperator) FollowStats(ctx context.Context) (Feed, error) {
 	return o.startFeed(ctx, compose.StatsCommand(o.composeDir), statsLine)
 }
 
+// Watch streams the daemon's changes to the given project's containers: what
+// the status view listens to instead of asking `ps` on a timer. The project
+// name comes from the service list, so this is started once there is one.
+func (o *HostOperator) Watch(ctx context.Context, project string) (Feed, error) {
+	command := compose.EventsCommand(project)
+	if command == "" {
+		return Feed{}, fmt.Errorf("no compose project to watch")
+	}
+	return o.startFeed(ctx, command, changeLine)
+}
+
 // AdHoc starts a human-authorized raw command for the TUI's `!` path. Machine
 // adapters must receive a narrower interface that omits this method.
 func (o *HostOperator) AdHoc(ctx context.Context, command string) (Feed, error) {

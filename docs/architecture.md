@@ -140,7 +140,13 @@ whatever the intervals say.
 
 The services source runs `docker compose ps --all --format json` in the
 project's directory — a one-shot exec per read, always in a background
-command. Output is parsed into
+command. **What triggers that read is the daemon, not a clock**: one
+`docker events` stream, scoped by the project label `ps` reported and
+filtered server-side to the actions that change a row, re-reads the table as
+soon as something happens. The interval stays as a sixty-second safety net
+(see PROJECT.md, "The daemon is watched, not polled"). News arriving while a
+read is already in flight is remembered rather than dropped: that read
+answers a question older than the news, so another follows it. Output is parsed into
 typed service rows (both the NDJSON and the legacy array shape are
 accepted) and rendered as a table with state/health coloring. Selection is
 preserved on the same container across refreshes; a failed refresh shows

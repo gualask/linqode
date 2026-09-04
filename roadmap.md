@@ -87,10 +87,9 @@ the degraded screen is what ships today.
 
 ## 3. Open decisions (gates, not details)
 
-1. **`docker events` as the refresh trigger** (phase D2). Replacing the 5s
-   `compose ps` timer with event-driven invalidation changes the update
-   contract, so it belongs in PROJECT.md's decided policies, not in a commit
-   message. Recommendation: do it — but as its own gated step.
+1. ~~**`docker events` as the refresh trigger**~~ _(settled 2026-09-04:
+   yes. Written up in PROJECT.md, "The daemon is watched, not polled", with
+   the measured reason the stream must be filtered on the server.)_
 2. **Process actions (`kill`) in the system view** (phase H). Today's
    mutation surface is deliberately narrow: compose lifecycle, configured
    scripts, and `!` as the only arbitrary human capability
@@ -276,6 +275,20 @@ September 2026)_.
 ### B. Sampling scheduler
 
 Invisible on screen; it is what makes everything after it affordable.
+
+**B1 — the sampler** _(done, September 2026)_. One heartbeat, sources with
+their own interval, the no-overlap rule, the stretch on a slow link, and the
+gate that stops a reading nobody is looking at. The panels stopped fetching:
+the screen owns every fetch and every cadence.
+
+**B2 — watching the daemon** _(done, September 2026)_. `docker events`,
+scoped and filtered on the server, re-reads the table on a change; the timer
+became a sixty-second safety net. Absorbed phase D2, which is why the events
+*panel* (D1) is all that remains of D. Verified against a real daemon twice:
+the command and its filtering on a throwaway project, then the whole path
+over SSH inside the fixture.
+
+**B3 — cgroups instead of `docker stats`** _(next)_.
 
 - One batched exec for all cheap readings, extending the existing marker
   sections and best-effort parsing (a missing section leaves its fields zero).

@@ -59,6 +59,9 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 		AdHoc: func(command string) (operations.Feed, error) {
 			return operator.AdHoc(ctx, command)
 		},
+		Watch: func(project string) (operations.Feed, error) {
+			return operator.Watch(ctx, project)
+		},
 	}
 	// Both resource fetches ride on the same switch, and nil leaves the
 	// feature they feed out of the view: one host that wants no extra

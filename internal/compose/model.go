@@ -17,6 +17,12 @@ type Service struct {
 	Name string `json:"Name"`
 	// Service is the compose service name, e.g. `db`.
 	Service string `json:"Service"`
+
+	// Project is the compose project the container belongs to. It is what
+	// scopes the daemon's event stream to this session's containers, and it
+	// comes from `ps` rather than from the directory name because a project
+	// can be named anything.
+	Project string `json:"Project"`
 	// State is `running`, `exited`, `restarting`, `paused`, `created`,
 	// or `dead`.
 	State string `json:"State"`

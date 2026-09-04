@@ -90,14 +90,15 @@ func resample(screen *Model) {
 }
 
 // applyScreen runs a screen-owned command and feeds its message back, the way
-// the Bubble Tea loop would. Beats are not followed: a heartbeat command
-// sleeps for its whole interval.
+// the Bubble Tea loop would. The two self-rearming ticks are not followed: a
+// heartbeat or a drain tick would sleep for its interval and then ask to be
+// scheduled again, forever.
 func applyScreen(screen *Model, cmd tea.Cmd) {
 	if cmd == nil {
 		return
 	}
 	switch msg := cmd().(type) {
-	case nil, beatMsg:
+	case nil, beatMsg, watchTickMsg:
 	case tea.BatchMsg:
 		for _, sub := range msg {
 			applyScreen(screen, sub)

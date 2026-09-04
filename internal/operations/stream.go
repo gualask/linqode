@@ -17,6 +17,9 @@ const (
 	EventStderr EventKind = "stderr"
 	EventLog    EventKind = "log"
 	EventStats  EventKind = "stats"
+	// EventChange is one thing the daemon reported happening to a container
+	// of this project.
+	EventChange EventKind = "change"
 	EventExit   EventKind = "exit"
 )
 
@@ -26,6 +29,7 @@ type Event struct {
 	Kind     EventKind
 	Text     string
 	Stats    compose.ContainerStats
+	Change   compose.Event
 	ExitCode int
 }
 
@@ -63,6 +67,11 @@ func logLine(line string) (Event, bool) {
 func statsLine(line string) (Event, bool) {
 	stats, ok := compose.ParseStats(line)
 	return Event{Kind: EventStats, Stats: stats}, ok
+}
+
+func changeLine(line string) (Event, bool) {
+	change, ok := compose.ParseEvent(line)
+	return Event{Kind: EventChange, Change: change}, ok
 }
 
 func (o *HostOperator) startFeed(ctx context.Context, command string, stdout lineMapper) (Feed, error) {

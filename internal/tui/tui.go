@@ -46,11 +46,15 @@ const logTail = 200
 // Action and Script are constrained operations; AdHoc is the explicitly
 // human-only `!` path.
 type Backend struct {
-	Services      Fetch
-	Host          FetchHost
-	Stats         FetchStats
-	Logs          func(service string, tail int) (operations.Feed, error)
-	LiveStats     func() (operations.Feed, error)
+	Services  Fetch
+	Host      FetchHost
+	Stats     FetchStats
+	Logs      func(service string, tail int) (operations.Feed, error)
+	LiveStats func() (operations.Feed, error)
+	// Watch streams the daemon's changes to the project's containers, which
+	// is what makes the table react rather than poll. Nil leaves the screen
+	// on its timer.
+	Watch         func(project string) (operations.Feed, error)
 	ActionPreview func(action operations.ServiceAction, service string) string
 	Action        func(action operations.ServiceAction, service string) (operations.Feed, error)
 	Script        func(name string) (operations.Feed, error)
@@ -89,6 +93,7 @@ func Run(info Info, backend Backend) error {
 		Services:      backend.Services,
 		Host:          backend.Host,
 		Stats:         backend.Stats,
+		Watch:         backend.Watch,
 	}, services)
 	app := appModel{info: info, backend: backend, home: screen}
 	_, err := tea.NewProgram(app, tea.WithAltScreen()).Run()
