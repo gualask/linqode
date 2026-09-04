@@ -11,12 +11,12 @@ import (
 )
 
 func (m *Model) View() string {
-	frame := layoutFor(m.width, m.height, m.services.HasHostLine())
+	frame := layoutFor(m.width, m.height, m.system.HasBand())
 
 	var b strings.Builder
 	b.WriteString(m.clip(m.title()) + "\n")
 	if frame.band {
-		b.WriteString(m.clip(m.services.HostLine(m.width)) + "\n")
+		b.WriteString(m.clip(m.system.Band(m.width)) + "\n")
 	}
 	b.WriteString("\n")
 	b.WriteString(m.body(frame) + "\n")
@@ -48,17 +48,22 @@ func (m *Model) title() string {
 	return b.String()
 }
 
-// body is the panels, or the modal that has taken the screen from them. The
-// anchor panel holds the whole body until A3 gives the layout satellites.
+// body is the open detail, the anchor panel, or the modal that has taken the
+// screen from both.
 func (m *Model) body(frame frame) string {
 	if m.menu != nil {
 		return m.renderMenu(frame.body.width, frame.body.height)
 	}
-	const anchor = 0
+	shown, focused := m.panels[m.anchor], m.anchor == m.focus
+	if m.detail != nil {
+		// A detail was asked for by name; it holds focus for as long as it
+		// is open.
+		shown, focused = m.detail, true
+	}
 	content := frame.body.content()
-	m.panels[anchor].SetSize(content.width, content.height)
-	return panel.Box(m.panels[anchor].Title(), m.panels[anchor].View(),
-		anchor == m.focus, frame.body.width, frame.body.height)
+	shown.SetSize(content.width, content.height)
+	return panel.Box(shown.Title(), shown.View(), focused,
+		frame.body.width, frame.body.height)
 }
 
 func (m *Model) footer() string {
@@ -70,6 +75,9 @@ func (m *Model) footer() string {
 		text = theme.Dim.Render(" j/k select · enter run · esc cancel")
 	default:
 		status := m.focused().Status()
+		if m.detail != nil {
+			status = m.detail.Status()
+		}
 		budget := 0
 		if m.width > 0 {
 			budget = m.width - lipgloss.Width(status) - len("  ·  ")
@@ -86,8 +94,15 @@ func (m *Model) footer() string {
 // values order what is given up when the line does not fit, so the two sets
 // compete on urgency rather than on which was listed first.
 func (m *Model) hints() []panel.Hint {
-	hints := slices.Clone(m.focused().Hints())
+	// Inside a detail the way out replaces the way in — the panel's own hint
+	// says `enter`, which is what was just pressed. The screen's commands go
+	// on working there, so they stay on the line.
+	hints := []panel.Hint{{Text: "esc back", Drop: 1}}
+	if m.detail == nil {
+		hints = slices.Clone(m.focused().Hints())
+	}
 	return append(hints,
+		panel.Hint{Text: "r refresh", Drop: 2},
 		panel.Hint{Text: "c actions", Drop: 3},
 		panel.Hint{Text: "x scripts", Drop: 6},
 		panel.Hint{Text: "! run", Drop: 4},

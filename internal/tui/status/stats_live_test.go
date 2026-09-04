@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/gualask/linqode/internal/compose"
-	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/operations"
 )
 
@@ -179,10 +178,8 @@ func TestLivePanelAnnouncesStartup(t *testing.T) {
 
 func TestLivePanelLeavesTheTableOnScreen(t *testing.T) {
 	m := withStatsFetch()
-	m.hostFetch = func() (host.Metrics, error) { return host.Metrics{}, nil }
 	m.SetSize(120, 20)
 	m.Update(servicesMsg{services: services("web", "db", "cache")})
-	m.Update(hostMsg{metrics: sampleMetrics()})
 	stream := openLive(t, m)
 	for _, name := range []string{"web", "db", "cache"} {
 		stream.events <- liveReading(name, "12.34%", "153.6MiB")

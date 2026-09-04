@@ -15,7 +15,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/gualask/linqode/internal/compose"
-	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/operations"
 )
 
@@ -30,25 +29,8 @@ type servicesMsg struct {
 
 type autoTickMsg struct{}
 
-// hostMsg is one sample of the machine's resource usage, fetched alongside
-// the service list on the same tick.
-type hostMsg struct {
-	metrics host.Metrics
-	err     error
-}
-
 type Model struct {
 	fetch func() ([]compose.Service, error)
-	// hostFetch is optional: without it the header shows no resource line.
-	hostFetch func() (host.Metrics, error)
-
-	// metrics is the last good host sample. A failed sample keeps it on
-	// screen and flags it stale, the same way a failed service refresh
-	// keeps the last good table.
-	metrics           host.Metrics
-	metricsLoaded     bool
-	metricsStale      bool
-	metricsRefreshing bool
 
 	// statsFetch is optional: without it the table has no resource columns.
 	statsFetch func() ([]compose.ContainerStats, error)
@@ -91,7 +73,6 @@ type Model struct {
 func New(config Config) *Model {
 	return &Model{
 		fetch:      config.Services,
-		hostFetch:  config.Host,
 		statsFetch: config.Stats,
 		liveStats:  config.LiveStats,
 	}
@@ -100,9 +81,9 @@ func New(config Config) *Model {
 // init returns the startup commands. It must not mutate state: Bubble Tea
 // calls Init on a copy whose changes are discarded.
 //
-// The three fetches run on their own intervals — services and host metrics
-// every autoRefresh, container stats every statsPollInterval — so the slow
-// one never delays the cheap ones.
+// The two fetches run on their own intervals — the service list every
+// autoRefresh, container stats every statsPollInterval — so the slow one
+// never delays the cheap one.
 func (m *Model) Init() tea.Cmd {
 	return tea.Batch(m.Sample(), autoTick(), statsPollTick())
 }
@@ -110,14 +91,7 @@ func (m *Model) Init() tea.Cmd {
 // Sample runs the panel's fetches once, without arming the timers Init also
 // starts. It is the seam for a caller that owns the cadence itself.
 func (m *Model) Sample() tea.Cmd {
-	return tea.Batch(m.refreshCmd(), m.hostRefreshCmd(), m.statsSampleCmd())
-}
-
-// SetHostFetch replaces the host sampler. A nil fetch turns the band off,
-// which is the escape hatch for a host where even a cheap extra command is
-// unwelcome.
-func (m *Model) SetHostFetch(fetch func() (host.Metrics, error)) {
-	m.hostFetch = fetch
+	return tea.Batch(m.refreshCmd(), m.statsSampleCmd())
 }
 
 func (m *Model) refreshCmd() tea.Cmd {
@@ -131,20 +105,6 @@ func (m *Model) refreshCmd() tea.Cmd {
 	}
 }
 
-// hostRefreshCmd samples the host metrics, or nil when none are configured.
-// Separate from the service fetch: it is a different command on the server
-// (~2 ms against ~60 ms), and one failing must not blank the other.
-func (m *Model) hostRefreshCmd() tea.Cmd {
-	fetch := m.hostFetch
-	if fetch == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		metrics, err := fetch()
-		return hostMsg{metrics: metrics, err: err}
-	}
-}
-
 // refresh starts a fetch unless one is already running.
 func (m *Model) Refresh() tea.Cmd {
 	if m.refreshing {
@@ -152,15 +112,6 @@ func (m *Model) Refresh() tea.Cmd {
 	}
 	m.refreshing = true
 	return m.refreshCmd()
-}
-
-// refreshHost samples host metrics unless a sample is already in flight.
-func (m *Model) refreshHost() tea.Cmd {
-	if m.hostFetch == nil || m.metricsRefreshing {
-		return nil
-	}
-	m.metricsRefreshing = true
-	return m.hostRefreshCmd()
 }
 
 func autoTick() tea.Cmd {

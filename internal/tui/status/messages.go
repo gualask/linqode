@@ -2,7 +2,6 @@ package status
 
 import (
 	"github.com/gualask/linqode/internal/compose"
-	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/operations"
 )
 
@@ -11,7 +10,6 @@ import (
 // composes this panel, not to the table itself.
 type Config struct {
 	Services  func() ([]compose.Service, error)
-	Host      func() (host.Metrics, error)
 	Stats     func() ([]compose.ContainerStats, error)
 	LiveStats bool
 }

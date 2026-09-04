@@ -254,7 +254,8 @@ The risky commit: not drawing borders, but taking the screen role away from
   never competes with the filled heading band below it, and the quiet fill on
   an unfocused panel's cursor row does the rest.
 
-**A3 — the band joins the ring, and the system view appears.** _(next)_
+**A3 — the band joins the ring, and the system view appears** _(done,
+September 2026)_.
 
 - `hostband.go` moves out of `status` into `internal/tui/system`, which owns
   two renderings: the one-row band and the full system view.
@@ -264,6 +265,13 @@ The risky commit: not drawing borders, but taking the screen role away from
 - The system view is born nearly empty — load 1/5/15, cores, memory, disk,
   uptime, of which the band shows four numbers today. It is the shell phases
   C, E, F and G fill in.
+- Fell out of the work, and worth keeping: **the host sampling moved to the
+  screen**. Neither panel can own it — the band and the system view are the
+  same sample — so `home` grew the fetch, the interval and the no-overlap
+  guard. That is the shape phase B's scheduler wants, one tier early.
+- Fell out of *looking* at it: **`r` became a screen command**. As a panel key
+  it silently did nothing whenever focus was on the band, and what an operator
+  means by refresh is "read everything again, now".
 
 ### B. Sampling scheduler
 

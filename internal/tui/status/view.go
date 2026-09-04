@@ -3,7 +3,6 @@ package status
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -70,7 +69,7 @@ func (m *Model) selectionStyle() lipgloss.Style {
 // Hints are the keys the table itself answers to. The screen adds its own and
 // decides which survive a narrow terminal.
 func (m *Model) Hints() []panel.Hint {
-	hints := []panel.Hint{{Text: "enter logs", Drop: 2}, {Text: "r refresh", Drop: 1}}
+	hints := []panel.Hint{{Text: "enter logs", Drop: 2}}
 	if m.liveStats {
 		live := "a live"
 		if m.liveActive() {
@@ -119,50 +118,4 @@ func (m *Model) View() string {
 		m.renderTable(&b, m.width, tableHeight)
 	}
 	return strings.TrimRight(b.String(), "\n") + live
-}
-
-func usageStyle(percent float64) lipgloss.Style {
-	switch {
-	case percent >= 90:
-		return theme.Red
-	case percent >= 75:
-		return theme.Yellow
-	default:
-		return theme.Green
-	}
-}
-
-func loadStyle(perCPU float64) lipgloss.Style {
-	switch {
-	case perCPU >= 1:
-		return theme.Red
-	case perCPU >= 0.7:
-		return theme.Yellow
-	default:
-		return theme.Green
-	}
-}
-
-func formatKB(kb uint64) string {
-	units := []string{"K", "M", "G", "T", "P"}
-	value, unit := float64(kb), 0
-	for value >= 1024 && unit < len(units)-1 {
-		value /= 1024
-		unit++
-	}
-	if value >= 100 {
-		return fmt.Sprintf("%.0f%s", value, units[unit])
-	}
-	return fmt.Sprintf("%.1f%s", value, units[unit])
-}
-
-func formatUptime(duration time.Duration) string {
-	switch {
-	case duration >= 24*time.Hour:
-		return fmt.Sprintf("%dd%dh", int(duration.Hours())/24, int(duration.Hours())%24)
-	case duration >= time.Hour:
-		return fmt.Sprintf("%dh%dm", int(duration.Hours()), int(duration.Minutes())%60)
-	default:
-		return fmt.Sprintf("%dm", int(duration.Minutes()))
-	}
 }

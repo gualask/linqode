@@ -57,11 +57,12 @@ Four principles shape the design:
 | `internal/config` | `config.toml` loading and host selection |
 | `internal/remote` | SSH: target resolution, connect, host-key policy, auth, one-shot and streaming exec with cancellation |
 | `internal/compose` | `docker compose` command builders (with shell quoting), `ps` output parsing into typed models, and both `docker stats` forms — one-shot sample and live stream |
-| `internal/host` | machine resource metrics for the status view's meter band: one command over `/proc` and `df -Pk`, parsed into a typed sample |
+| `internal/host` | machine resource metrics for the header band and the system view: one command over `/proc` and `df -Pk`, parsed into a typed sample |
 | `internal/logs` | log engine: line assembly, tail buffer, JSONL records, field filters, stats, search |
 | `internal/tui` | Bubble Tea application: the app model routing between the home screen and the follow view, and the backend adapting operations to background commands |
 | `internal/tui/home` | the home screen: header, layout, focus, footer, the modal menus and the `!` prompt. It owns the screen; a feature package owns only what is inside its own panel |
 | `internal/tui/status` | the services panel: the compose table, its columns, and the container readings behind them |
+| `internal/tui/system` | the machine: the header band, and the system view an `enter` on it opens |
 | `internal/tui/follow` | the full-screen view for a log, action, script, or ad-hoc command |
 | `internal/tui/panel` | the chrome a focusable region wears: a titled box that occupies exactly the cells it was given, the focus tokens, and the footer hints |
 | `internal/tui/theme` | the visual tokens every view shares: named adaptive colors rather than the terminal's ANSI slots, so what an operator sees does not depend on their color scheme |
@@ -144,11 +145,13 @@ that did not arrive render as `-`, distinct from a container that has
 genuinely never restarted; the RESTARTS column appears only once something
 can fill it.
 
-The same tick samples the host's load, memory, disk and uptime, as a second
-exec: independent so one failing cannot blank the other, and cheap enough
-(~2 ms) that the separation costs nothing. A failed sample keeps the last
-one on screen, marked stale, mirroring how the table survives a failed
-refresh. Those readings render as a band of htop-style meters under the
+The screen samples the host's load, memory, disk and uptime on its own
+interval, as a second exec: independent so one failing cannot blank the
+other, and cheap enough (~2 ms) that the separation costs nothing. The
+sampling belongs to the screen rather than to either panel, because the same
+sample feeds the band and the system view behind it. A failed sample keeps
+the last one on screen, marked stale, mirroring how the table survives a
+failed refresh. Those readings render as a band of htop-style meters under the
 header: one per resource, the bar carrying the percentage and the text
 inside it the absolute amounts, so the percentage is never printed twice.
 The bars share whatever the labels leave, stretching with the terminal, and
@@ -158,6 +161,14 @@ that a gauge adds resolution nobody reads. The band is labelled `host`: CPU
 and memory appear twice on this screen, and without the word it reads as an
 aggregate of the rows below. The count of services by state rides on the
 title line beside the target.
+
+The band is also the first stop in the focus ring, without a border it has no
+room for: its label carries the focus instead. `enter` on it opens the
+**system view**, the same readings with the room to print what one row has to
+leave out. That view is where every later measurement of the machine belongs
+— per-core CPU, swap, every filesystem, pressure, temperatures, GPU, the
+processes behind them — rather than in another box on the home, which is what
+keeps the home cheap to draw and cheap to sample. `esc` comes back.
 
 The table is a panel: it sits in a titled box whose border says which region
 the keys are talking to, and it draws its heading as a band across the box's

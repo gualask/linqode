@@ -9,6 +9,10 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/gualask/linqode/internal/compose"
+	"github.com/gualask/linqode/internal/host"
+	"github.com/gualask/linqode/internal/tui/status"
 )
 
 func TestLayoutGivesTheBandItsRowOnlyWhenThereIsASample(t *testing.T) {
@@ -88,19 +92,130 @@ func TestBodyIsDrawnAsATitledPanel(t *testing.T) {
 	}
 }
 
-// With one panel the ring is a fixed point: tab must not walk off it, and the
-// only panel there is keeps focus.
-func TestFocusRingHoldsWithASinglePanel(t *testing.T) {
+// Focus starts on the table — the band is what an operator reads, the table
+// is what they act on — and tab walks the ring in both directions without
+// falling off either end.
+func TestTabWalksTheRing(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 100, height: 24,
+		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
+	if screen.focus != screen.anchor {
+		t.Fatalf("focus started at %d, want the table at %d", screen.focus, screen.anchor)
+	}
+	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if screen.focus == screen.anchor {
+		t.Error("tab did not leave the table")
+	}
+	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if screen.focus != screen.anchor {
+		t.Error("tab did not come back round to the table")
+	}
+	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if screen.focus == screen.anchor {
+		t.Error("shift-tab did not walk the ring the other way")
+	}
+}
+
+// Enter on the band opens the system view over the body; esc comes back. The
+// band stays on the header throughout — it is the header, not a panel that
+// takes its turn in the body.
+func TestEnterOnTheBandOpensTheSystemView(t *testing.T) {
+	screen, panel := buildScreen(screenOptions{width: 120, height: 24,
+		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
+	sampleAll(screen, panel)
+
+	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+	screen.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if screen.detail == nil {
+		t.Fatal("enter on the band opened nothing")
+	}
+	view := screen.View()
+	if !strings.Contains(view, "─ system ─") {
+		t.Errorf("the system view is not on screen:\n%s", view)
+	}
+	if !strings.Contains(view, "0.50") || !strings.Contains(view, "available") {
+		t.Errorf("the system view is missing its readings:\n%s", view)
+	}
+	if !strings.Contains(bandLine(view), "load[") {
+		t.Errorf("the band left the header while its view was open:\n%s", view)
+	}
+	if !strings.Contains(view, "esc back") {
+		t.Errorf("the way out is not on the footer:\n%s", view)
+	}
+
+	screen.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if screen.detail != nil {
+		t.Error("esc did not close the system view")
+	}
+	if !strings.Contains(screen.View(), "─ services ─") {
+		t.Error("the table did not come back")
+	}
+}
+
+// Esc on the home quits, as it always has; only a detail intercepts it.
+func TestEscQuitsFromTheHome(t *testing.T) {
 	screen, _ := buildScreen(screenOptions{width: 100, height: 24,
 		services: serviceList("web")})
-	for range 3 {
-		screen.Update(tea.KeyMsg{Type: tea.KeyTab})
-		screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if cmd := screen.Update(tea.KeyMsg{Type: tea.KeyEsc}); cmd == nil {
+		t.Error("esc on the home did not quit")
 	}
-	if screen.focus != 0 {
-		t.Errorf("focus walked to %d with one panel", screen.focus)
+}
+
+// Nothing to show, nothing to open: without a sample the band is not on the
+// header, and enter on it must not put an empty box over the table.
+func TestTheSystemViewNeedsASample(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 100, height: 24,
+		services: serviceList("web")})
+	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+	screen.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if screen.detail != nil {
+		t.Error("the system view opened without a sample behind it")
 	}
-	if screen.focused() != screen.panels[0] {
-		t.Error("the ring lost track of its only panel")
+}
+
+// Refresh is the screen's command: it reads everything again, whichever
+// region happens to hold focus.
+func TestRefreshResamplesEverythingFromEitherStop(t *testing.T) {
+	services, hosts := 0, 0
+	panel := status.New(status.Config{
+		Services: func() ([]compose.Service, error) { services++; return nil, nil },
+	})
+	screen := New(Config{Host: func() (host.Metrics, error) { hosts++; return host.Metrics{}, nil }}, panel)
+
+	applyScreen(screen, screen.Update(key("r")))
+	if services != 1 || hosts != 1 {
+		t.Fatalf("with the table focused: %d service reads, %d host reads", services, hosts)
+	}
+
+	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+	applyScreen(screen, screen.Update(key("r")))
+	if services != 2 || hosts != 2 {
+		t.Errorf("with the band focused: %d service reads, %d host reads", services, hosts)
+	}
+}
+
+// An in-flight host sample must not be duplicated by the next tick.
+func TestHostSamplingDoesNotOverlap(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 100, height: 24,
+		host: &hostFeed{metrics: sampleMetrics()}})
+	if cmd := screen.sampleHost(); cmd == nil {
+		t.Fatal("first sample did not start")
+	}
+	if cmd := screen.sampleHost(); cmd != nil {
+		t.Error("second sample started while one was in flight")
+	}
+	screen.Update(hostSampleMsg{metrics: sampleMetrics()})
+	if cmd := screen.sampleHost(); cmd == nil {
+		t.Error("sampling did not resume after the sample arrived")
+	}
+}
+
+// Without a sampler nothing is read and the band never claims its row.
+func TestNoHostSamplerNoBand(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 100, height: 24})
+	if cmd := screen.sampleHost(); cmd != nil {
+		t.Error("a sample was taken with no sampler configured")
+	}
+	if layoutFor(100, 24, screen.system.HasBand()).band {
+		t.Error("the header reserved a row for a band that cannot exist")
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/gualask/linqode/internal/compose"
@@ -60,16 +61,40 @@ func buildScreen(options screenOptions) (*Model, *status.Model) {
 	config := status.Config{
 		Services: func() ([]compose.Service, error) { return options.services, nil },
 	}
-	if options.host != nil {
-		config.Host = options.host.sample
-	}
 	if options.stats != nil {
 		config.Stats = func() ([]compose.ContainerStats, error) { return options.stats, nil }
 	}
 	panel := status.New(config)
-	screen := New(Config{Target: "deploy@prod"}, panel)
+	screenConfig := Config{Target: "deploy@prod"}
+	if options.host != nil {
+		screenConfig.Host = options.host.sample
+	}
+	screen := New(screenConfig, panel)
 	screen.SetSize(options.width, options.height)
 	return screen, panel
+}
+
+// sampleAll fills both the table and the band, the way the first tick does.
+func sampleAll(screen *Model, panel *status.Model) {
+	apply(panel, panel.Sample())
+	applyScreen(screen, screen.sampleHost())
+}
+
+// applyScreen runs a screen-owned command and feeds its message back, the way
+// the Bubble Tea loop would.
+func applyScreen(screen *Model, cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	switch msg := cmd().(type) {
+	case nil:
+	case tea.BatchMsg:
+		for _, sub := range msg {
+			applyScreen(screen, sub)
+		}
+	default:
+		applyScreen(screen, screen.Update(msg))
+	}
 }
 
 func TestHostLineAppearsOnlyAfterFirstSample(t *testing.T) {
@@ -81,7 +106,7 @@ func TestHostLineAppearsOnlyAfterFirstSample(t *testing.T) {
 		t.Errorf("meter band shown before any sample arrived:\n%s", screen.View())
 	}
 
-	apply(panel, panel.Sample())
+	sampleAll(screen, panel)
 
 	view := screen.View()
 	// Each meter prints its absolute amounts; the percentage is the bar, so
@@ -101,10 +126,10 @@ func TestHostLineAppearsOnlyAfterFirstSample(t *testing.T) {
 func TestFailedHostSampleKeepsLastAndMarksStale(t *testing.T) {
 	feed := &hostFeed{metrics: sampleMetrics()}
 	screen, panel := buildScreen(screenOptions{width: 120, height: 24, host: feed})
-	apply(panel, panel.Sample())
+	sampleAll(screen, panel)
 
 	feed.err = errors.New("connection lost")
-	apply(panel, panel.Sample())
+	sampleAll(screen, panel)
 
 	view := screen.View()
 	if !strings.Contains(view, "0.50") {
@@ -120,7 +145,7 @@ func TestFailedHostSampleKeepsLastAndMarksStale(t *testing.T) {
 	}
 
 	feed.err = nil
-	apply(panel, panel.Sample())
+	sampleAll(screen, panel)
 	if strings.Contains(screen.View(), "stale") {
 		t.Errorf("stale flag survived a good sample:\n%s", screen.View())
 	}
@@ -140,7 +165,7 @@ func bandLine(view string) string {
 func TestNoBandWithoutHostMetrics(t *testing.T) {
 	screen, panel := buildScreen(screenOptions{
 		width: 200, height: 24, services: serviceList("web")})
-	apply(panel, panel.Sample())
+	sampleAll(screen, panel)
 
 	if strings.Contains(screen.View(), "load[") {
 		t.Errorf("meter band shown with host metrics disabled:\n%s", screen.View())
@@ -150,9 +175,9 @@ func TestNoBandWithoutHostMetrics(t *testing.T) {
 func TestBandFlagsStaleSample(t *testing.T) {
 	feed := &hostFeed{metrics: sampleMetrics()}
 	screen, panel := buildScreen(screenOptions{width: 120, height: 24, host: feed})
-	apply(panel, panel.Sample())
+	sampleAll(screen, panel)
 	feed.err = errors.New("connection lost")
-	apply(panel, panel.Sample())
+	sampleAll(screen, panel)
 
 	line := bandLine(screen.View())
 	if !strings.Contains(line, "stale") {
@@ -175,7 +200,7 @@ func TestSummaryRidesOnTheTitleLine(t *testing.T) {
 			{Service: "cache", Name: "app-cache-1", State: "running", Health: "unhealthy", Status: "Up"},
 			{Service: "migrate", Name: "app-migrate-1", State: "exited", Status: "Exited (0)"},
 		}})
-	apply(panel, panel.Sample())
+	sampleAll(screen, panel)
 
 	title := strings.Split(screen.View(), "\n")[0]
 	for _, want := range []string{"3 running", "1 exited", "1 unhealthy"} {
@@ -202,7 +227,7 @@ func TestViewNeverExceedsTheTerminalWidth(t *testing.T) {
 				MemUsage: "153.6MiB / 2GiB", MemPerc: "7.5%",
 				NetIO: "1.45GB / 892.3MB", BlockIO: "4.1kB / 0B"}},
 		})
-		apply(panel, panel.Sample())
+		sampleAll(screen, panel)
 
 		for i, line := range strings.Split(screen.View(), "\n") {
 			if got := lipgloss.Width(line); got > width {
@@ -217,7 +242,7 @@ func TestViewNeverExceedsTheTerminalWidth(t *testing.T) {
 func TestHeaderBlockIsSeparatedFromTheBody(t *testing.T) {
 	screen, panel := buildScreen(screenOptions{width: 100, height: 24,
 		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
-	apply(panel, panel.Sample())
+	sampleAll(screen, panel)
 
 	lines := strings.Split(screen.View(), "\n")
 	if strings.TrimSpace(lines[2]) != "" {
@@ -231,7 +256,7 @@ func TestScreenIsExactlyAsTallAsTheTerminal(t *testing.T) {
 	for _, height := range []int{10, 24, 40} {
 		screen, panel := buildScreen(screenOptions{width: 120, height: height,
 			host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web", "db")})
-		apply(panel, panel.Sample())
+		sampleAll(screen, panel)
 
 		if lines := strings.Count(screen.View(), "\n") + 1; lines != height {
 			t.Errorf("at %d rows the screen drew %d lines", height, lines)

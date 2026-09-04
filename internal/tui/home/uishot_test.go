@@ -36,7 +36,6 @@ import (
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
-	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/status"
 )
 
@@ -251,22 +250,21 @@ func shotReadings() []compose.ContainerStats {
 // reached — through the panel's own path rather than by writing its fields.
 func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 	panel := status.New(status.Config{
-		Services: func() ([]compose.Service, error) { return shotServices(), nil },
-		Stats:    func() ([]compose.ContainerStats, error) { return shotReadings(), nil },
-		Host: func() (host.Metrics, error) {
-			if !hostMetrics {
-				return host.Metrics{}, nil
-			}
-			return busyHost(), nil
-		},
+		Services:  func() ([]compose.Service, error) { return shotServices(), nil },
+		Stats:     func() ([]compose.ContainerStats, error) { return shotReadings(), nil },
 		LiveStats: true,
 	})
-	screen := New(Config{Target: "deploy@app-prod-01", ComposeDir: "/srv/myapp"}, panel)
+	feed := &hostFeed{metrics: busyHost()}
+	config := Config{Target: "deploy@app-prod-01", ComposeDir: "/srv/myapp"}
+	if hostMetrics {
+		config.Host = feed.sample
+	}
+	screen := New(config, panel)
 	screen.SetSize(width, height)
-	apply(panel, panel.Sample())
+	sampleAll(screen, panel)
 	if hostErr != nil {
-		panel.SetHostFetch(func() (host.Metrics, error) { return host.Metrics{}, hostErr })
-		apply(panel, panel.Sample())
+		feed.err = hostErr
+		sampleAll(screen, panel)
 	}
 	return screen
 }
@@ -290,21 +288,6 @@ func apply(panel *status.Model, cmd tea.Cmd) {
 	}
 }
 
-// idleBox is the anchor panel drawn as it will look once focus can be
-// somewhere else. With one panel in the ring the screen cannot produce this
-// state on its own, and the idle border is worth seeing before A3 relies on
-// it.
-func idleBox(width, height int) string {
-	screen := shotScreen(width, height, true, nil)
-	screen.Update(key("j")) // the same row as the focused frame, to compare
-	frame := layoutFor(width, height, true)
-	content := frame.body.content()
-	screen.services.SetSize(content.width, content.height)
-	screen.services.SetFocus(false)
-	return panel.Box(screen.services.Title(), screen.services.View(), false,
-		frame.body.width, frame.body.height)
-}
-
 func TestUIShot(t *testing.T) {
 	path := os.Getenv("LINQODE_UI_SHOT")
 	if path == "" {
@@ -318,6 +301,16 @@ func TestUIShot(t *testing.T) {
 	wide := shotScreen(150, 20, true, nil)
 	wide.Update(key("j"))
 
+	// Focus on the band: its label lights up and the table's box goes quiet,
+	// which is the whole point of the ring having two stops.
+	onBand := shotScreen(150, 20, true, nil)
+	onBand.Update(key("j"))
+	onBand.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	systemView := shotScreen(150, 20, true, nil)
+	systemView.Update(tea.KeyMsg{Type: tea.KeyTab})
+	systemView.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
 	narrow := shotScreen(100, 20, true, nil)
 
 	noMetrics := shotScreen(150, 20, false, nil)
@@ -326,8 +319,10 @@ func TestUIShot(t *testing.T) {
 
 	frames := []shotFrame{
 		{Name: "150 columns — every state, second row selected", Text: wide.View()},
-		{Name: "the same box drawn without focus — the ring gets its second stop in A3",
-			Text: idleBox(150, 20)},
+		{Name: "150 columns — focus on the band, the table's box goes quiet",
+			Text: onBand.View()},
+		{Name: "150 columns — the system view, opened with enter on the band",
+			Text: systemView.View()},
 		{Name: "100 columns — I/O columns dropped, gap narrowed", Text: narrow.View()},
 		{Name: "150 columns — before the first host sample", Text: noMetrics.View()},
 		{Name: "150 columns — host sample gone stale", Text: stale.View()},

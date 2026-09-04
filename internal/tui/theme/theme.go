@@ -85,3 +85,19 @@ var (
 	// focus comes back, no longer competing with the panel that has it.
 	SelectedIdle = lipgloss.NewStyle().Background(surface)
 )
+
+// Usage colors a percentage of something finite — memory, a filesystem, a
+// container's share of a CPU. The thresholds are what make a screen full of
+// numbers scannable: everything is green until three quarters, and red is
+// reserved for the last tenth, so a red reading always means the same thing
+// wherever it appears.
+func Usage(percent float64) lipgloss.Style {
+	switch {
+	case percent >= 90:
+		return Red
+	case percent >= 75:
+		return Yellow
+	default:
+		return Green
+	}
+}

@@ -24,11 +24,11 @@ func (m *Model) statsCells(container string) []cell {
 	}
 	cpu := cell{text: stats.CPUPerc}
 	if percent, ok := stats.CPUPercent(); ok {
-		cpu.style = usageStyle(percent)
+		cpu.style = theme.Usage(percent)
 	}
 	mem := cell{text: stats.MemAmount()}
 	if percent, ok := stats.MemPercent(); ok {
-		mem.style = usageStyle(percent)
+		mem.style = theme.Usage(percent)
 	}
 	cells := []cell{cpu, mem}
 	if m.ioColumns() {
@@ -117,7 +117,7 @@ func (m *Model) renderLiveRow(service compose.Service, nameWidth, sparkWidth int
 	series := m.history[service.Name]
 	cpuText := fmt.Sprintf("%*s", cpuWidth, stats.CPUPerc)
 	if percent, ok := stats.CPUPercent(); ok {
-		cpuText = usageStyle(percent).Render(cpuText)
+		cpuText = theme.Usage(percent).Render(cpuText)
 	}
 	line := fmt.Sprintf(" %-*s  %s", nameWidth, service.Service, cpuText)
 	if sparkWidth > 0 {

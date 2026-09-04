@@ -18,10 +18,8 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return m.handleStatsFeed(msg)
 	case statsTickMsg:
 		return m.handleStatsTick()
-	case hostMsg:
-		return m.handleHost(msg)
 	case autoTickMsg:
-		return tea.Batch(m.Refresh(), m.refreshHost(), autoTick())
+		return tea.Batch(m.Refresh(), autoTick())
 	case tea.KeyMsg:
 		return m.handleStatusKey(msg)
 	}
@@ -36,7 +34,7 @@ func (m *Model) UpdateBackground(msg tea.Msg) (tea.Cmd, bool) {
 		return autoTick(), true
 	case statsPollMsg:
 		return statsPollTick(), true
-	case servicesMsg, hostMsg, StatsFeedMsg, statsTickMsg, statsSampleMsg:
+	case servicesMsg, StatsFeedMsg, statsTickMsg, statsSampleMsg:
 		return m.Update(msg), true
 	default:
 		return nil, false
@@ -116,19 +114,6 @@ func (m *Model) handleStatsTick() tea.Cmd {
 	return m.refreshStats()
 }
 
-func (m *Model) handleHost(msg hostMsg) tea.Cmd {
-	m.metricsRefreshing = false
-	if msg.err != nil {
-		// Keep the last sample visible and mark it stale.
-		m.metricsStale = true
-		return nil
-	}
-	m.metrics = msg.metrics
-	m.metricsLoaded = true
-	m.metricsStale = false
-	return nil
-}
-
 // handleStatusKey answers the keys the table owns: moving the cursor, its own
 // refresh, its own live mode. Quitting, opening, and the modals belong to the
 // screen composing this panel.
@@ -142,8 +127,6 @@ func (m *Model) handleStatusKey(msg tea.KeyMsg) tea.Cmd {
 		m.selected = 0
 	case "G", "end":
 		m.selected = max(0, len(m.services)-1)
-	case "r":
-		return m.Refresh()
 	case "a":
 		return m.toggleLive()
 	}

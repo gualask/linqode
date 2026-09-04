@@ -1,5 +1,13 @@
-// The host's resource meters, drawn as a band under the header, plus the
-// one-line project summary that sits beside the target on the title line.
+// Package system is the machine itself: the meter band that sits permanently
+// in the header, and the view behind it.
+//
+// The band is one row and it is always drawn — it is the first thing an
+// operator reads, and the only reading on the screen that is about the host
+// rather than about a container. It takes focus like a panel does, without a
+// border it has no room for: the label carries that instead. `enter` on it
+// opens the system view, which is where every later reading lands — pressure,
+// per-core CPU, temperatures, GPU, the processes behind them — rather than in
+// a new box on the home.
 //
 // The layout follows htop's meters: the bar carries the percentage and the
 // text inside it carries the absolute amounts. Printing the percentage as
@@ -14,11 +22,10 @@
 // table does — htop, top, glances, k9s — while a sidebar is the convention
 // for navigation panels the operator interacts with.
 
-package status
+package system
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -55,7 +62,7 @@ type meter struct {
 
 // hostMeters is one meter per resource the host reported. A reading it did
 // not report is dropped entirely rather than drawn empty.
-func (m *Model) hostMeters() []meter {
+func (m *Model) meters() []meter {
 	metrics := m.metrics
 	var meters []meter
 	if metrics.HasLoad() {
@@ -70,33 +77,31 @@ func (m *Model) hostMeters() []meter {
 		percent := metrics.MemUsedPercent()
 		meters = append(meters, meter{"mem",
 			formatKB(metrics.MemUsedKB()) + "/" + formatKB(metrics.MemTotalKB),
-			usageStyle(percent), percent})
+			theme.Usage(percent), percent})
 	}
 	if metrics.DiskTotalKB > 0 {
 		percent := metrics.DiskUsedPercent()
 		meters = append(meters, meter{"disk",
 			formatKB(metrics.DiskUsedKB) + "/" + formatKB(metrics.DiskTotalKB),
-			usageStyle(percent), percent})
+			theme.Usage(percent), percent})
 	}
 	return meters
 }
 
-// renderHostLine is the meter band. It is empty until the first sample, so
-// the header does not reserve a line for numbers that are not there yet.
-// HostLine is the band, drawn to the width the screen gives it — the screen's
-// full width, which is not this panel's own: the meters sit in the header,
-// above and outside the box holding the table.
-func (m *Model) HostLine(width int) string { return m.renderHostLine(width) }
+// Band is the header line, drawn to the width the screen gives it. It is
+// empty until the first sample, so the header does not reserve a row for
+// numbers that are not there yet.
+func (m *Model) Band(width int) string { return m.renderBand(width) }
 
-// HasHostLine reports whether there is a sample to draw, so the screen knows
+// HasBand reports whether there is a sample to draw, so the screen knows
 // whether to reserve the row.
-func (m *Model) HasHostLine() bool { return m.metricsLoaded && len(m.hostMeters()) > 0 }
+func (m *Model) HasBand() bool { return m.loaded && len(m.meters()) > 0 }
 
-func (m *Model) renderHostLine(width int) string {
-	if !m.metricsLoaded {
+func (m *Model) renderBand(width int) string {
+	if !m.loaded {
 		return ""
 	}
-	meters := m.hostMeters()
+	meters := m.meters()
 	if len(meters) == 0 {
 		return ""
 	}
@@ -110,7 +115,7 @@ func (m *Model) renderHostLine(width int) string {
 		if uptime != "" {
 			parts = append(parts, uptime)
 		}
-		if m.metricsStale {
+		if m.stale {
 			parts = append(parts, "(stale)")
 		}
 		return strings.Join(parts, "  ")
@@ -157,63 +162,11 @@ func (m *Model) renderHostLine(width int) string {
 		parts[index] = fmt.Sprintf("%s[%s %s]", gauge.label,
 			styledBar(gauge.percent, barWidth, gauge.style), gauge.value)
 	}
-	line := " " + theme.Dim.Render(bandLabel) + "  " + strings.Join(parts, "  ")
+	line := " " + m.labelStyle().Render(bandLabel) + "  " + strings.Join(parts, "  ")
 	if text := tail(); text != "" {
 		line += "  " + theme.Dim.Render(text)
 	}
 	return line
-}
-
-// Summary counts the services by state, with anything unhealthy
-// called out: on a long table that one line is what says whether the
-// project is in trouble. It rides on the title line, where there is room
-// to spare — the footer's hints already compete for every column they get.
-func (m *Model) Summary() string {
-	if len(m.services) == 0 {
-		return ""
-	}
-	states := map[string]int{}
-	unhealthy := 0
-	for _, s := range m.services {
-		states[s.State]++
-		if s.Health == "unhealthy" {
-			unhealthy++
-		}
-	}
-	names := make([]string, 0, len(states))
-	for state := range states {
-		names = append(names, state)
-	}
-	// Lifecycle order, not alphabetical: "4 running · 1 exited" is how an
-	// operator reads a project, and states docker may add later still get a
-	// stable place at the end.
-	sort.SliceStable(names, func(i, j int) bool {
-		ri, rj := stateRank(names[i]), stateRank(names[j])
-		if ri != rj {
-			return ri < rj
-		}
-		return names[i] < names[j]
-	})
-
-	parts := make([]string, 0, len(names)+1)
-	for _, state := range names {
-		parts = append(parts, stateStyle(state).Render(fmt.Sprintf("%d %s", states[state], state)))
-	}
-	if unhealthy > 0 {
-		parts = append(parts, theme.Red.Render(fmt.Sprintf("%d unhealthy", unhealthy)))
-	}
-	return strings.Join(parts, theme.Dim.Render(" · "))
-}
-
-// stateRank orders the states the summary can hold; anything unknown sorts
-// after them.
-func stateRank(state string) int {
-	for i, known := range []string{"running", "restarting", "paused", "created", "exited", "dead"} {
-		if state == known {
-			return i
-		}
-	}
-	return 100
 }
 
 // bar renders a percentage as a filled block gauge, clamped at both ends so
