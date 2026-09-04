@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/gualask/linqode/internal/tui/theme"
@@ -151,4 +152,28 @@ func JoinHints(hints []Hint, width int) string {
 		}
 		hints = slices.Delete(hints, worst, worst+1)
 	}
+}
+
+// A Panel is one focusable region of the screen. The model composing them
+// owns where each goes and which one holds focus; the panel owns what is
+// inside it and which keys it answers to.
+//
+// Size and focus are set rather than passed to View because a panel needs
+// both before it renders anything — the selection of an unfocused panel has
+// to recede — and because Bubble Tea models are already written this way.
+type Panel interface {
+	// Title names the panel in its top rule.
+	Title() string
+	// Status is the panel's half of the footer: what it is showing, or what
+	// went wrong while showing it.
+	Status() string
+	// Hints are the keys this panel answers to, joined into the footer
+	// beside the screen's own.
+	Hints() []Hint
+	// SetSize gives the panel its content area, borders already subtracted.
+	SetSize(width, height int)
+	// SetFocus says whether the keys are currently talking to this panel.
+	SetFocus(focused bool)
+	View() string
+	Update(msg tea.Msg) tea.Cmd
 }

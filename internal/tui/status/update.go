@@ -129,17 +129,11 @@ func (m *Model) handleHost(msg hostMsg) tea.Cmd {
 	return nil
 }
 
+// handleStatusKey answers the keys the table owns: moving the cursor, its own
+// refresh, its own live mode. Quitting, opening, and the modals belong to the
+// screen composing this panel.
 func (m *Model) handleStatusKey(msg tea.KeyMsg) tea.Cmd {
-	if m.commandPrompt {
-		return m.handleCommandKey(msg)
-	}
-	if m.menu != nil {
-		return m.handleMenuKey(msg)
-	}
-
 	switch msg.String() {
-	case "q", "esc", "ctrl+c":
-		return tea.Quit
 	case "j", "down":
 		m.move(1)
 	case "k", "up":
@@ -150,25 +144,17 @@ func (m *Model) handleStatusKey(msg tea.KeyMsg) tea.Cmd {
 		m.selected = max(0, len(m.services)-1)
 	case "r":
 		return m.Refresh()
-	case "enter", "l":
-		return m.openSelectedLogs()
-	case "c":
-		m.openActionMenu()
-	case "x":
-		m.openScriptMenu()
-	case "!":
-		m.commandPrompt, m.commandText = true, m.lastCommand
-		m.errText = ""
 	case "a":
 		return m.toggleLive()
 	}
 	return nil
 }
 
-func (m *Model) openSelectedLogs() tea.Cmd {
+// SelectedService is the service the cursor is on, for the screen to open or
+// to build an action menu around. It reports false on an empty table.
+func (m *Model) SelectedService() (string, bool) {
 	if m.selected >= len(m.services) {
-		return nil
+		return "", false
 	}
-	service := m.services[m.selected].Service
-	return openLogs("logs: "+service, service)
+	return m.services[m.selected].Service, true
 }

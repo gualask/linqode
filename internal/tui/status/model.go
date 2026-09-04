@@ -1,9 +1,13 @@
 package status
 
-// Compose status view: the project's services in a table, refreshed
+// The services panel: the compose project's services in a table, refreshed
 // manually with `r` and automatically on an interval. A failed refresh
-// shows its error in the footer while the last good table stays on screen.
-// Enter opens the log view for the selected service.
+// reports itself in the panel's footer line while the last good table stays
+// on screen.
+//
+// This package used to be the whole screen. What it owns now is the table and
+// the readings behind it; the header, the footer, the modals and the keys that
+// open something belong to internal/tui/home.
 
 import (
 	"time"
@@ -34,11 +38,7 @@ type hostMsg struct {
 }
 
 type Model struct {
-	info  Config
 	fetch func() ([]compose.Service, error)
-	// actionPreview supplies the exact operations-owned command shown by the
-	// human confirmation menu.
-	actionPreview func(operations.ServiceAction, string) string
 	// hostFetch is optional: without it the header shows no resource line.
 	hostFetch func() (host.Metrics, error)
 
@@ -81,29 +81,19 @@ type Model struct {
 	loaded     bool // first refresh done (either way)
 	refreshing bool
 
-	// menu is the open modal list, nil when none is. While one is open,
-	// keys route to it instead of to the table.
-	menu *menu
-
-	// commandPrompt is the `!` ad-hoc command line. While it is open every
-	// key edits the text, so `q` types a q instead of quitting. commandText
-	// is what has been typed; lastCommand is what was last run, which the
-	// prompt reopens with — the same courtesy `f` does for filters.
-	commandPrompt bool
-	commandText   string
-	lastCommand   string
+	// focused is whether the keys are currently talking to this panel. It
+	// decides how the selected row is drawn, not what it does.
+	focused bool
 
 	width, height int
 }
 
 func New(config Config) *Model {
 	return &Model{
-		info:          config,
-		fetch:         config.Services,
-		hostFetch:     config.Host,
-		statsFetch:    config.Stats,
-		liveStats:     config.LiveStats,
-		actionPreview: config.ActionPreview,
+		fetch:      config.Services,
+		hostFetch:  config.Host,
+		statsFetch: config.Stats,
+		liveStats:  config.LiveStats,
 	}
 }
 
@@ -114,8 +104,20 @@ func New(config Config) *Model {
 // every autoRefresh, container stats every statsPollInterval — so the slow
 // one never delays the cheap ones.
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.refreshCmd(), m.hostRefreshCmd(), m.statsSampleCmd(),
-		autoTick(), statsPollTick())
+	return tea.Batch(m.Sample(), autoTick(), statsPollTick())
+}
+
+// Sample runs the panel's fetches once, without arming the timers Init also
+// starts. It is the seam for a caller that owns the cadence itself.
+func (m *Model) Sample() tea.Cmd {
+	return tea.Batch(m.refreshCmd(), m.hostRefreshCmd(), m.statsSampleCmd())
+}
+
+// SetHostFetch replaces the host sampler. A nil fetch turns the band off,
+// which is the escape hatch for a host where even a cheap extra command is
+// unwelcome.
+func (m *Model) SetHostFetch(fetch func() (host.Metrics, error)) {
+	m.hostFetch = fetch
 }
 
 func (m *Model) refreshCmd() tea.Cmd {

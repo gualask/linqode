@@ -37,7 +37,7 @@ func liveReading(service, cpu, mem string) operations.Event {
 // withStatsFetch returns a model with the soft sample enabled. The function
 // itself is never called: these tests deliver samples directly.
 func withStatsFetch() *Model {
-	m := New(Config{ComposeDir: "/srv/app"})
+	m := New(Config{})
 	m.statsFetch = func() ([]compose.ContainerStats, error) { return nil, nil }
 	m.liveStats = true
 	m.SetSize(120, 24)
@@ -172,12 +172,12 @@ func TestFailedSoftSampleKeepsReadings(t *testing.T) {
 	if !strings.Contains(view, "12.34%") {
 		t.Errorf("readings dropped after a failed sample:\n%s", view)
 	}
-	if !strings.Contains(view, "cannot connect") {
-		t.Errorf("sample failure not reported:\n%s", view)
+	if !strings.Contains(m.Status(), "cannot connect") {
+		t.Errorf("sample failure not reported: %q", m.Status())
 	}
 
 	m.Update(statsSampleMsg{stats: sample(reading("web", "1.00%", "150MiB"))})
-	if strings.Contains(m.View(), "cannot connect") {
+	if strings.Contains(m.Status(), "cannot connect") {
 		t.Error("error survived a good sample")
 	}
 }

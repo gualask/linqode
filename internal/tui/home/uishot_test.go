@@ -1,6 +1,6 @@
-package status
+package home
 
-// Renders the status view in color to an HTML page, for looking at.
+// Renders the home screen in color to an HTML page, for looking at.
 //
 // Tests run without a TTY, where lipgloss drops every color under test (see
 // docs/tests.md). That leaves a class of defect no assertion catches
@@ -14,11 +14,12 @@ package status
 // file rather than a package of its own precisely because it is not
 // production code: the compiler leaves it out of every ordinary build.
 //
-//	LINQODE_UI_SHOT=/tmp/shot.html go test ./internal/tui/status/ -run TestUIShot
+//	LINQODE_UI_SHOT=/tmp/shot.html go test ./internal/tui/home/ -run TestUIShot
 //
 // Without the variable the test skips, so a normal run costs nothing.
 
 import (
+	"errors"
 	"fmt"
 	"html"
 	"os"
@@ -31,8 +32,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
+	"github.com/gualask/linqode/internal/tui/panel"
+	"github.com/gualask/linqode/internal/tui/status"
 )
 
 // shotFrame is one captured screen, with a caption saying what state it holds.
@@ -241,47 +246,93 @@ func shotReadings() []compose.ContainerStats {
 	}
 }
 
-func shotModel(width, height int) *Model {
-	m := withHostFetch()
-	m.statsFetch = func() ([]compose.ContainerStats, error) { return nil, nil }
-	m.liveStats = true
-	m.info.Target = "deploy@app-prod-01"
-	m.info.ComposeDir = "/srv/myapp"
-	m.SetSize(width, height)
-	m.Update(servicesMsg{services: shotServices()})
-	m.Update(hostMsg{metrics: busyHost()})
-	m.Update(statsSampleMsg{stats: shotReadings()})
-	return m
+// shotScreen assembles a home over a services panel filled with the fixtures
+// above. hostErr makes the host fetch fail, which is how the stale flag is
+// reached — through the panel's own path rather than by writing its fields.
+func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
+	panel := status.New(status.Config{
+		Services: func() ([]compose.Service, error) { return shotServices(), nil },
+		Stats:    func() ([]compose.ContainerStats, error) { return shotReadings(), nil },
+		Host: func() (host.Metrics, error) {
+			if !hostMetrics {
+				return host.Metrics{}, nil
+			}
+			return busyHost(), nil
+		},
+		LiveStats: true,
+	})
+	screen := New(Config{Target: "deploy@app-prod-01", ComposeDir: "/srv/myapp"}, panel)
+	screen.SetSize(width, height)
+	apply(panel, panel.Sample())
+	if hostErr != nil {
+		panel.SetHostFetch(func() (host.Metrics, error) { return host.Metrics{}, hostErr })
+		apply(panel, panel.Sample())
+	}
+	return screen
+}
+
+// apply runs a command the way the Bubble Tea loop would, feeding every
+// message it produces back into the panel. Sample is used rather than Init
+// because Init also arms the refresh timers, and a tick command run inline
+// would sleep for its whole interval.
+func apply(panel *status.Model, cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	switch msg := cmd().(type) {
+	case nil:
+	case tea.BatchMsg:
+		for _, sub := range msg {
+			apply(panel, sub)
+		}
+	default:
+		apply(panel, panel.Update(msg))
+	}
+}
+
+// idleBox is the anchor panel drawn as it will look once focus can be
+// somewhere else. With one panel in the ring the screen cannot produce this
+// state on its own, and the idle border is worth seeing before A3 relies on
+// it.
+func idleBox(width, height int) string {
+	screen := shotScreen(width, height, true, nil)
+	screen.Update(key("j")) // the same row as the focused frame, to compare
+	frame := layoutFor(width, height, true)
+	content := frame.body.content()
+	screen.services.SetSize(content.width, content.height)
+	screen.services.SetFocus(false)
+	return panel.Box(screen.services.Title(), screen.services.View(), false,
+		frame.body.width, frame.body.height)
 }
 
 func TestUIShot(t *testing.T) {
 	path := os.Getenv("LINQODE_UI_SHOT")
 	if path == "" {
-		t.Skip("set LINQODE_UI_SHOT=<file.html> to render the view in color")
+		t.Skip("set LINQODE_UI_SHOT=<file.html> to render the screen in color")
 	}
 	// Force a profile: without a TTY lipgloss renders everything plain,
 	// which is the whole reason this file exists.
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
 
-	wide := shotModel(150, 16)
-	wide.selected = 1
+	wide := shotScreen(150, 20, true, nil)
+	wide.Update(key("j"))
 
-	narrow := shotModel(100, 16)
+	narrow := shotScreen(100, 20, true, nil)
 
-	noMetrics := shotModel(150, 16)
-	noMetrics.metricsLoaded = false
+	noMetrics := shotScreen(150, 20, false, nil)
 
-	stale := shotModel(150, 16)
-	stale.metricsStale = true
+	stale := shotScreen(150, 20, true, errors.New("dial tcp: i/o timeout"))
 
 	frames := []shotFrame{
 		{Name: "150 columns — every state, second row selected", Text: wide.View()},
+		{Name: "the same box drawn without focus — the ring gets its second stop in A3",
+			Text: idleBox(150, 20)},
 		{Name: "100 columns — I/O columns dropped, gap narrowed", Text: narrow.View()},
 		{Name: "150 columns — before the first host sample", Text: noMetrics.View()},
 		{Name: "150 columns — host sample gone stale", Text: stale.View()},
 	}
-	if err := os.WriteFile(path, []byte(shotPage("Linqode status view", frames)), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(shotPage("Linqode home screen", frames)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("wrote %s", path)

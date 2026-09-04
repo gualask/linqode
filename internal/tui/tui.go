@@ -8,6 +8,7 @@ import (
 	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/operations"
 	"github.com/gualask/linqode/internal/tui/follow"
+	"github.com/gualask/linqode/internal/tui/home"
 	"github.com/gualask/linqode/internal/tui/status"
 )
 
@@ -66,7 +67,7 @@ type feedMsg struct {
 type appModel struct {
 	info       Info
 	backend    Backend
-	status     *status.Model
+	home       *home.Model
 	followView *follow.Model
 
 	width, height int
@@ -76,36 +77,38 @@ type appModel struct {
 // the system panel out, and nil Backend.Stats leaves the soft resource columns
 // out.
 func Run(info Info, backend Backend) error {
-	statusView := status.New(status.Config{
+	services := status.New(status.Config{
+		Services:  backend.Services,
+		Host:      backend.Host,
+		Stats:     backend.Stats,
+		LiveStats: backend.LiveStats != nil,
+	})
+	screen := home.New(home.Config{
 		Target:        info.Target,
 		ComposeDir:    info.ComposeDir,
 		Scripts:       info.Scripts,
-		Services:      backend.Services,
-		Host:          backend.Host,
-		Stats:         backend.Stats,
-		LiveStats:     backend.LiveStats != nil,
 		ActionPreview: backend.ActionPreview,
-	})
-	app := appModel{info: info, backend: backend, status: statusView}
+	}, services)
+	app := appModel{info: info, backend: backend, home: screen}
 	_, err := tea.NewProgram(app, tea.WithAltScreen()).Run()
 	return err
 }
 
 func (m appModel) Init() tea.Cmd {
-	return m.status.Init()
+	return m.home.Init()
 }
 
 func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		return m.resize(msg)
-	case status.OpenLogsMsg:
+	case home.OpenLogsMsg:
 		return m.openLogs(msg)
-	case status.OpenActionMsg:
+	case home.OpenActionMsg:
 		return m.openAction(msg)
-	case status.OpenScriptMsg:
+	case home.OpenScriptMsg:
 		return m.openScript(msg)
-	case status.OpenAdHocMsg:
+	case home.OpenAdHocMsg:
 		return m.openAdHoc(msg)
 	case feedMsg:
 		return m.applyFeed(msg)
@@ -119,32 +122,32 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m appModel) resize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width, m.height = msg.Width, msg.Height
-	m.status.SetSize(msg.Width, msg.Height)
+	m.home.SetSize(msg.Width, msg.Height)
 	if m.followView != nil {
 		m.followView.SetSize(msg.Width, msg.Height)
 	}
 	return m, nil
 }
 
-func (m appModel) openLogs(msg status.OpenLogsMsg) (tea.Model, tea.Cmd) {
+func (m appModel) openLogs(msg home.OpenLogsMsg) (tea.Model, tea.Cmd) {
 	return m, startFeed(msg.Title, func() (operations.Feed, error) {
 		return m.backend.Logs(msg.Service, logTail)
 	})
 }
 
-func (m appModel) openAction(msg status.OpenActionMsg) (tea.Model, tea.Cmd) {
+func (m appModel) openAction(msg home.OpenActionMsg) (tea.Model, tea.Cmd) {
 	return m, startFeed(msg.Title, func() (operations.Feed, error) {
 		return m.backend.Action(msg.Action, msg.Service)
 	})
 }
 
-func (m appModel) openScript(msg status.OpenScriptMsg) (tea.Model, tea.Cmd) {
+func (m appModel) openScript(msg home.OpenScriptMsg) (tea.Model, tea.Cmd) {
 	return m, startFeed(msg.Title, func() (operations.Feed, error) {
 		return m.backend.Script(msg.Name)
 	})
 }
 
-func (m appModel) openAdHoc(msg status.OpenAdHocMsg) (tea.Model, tea.Cmd) {
+func (m appModel) openAdHoc(msg home.OpenAdHocMsg) (tea.Model, tea.Cmd) {
 	return m, startFeed(msg.Title, func() (operations.Feed, error) {
 		return m.backend.AdHoc(msg.Command)
 	})
@@ -152,7 +155,7 @@ func (m appModel) openAdHoc(msg status.OpenAdHocMsg) (tea.Model, tea.Cmd) {
 
 func (m appModel) applyFeed(msg feedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
-		m.status.SetError(msg.err.Error())
+		m.home.SetError(msg.err.Error())
 		return m, nil
 	}
 	view := follow.New(m.info.Target, msg.title, msg.feed)
@@ -167,7 +170,7 @@ func (m appModel) closeFeed() (tea.Model, tea.Cmd) {
 		m.followView = nil
 	}
 	// Refresh on return so an action's effect is visible immediately.
-	return m, m.status.Refresh()
+	return m, m.home.Refresh()
 }
 
 func (m appModel) openLiveStats() (tea.Model, tea.Cmd) {
@@ -180,12 +183,12 @@ func (m appModel) openLiveStats() (tea.Model, tea.Cmd) {
 
 func (m appModel) routeVisibleView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.followView != nil {
-		if cmd, handled := m.status.UpdateBackground(msg); handled {
+		if cmd, handled := m.home.UpdateBackground(msg); handled {
 			return m, cmd
 		}
 		return m, m.followView.Update(msg)
 	}
-	return m, m.status.Update(msg)
+	return m, m.home.Update(msg)
 }
 
 func startFeed(title string, start func() (operations.Feed, error)) tea.Cmd {
@@ -199,5 +202,5 @@ func (m appModel) View() string {
 	if m.followView != nil {
 		return m.followView.View()
 	}
-	return m.status.View()
+	return m.home.View()
 }

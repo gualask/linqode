@@ -136,7 +136,7 @@ func (m *Model) renderTable(builder *strings.Builder, width, height int) {
 			texts[column] = pad(item, widths[column])
 		}
 		if index == m.selected {
-			builder.WriteString(theme.Reverse.Render(line(texts)))
+			builder.WriteString(m.selectionStyle().Render(line(texts)))
 		} else {
 			for column, item := range rows[index] {
 				texts[column] = item.style.Render(texts[column])

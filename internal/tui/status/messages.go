@@ -6,39 +6,18 @@ import (
 	"github.com/gualask/linqode/internal/operations"
 )
 
-// Config supplies the status view's static context and background operations.
+// Config supplies the panel's background operations. What the session is —
+// target, project directory, configured scripts — belongs to the screen that
+// composes this panel, not to the table itself.
 type Config struct {
-	Target        string
-	ComposeDir    string
-	Scripts       []operations.Script
-	Services      func() ([]compose.Service, error)
-	Host          func() (host.Metrics, error)
-	Stats         func() ([]compose.ContainerStats, error)
-	LiveStats     bool
-	ActionPreview func(operations.ServiceAction, string) string
+	Services  func() ([]compose.Service, error)
+	Host      func() (host.Metrics, error)
+	Stats     func() ([]compose.ContainerStats, error)
+	LiveStats bool
 }
 
-type OpenLogsMsg struct {
-	Title   string
-	Service string
-}
-
-type OpenActionMsg struct {
-	Title   string
-	Service string
-	Action  operations.ServiceAction
-}
-
-type OpenScriptMsg struct {
-	Title string
-	Name  string
-}
-
-type OpenAdHocMsg struct {
-	Title   string
-	Command string
-}
-
+// OpenStatsMsg asks the application for the live stats stream, which only it
+// can start.
 type OpenStatsMsg struct{}
 
 type StatsFeedMsg struct {

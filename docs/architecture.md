@@ -59,7 +59,11 @@ Four principles shape the design:
 | `internal/compose` | `docker compose` command builders (with shell quoting), `ps` output parsing into typed models, and both `docker stats` forms — one-shot sample and live stream |
 | `internal/host` | machine resource metrics for the status view's meter band: one command over `/proc` and `df -Pk`, parsed into a typed sample |
 | `internal/logs` | log engine: line assembly, tail buffer, JSONL records, field filters, stats, search |
-| `internal/tui` | Bubble Tea application: app model, status and log views, the meter band and resource modes, keymaps |
+| `internal/tui` | Bubble Tea application: the app model routing between the home screen and the follow view, and the backend adapting operations to background commands |
+| `internal/tui/home` | the home screen: header, layout, focus, footer, the modal menus and the `!` prompt. It owns the screen; a feature package owns only what is inside its own panel |
+| `internal/tui/status` | the services panel: the compose table, its columns, and the container readings behind them |
+| `internal/tui/follow` | the full-screen view for a log, action, script, or ad-hoc command |
+| `internal/tui/panel` | the chrome a focusable region wears: a titled box that occupies exactly the cells it was given, the focus tokens, and the footer hints |
 | `internal/tui/theme` | the visual tokens every view shares: named adaptive colors rather than the terminal's ANSI slots, so what an operator sees does not depend on their color scheme |
 
 | Concern | Library | Rationale |
@@ -155,10 +159,14 @@ and memory appear twice on this screen, and without the word it reads as an
 aggregate of the rows below. The count of services by state rides on the
 title line beside the target.
 
-The table draws its heading as a band across the full width, the way htop
-and k9s do, so a table narrower than the terminal reads as occupying the
-screen rather than trailing off part way; a blank line separates it from
-the header block. The gap between columns is the widest of four, three or
+The table is a panel: it sits in a titled box whose border says which region
+the keys are talking to, and it draws its heading as a band across the box's
+full width, the way htop and k9s do, so a table narrower than the terminal
+reads as occupying its space rather than trailing off part way; a blank line
+separates the box from the header block. Focus is carried by the border and
+title color, never by reverse video, which already marks the selected row —
+and a panel that does not hold focus draws that row as a quiet fill instead of
+a lit bar. The gap between columns is the widest of four, three or
 two spaces whose layout still fits, so a wide terminal spends its slack on
 breathing room and a narrow one spends it on content.
 

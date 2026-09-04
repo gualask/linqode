@@ -217,8 +217,8 @@ before anything is built on it. If SSH traffic changed at the end of this
 phase, something went wrong. Three commits, each green and each worth looking
 at on its own.
 
-**A1 — `internal/tui/panel` and theme tokens.** A pure addition, wired to
-nothing, fully unit-testable.
+**A1 — `internal/tui/panel` and theme tokens** _(done, September 2026)_. A
+pure addition, wired to nothing, fully unit-testable.
 
 - `panel.Box`: border, title in the top rule, title truncation, and the size
   arithmetic (content gets `w-2` / `h-2`, so no caller has to know that).
@@ -236,8 +236,9 @@ nothing, fully unit-testable.
   `internal/tui/status/commands.go:129` draws a bordered box for the action
   menu.
 
-**A2 — `internal/tui/home` takes over the screen.** The risky commit: not
-drawing borders, but taking the screen role away from `status`.
+**A2 — `internal/tui/home` takes over the screen** _(done, September 2026)_.
+The risky commit: not drawing borders, but taking the screen role away from
+`status`.
 
 - The new package owns size, the panel set, focus, the title line, the
   footer, the modal menu (`c`, `x`) and the `!` prompt.
@@ -248,12 +249,12 @@ drawing borders, but taking the screen role away from `status`.
   priority-dropping logic in `internal/tui/status/view.go:117` moves as is;
   only its input changes.
 - Visually this changes one thing: the table gains a border and a title.
-  **To look at, not to decide up front**: with the table as the only box and
-  the body all its own, the border may read as spent chrome — its heading
-  band is already full-width and could carry focus instead. Render it both
-  ways, look at the frame, decide there.
+  Looked at in color: the border **keeps** its four cells. Blue against grey
+  reads immediately as which region the keys are pointing at, the hairline
+  never competes with the filled heading band below it, and the quiet fill on
+  an unfocused panel's cursor row does the rest.
 
-**A3 — the band joins the ring, and the system view appears.**
+**A3 — the band joins the ring, and the system view appears.** _(next)_
 
 - `hostband.go` moves out of `status` into `internal/tui/system`, which owns
   two renderings: the one-row band and the full system view.

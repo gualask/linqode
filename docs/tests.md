@@ -166,13 +166,13 @@ close enough to the selected row that the two read as the same thing. Both
 passed every assertion, because assertions compare styles and the tests run
 without a TTY where lipgloss emits no color at all.
 
-`internal/tui/status/uishot_test.go` renders a captured frame's escape
+`internal/tui/home/uishot_test.go` renders a captured frame's escape
 sequences as HTML, and drives the model into the states worth seeing —
 every health and state color, a selected row, the narrow layout, the stale
 flag — writing them to one page:
 
 ```bash
-LINQODE_UI_SHOT=/tmp/shot.html go test ./internal/tui/status/ -run TestUIShot
+LINQODE_UI_SHOT=/tmp/shot.html go test ./internal/tui/home/ -run TestUIShot
 open /tmp/shot.html
 ```
 

@@ -43,7 +43,7 @@ func TestClosingLiveKeepsReadingsOnlyWhenPolled(t *testing.T) {
 	if !strings.Contains(m.View(), "12.34%") {
 		t.Errorf("readings dropped although the soft poll owns them:\n%s", m.View())
 	}
-	unpolled := New(Config{ComposeDir: "/srv/app"})
+	unpolled := New(Config{})
 	unpolled.liveStats = true
 	unpolled.SetSize(120, 24)
 	unpolled.Update(servicesMsg{services: services("web")})
@@ -57,14 +57,25 @@ func TestClosingLiveKeepsReadingsOnlyWhenPolled(t *testing.T) {
 	}
 }
 
+// hasHint reports whether the panel currently publishes a hint containing
+// text, which is what the screen would join into the footer.
+func hasHint(m *Model, text string) bool {
+	for _, hint := range m.Hints() {
+		if strings.Contains(hint.Text, text) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestLiveStatsUnavailableWithoutCapability(t *testing.T) {
-	m := New(Config{ComposeDir: "/srv/app"})
+	m := New(Config{})
 	m.SetSize(120, 24)
 	if cmd := m.Update(key("a")); cmd != nil {
 		t.Fatal("`a` started live stats without the configured capability")
 	}
-	if strings.Contains(m.footerHints(0), "a live") {
-		t.Fatalf("footer advertised unavailable live stats: %q", m.footerHints(0))
+	if hasHint(m, "a live") {
+		t.Fatalf("panel advertised unavailable live stats: %+v", m.Hints())
 	}
 }
 
@@ -106,8 +117,8 @@ func TestLiveFailureReported(t *testing.T) {
 	m.Update(servicesMsg{services: services("web")})
 	m.Update(key("a"))
 	m.Update(StatsFeedMsg{Err: errors.New("permission denied")})
-	if m.statsStarting || !strings.Contains(m.View(), "permission denied") {
-		t.Errorf("live failure not reported:\n%s", m.View())
+	if m.statsStarting || !strings.Contains(m.Status(), "permission denied") {
+		t.Errorf("live failure not reported: %q", m.Status())
 	}
 }
 
@@ -119,8 +130,8 @@ func TestLiveStderrSurfacedWithoutStopping(t *testing.T) {
 	if cmd := m.Update(statsTickMsg{}); cmd == nil {
 		t.Error("a stderr line should not stop the stream")
 	}
-	if !strings.Contains(m.View(), "cannot read stats") {
-		t.Errorf("stderr not surfaced:\n%s", m.View())
+	if !strings.Contains(m.Status(), "cannot read stats") {
+		t.Errorf("stderr not surfaced: %q", m.Status())
 	}
 }
 
@@ -142,10 +153,15 @@ func TestLivePanelShowsSeriesPerContainer(t *testing.T) {
 	stream.events <- liveReading("web", "6.00%", "150MiB")
 	m.Update(statsTickMsg{})
 	view := m.View()
-	for _, text := range []string{"2 samples", "peak  12.3%", "a live off"} {
+	for _, text := range []string{"2 samples", "peak  12.3%"} {
 		if !strings.Contains(view, text) {
 			t.Errorf("%q missing from panel:\n%s", text, view)
 		}
+	}
+	// The hint flips to say what the key now does; the screen is what puts
+	// it on the footer.
+	if !hasHint(m, "a live off") {
+		t.Errorf("hint did not flip while the stream is open: %+v", m.Hints())
 	}
 	if !strings.ContainsAny(view, string(sparkRunes)) {
 		t.Errorf("no sparkline drawn:\n%s", view)
@@ -161,7 +177,7 @@ func TestLivePanelAnnouncesStartup(t *testing.T) {
 	}
 }
 
-func TestLivePanelLeavesTableAndFooterOnScreen(t *testing.T) {
+func TestLivePanelLeavesTheTableOnScreen(t *testing.T) {
 	m := withStatsFetch()
 	m.hostFetch = func() (host.Metrics, error) { return host.Metrics{}, nil }
 	m.SetSize(120, 20)
@@ -181,10 +197,11 @@ func TestLivePanelLeavesTableAndFooterOnScreen(t *testing.T) {
 			t.Errorf("line %d is %d columns wide: %q", index, width, line)
 		}
 	}
-	for _, text := range []string{"SERVICE", "3 services"} {
-		if !strings.Contains(view, text) {
-			t.Errorf("%q missing from constrained view:\n%s", text, view)
-		}
+	if !strings.Contains(view, "SERVICE") {
+		t.Errorf("table heading missing from constrained view:\n%s", view)
+	}
+	if !strings.Contains(m.Status(), "3 services") {
+		t.Errorf("panel status = %q, want the service count", m.Status())
 	}
 }
 

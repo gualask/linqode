@@ -91,11 +91,12 @@ func TestFailedRefreshKeepsServicesAndShowsError(t *testing.T) {
 	if len(m.services) != 2 {
 		t.Errorf("previous services dropped: %+v", m.services)
 	}
-	view := m.View()
-	if !strings.Contains(view, "connection lost") {
-		t.Errorf("error not shown:\n%s", view)
+	// The failure is the panel's footer line; the table it belongs to keeps
+	// the last good rows above it.
+	if !strings.Contains(m.Status(), "connection lost") {
+		t.Errorf("error not reported: %q", m.Status())
 	}
-	if !strings.Contains(view, "db") {
+	if view := m.View(); !strings.Contains(view, "db") {
 		t.Errorf("table not shown:\n%s", view)
 	}
 
@@ -130,7 +131,7 @@ func TestSelectionClampsAtBounds(t *testing.T) {
 }
 
 func TestViewStatesWithoutServices(t *testing.T) {
-	m := New(Config{Target: "deploy@prod"})
+	m := New(Config{})
 	if view := m.View(); !strings.Contains(view, "loading") {
 		t.Errorf("initial view:\n%s", view)
 	}
@@ -146,7 +147,7 @@ func TestViewStatesWithoutServices(t *testing.T) {
 }
 
 func TestRestartsColumnAppearsOnlyWithCounts(t *testing.T) {
-	m := New(Config{Target: "deploy@prod"})
+	m := New(Config{})
 	m.SetSize(120, 20)
 	m.Update(servicesMsg{services: services("web", "db")})
 	if strings.Contains(m.View(), "RESTARTS") {
@@ -178,76 +179,5 @@ func TestRestartStyleEscalatesWithTheCount(t *testing.T) {
 	}
 	if one.GetForeground() == looping.GetForeground() {
 		t.Error("a looping container should look different from one restart")
-	}
-}
-
-func TestAdHocCommandPromptRunsWhatWasTyped(t *testing.T) {
-	m := New(Config{ComposeDir: "/srv/app"})
-	m.Update(servicesMsg{services: services("web")})
-	m.Update(key("!"))
-	if !m.commandPrompt {
-		t.Fatal("! should open the prompt")
-	}
-	// While the prompt is open the keys type instead of acting: `q` must
-	// not quit, `j` must not move the selection.
-	for _, k := range []string{"q", "j", " ", "-", "h"} {
-		if cmd := m.Update(key(k)); cmd != nil {
-			t.Fatalf("key %q acted while typing", k)
-		}
-	}
-	if m.commandText != "qj -h" {
-		t.Errorf("typed text %q", m.commandText)
-	}
-	if !strings.Contains(m.View(), "$ qj -h") {
-		t.Errorf("prompt not shown:\n%s", m.View())
-	}
-
-	cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd == nil {
-		t.Fatal("enter should run the command")
-	}
-	msg, ok := cmd().(OpenAdHocMsg)
-	if !ok {
-		t.Fatalf("got %T", cmd())
-	}
-	// Sent as typed: what the user writes runs where plain ssh would run
-	// it, not inside the compose directory.
-	if msg.Command != "qj -h" || msg.Title != "$ qj -h" {
-		t.Errorf("%+v", msg)
-	}
-	if m.commandPrompt {
-		t.Error("prompt should close after running")
-	}
-}
-
-func TestAdHocPromptCancelsAndRemembers(t *testing.T) {
-	m := New(Config{})
-	m.Update(servicesMsg{services: services("web")})
-
-	// An empty command is a no-op, not a remote `sh -c ''`.
-	m.Update(key("!"))
-	if cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
-		t.Error("empty command should not run")
-	}
-
-	m.Update(key("!"))
-	m.Update(key("d"))
-	m.Update(key("f"))
-	m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
-	m.Update(key("h"))
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-
-	// Esc cancels without running, and the prompt reopens on the last
-	// command so a typo is edited rather than retyped.
-	m.Update(key("!"))
-	if m.commandText != "dh" {
-		t.Errorf("prompt reopened with %q, want the last command", m.commandText)
-	}
-	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if m.commandPrompt {
-		t.Error("esc should close the prompt")
-	}
-	if m.Update(key("j")); m.selected != 0 {
-		t.Error("keys should act again after esc")
 	}
 }

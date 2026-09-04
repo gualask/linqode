@@ -83,7 +83,16 @@ func (m *Model) hostMeters() []meter {
 
 // renderHostLine is the meter band. It is empty until the first sample, so
 // the header does not reserve a line for numbers that are not there yet.
-func (m *Model) renderHostLine() string {
+// HostLine is the band, drawn to the width the screen gives it — the screen's
+// full width, which is not this panel's own: the meters sit in the header,
+// above and outside the box holding the table.
+func (m *Model) HostLine(width int) string { return m.renderHostLine(width) }
+
+// HasHostLine reports whether there is a sample to draw, so the screen knows
+// whether to reserve the row.
+func (m *Model) HasHostLine() bool { return m.metricsLoaded && len(m.hostMeters()) > 0 }
+
+func (m *Model) renderHostLine(width int) string {
 	if !m.metricsLoaded {
 		return ""
 	}
@@ -125,7 +134,7 @@ func (m *Model) renderHostLine() string {
 	// goes first, then the meters from the bottom up — load is the headline
 	// reading. The staleness flag stays while anything is drawn at all: a
 	// stale number that looks current is worse than a missing one.
-	available := m.width
+	available := width
 	for available > 0 && fixed()+meterMinBar*len(meters) > available {
 		switch {
 		case uptime != "":
@@ -155,11 +164,11 @@ func (m *Model) renderHostLine() string {
 	return line
 }
 
-// projectSummary counts the services by state, with anything unhealthy
+// Summary counts the services by state, with anything unhealthy
 // called out: on a long table that one line is what says whether the
 // project is in trouble. It rides on the title line, where there is room
 // to spare — the footer's hints already compete for every column they get.
-func (m *Model) projectSummary() string {
+func (m *Model) Summary() string {
 	if len(m.services) == 0 {
 		return ""
 	}

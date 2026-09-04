@@ -2,7 +2,6 @@ package status
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -51,60 +50,61 @@ func healthStyle(health string) lipgloss.Style {
 	}
 }
 
-func (m *Model) View() string {
-	var b strings.Builder
-	// Both header lines are clipped rather than trusted to fit: a line
-	// wider than the terminal wraps, and everything below it shifts down by
-	// a row for as long as the reading stays wide.
-	clip := func(line string) string {
-		if m.width <= 0 {
-			return line
-		}
-		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
+// Title names the panel in the screen's layout.
+func (m *Model) Title() string { return "services" }
+
+// SetFocus records whether the keys are talking to this panel. It changes how
+// the cursor row is drawn, never what it does.
+func (m *Model) SetFocus(focused bool) { m.focused = focused }
+
+// selectionStyle marks the cursor row. Without focus the row keeps its place
+// with a quiet fill rather than the reverse bar, so two panels are never both
+// dressed as the one being acted on.
+func (m *Model) selectionStyle() lipgloss.Style {
+	if m.focused {
+		return theme.Reverse
 	}
-	var title strings.Builder
-	title.WriteString(theme.Bold.Render(" linqode "))
-	title.WriteString(m.info.Target)
-	if m.info.ComposeDir != "" {
-		title.WriteString("  ")
-		title.WriteString(theme.Cyan.Render(m.info.ComposeDir))
-	}
-	if summary := m.projectSummary(); summary != "" {
-		title.WriteString("  " + summary)
-	}
-	b.WriteString(clip(title.String()) + "\n")
-	headerLines := 2
-	if line := m.renderHostLine(); line != "" {
-		b.WriteString(clip(line) + "\n")
-		headerLines++
-	}
-	// A blank line, not a rule: the table draws its own heading as a band
-	// across the width, so a rule here would be a second separator stacked
-	// on the first. What the header block needs from this line is air.
-	b.WriteString("\n")
-	bodyHeight := max(m.height-headerLines-1, 1)
-	fit := func(style lipgloss.Style) lipgloss.Style {
-		if m.height <= 0 {
-			return style
-		}
-		return style.Height(bodyHeight).MaxHeight(bodyHeight)
-	}
-	body := fit(lipgloss.NewStyle()).Render(m.renderBody(m.width, bodyHeight))
-	b.WriteString(body + "\n" + m.footer())
-	return b.String()
+	return theme.SelectedIdle
 }
 
-func (m *Model) renderBody(width, height int) string {
-	if m.menu != nil {
-		return m.renderMenu(width, height)
+// Hints are the keys the table itself answers to. The screen adds its own and
+// decides which survive a narrow terminal.
+func (m *Model) Hints() []panel.Hint {
+	hints := []panel.Hint{{Text: "enter logs", Drop: 2}, {Text: "r refresh", Drop: 1}}
+	if m.liveStats {
+		live := "a live"
+		if m.liveActive() {
+			live = "a live off"
+		}
+		hints = append(hints, panel.Hint{Text: live, Drop: 5})
 	}
+	return hints
+}
+
+// Status is the panel's half of the footer: how many services it is showing,
+// or the failure that kept it from showing them.
+func (m *Model) Status() string {
+	if m.errText != "" {
+		return theme.Red.Render(" " + strings.ReplaceAll(m.errText, "\n", " · "))
+	}
+	text := fmt.Sprintf(" %d services", len(m.services))
+	if m.statsErr != "" {
+		text += theme.Red.Render("  ·  stats: " + m.statsErr)
+	}
+	return text
+}
+
+// View is the panel's content, drawn to the size the screen last gave it. The
+// live stats strip, when it is open, shares that area with the table: it is
+// the same panel looking closer at its own rows.
+func (m *Model) View() string {
 	live := ""
-	tableHeight := height
+	tableHeight := m.height
 	if m.liveActive() {
-		liveHeight := min(m.liveHeight(), max(height-3, 0))
+		liveHeight := min(m.liveHeight(), max(m.height-3, 0))
 		if liveHeight > 0 {
-			tableHeight = height - liveHeight
-			live = "\n" + m.renderLivePanel(width)
+			tableHeight = m.height - liveHeight
+			live = "\n" + m.renderLivePanel(m.width)
 		}
 	}
 	var b strings.Builder
@@ -116,55 +116,9 @@ func (m *Model) renderBody(width, height int) string {
 	case len(m.services) == 0:
 		b.WriteString(theme.Dim.Render("  (no services in this compose project)"))
 	default:
-		m.renderTable(&b, width, tableHeight-1)
+		m.renderTable(&b, m.width, tableHeight)
 	}
 	return strings.TrimRight(b.String(), "\n") + live
-}
-
-// footerHints is what the status screen answers to. The order of the Drop
-// values is the order these are given up in when the line does not fit; the
-// dropping itself belongs to the footer, not to this view, and lives in
-// internal/tui/panel.
-func (m *Model) footerHints(width int) string {
-	hints := []panel.Hint{{Text: "enter logs", Drop: 2}, {Text: "c actions", Drop: 3},
-		{Text: "x scripts", Drop: 6}, {Text: "! run", Drop: 4},
-		{Text: "r refresh", Drop: 1}, {Text: "q quit", Drop: 0}}
-	if m.liveStats {
-		live := "a live"
-		if m.liveActive() {
-			live = "a live off"
-		}
-		hints = slices.Insert(hints, 4, panel.Hint{Text: live, Drop: 5})
-	}
-	return panel.JoinHints(hints, width)
-}
-
-func (m *Model) footer() string {
-	var text string
-	switch {
-	case m.commandPrompt:
-		text = " $ " + m.commandText + "▏" + theme.Dim.Render("  enter run · esc cancel")
-	case m.menu != nil:
-		text = theme.Dim.Render(" j/k select · enter run · esc cancel")
-	case m.errText != "":
-		text = theme.Red.Render(" " + strings.ReplaceAll(m.errText, "\n", " · "))
-	default:
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf(" %d services", len(m.services)))
-		if m.statsErr != "" {
-			b.WriteString(theme.Red.Render("  ·  stats: " + m.statsErr))
-		}
-		budget := 0
-		if m.width > 0 {
-			budget = m.width - lipgloss.Width(b.String()) - len("  ·  ")
-		}
-		b.WriteString(theme.Dim.Render("  ·  " + m.footerHints(budget)))
-		text = b.String()
-	}
-	if m.width > 0 {
-		return lipgloss.NewStyle().MaxWidth(m.width).Render(text)
-	}
-	return text
 }
 
 func usageStyle(percent float64) lipgloss.Style {
