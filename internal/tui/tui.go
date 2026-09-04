@@ -78,8 +78,7 @@ type appModel struct {
 // out.
 func Run(info Info, backend Backend) error {
 	services := status.New(status.Config{
-		Services:  backend.Services,
-		Stats:     backend.Stats,
+		Stats:     backend.Stats != nil,
 		LiveStats: backend.LiveStats != nil,
 	})
 	screen := home.New(home.Config{
@@ -87,7 +86,9 @@ func Run(info Info, backend Backend) error {
 		ComposeDir:    info.ComposeDir,
 		Scripts:       info.Scripts,
 		ActionPreview: backend.ActionPreview,
+		Services:      backend.Services,
 		Host:          backend.Host,
+		Stats:         backend.Stats,
 	}, services)
 	app := appModel{info: info, backend: backend, home: screen}
 	_, err := tea.NewProgram(app, tea.WithAltScreen()).Run()

@@ -76,9 +76,9 @@ func TestContentIsTheAreaInsideTheBorder(t *testing.T) {
 
 // The body is a titled box, which is what says where the keys are pointing.
 func TestBodyIsDrawnAsATitledPanel(t *testing.T) {
-	screen, panel := buildScreen(screenOptions{width: 100, height: 24,
+	screen, _ := buildScreen(screenOptions{width: 100, height: 24,
 		services: serviceList("web")})
-	apply(panel, panel.Sample())
+	sampleAll(screen)
 
 	view := screen.View()
 	if !strings.Contains(view, "─ services ─") {
@@ -119,9 +119,9 @@ func TestTabWalksTheRing(t *testing.T) {
 // band stays on the header throughout — it is the header, not a panel that
 // takes its turn in the body.
 func TestEnterOnTheBandOpensTheSystemView(t *testing.T) {
-	screen, panel := buildScreen(screenOptions{width: 120, height: 24,
+	screen, _ := buildScreen(screenOptions{width: 120, height: 24,
 		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
-	sampleAll(screen, panel)
+	sampleAll(screen)
 
 	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
 	screen.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -176,10 +176,10 @@ func TestTheSystemViewNeedsASample(t *testing.T) {
 // region happens to hold focus.
 func TestRefreshResamplesEverythingFromEitherStop(t *testing.T) {
 	services, hosts := 0, 0
-	panel := status.New(status.Config{
+	screen := New(Config{
 		Services: func() ([]compose.Service, error) { services++; return nil, nil },
-	})
-	screen := New(Config{Host: func() (host.Metrics, error) { hosts++; return host.Metrics{}, nil }}, panel)
+		Host:     func() (host.Metrics, error) { hosts++; return host.Metrics{}, nil },
+	}, status.New(status.Config{}))
 
 	applyScreen(screen, screen.Update(key("r")))
 	if services != 1 || hosts != 1 {
@@ -193,27 +193,11 @@ func TestRefreshResamplesEverythingFromEitherStop(t *testing.T) {
 	}
 }
 
-// An in-flight host sample must not be duplicated by the next tick.
-func TestHostSamplingDoesNotOverlap(t *testing.T) {
-	screen, _ := buildScreen(screenOptions{width: 100, height: 24,
-		host: &hostFeed{metrics: sampleMetrics()}})
-	if cmd := screen.sampleHost(); cmd == nil {
-		t.Fatal("first sample did not start")
-	}
-	if cmd := screen.sampleHost(); cmd != nil {
-		t.Error("second sample started while one was in flight")
-	}
-	screen.Update(hostSampleMsg{metrics: sampleMetrics()})
-	if cmd := screen.sampleHost(); cmd == nil {
-		t.Error("sampling did not resume after the sample arrived")
-	}
-}
-
-// Without a sampler nothing is read and the band never claims its row.
-func TestNoHostSamplerNoBand(t *testing.T) {
+// Without a fetch nothing is read and the band never claims its row.
+func TestNoHostFetchNoBand(t *testing.T) {
 	screen, _ := buildScreen(screenOptions{width: 100, height: 24})
-	if cmd := screen.sampleHost(); cmd != nil {
-		t.Error("a sample was taken with no sampler configured")
+	if cmd := screen.sampler.read(sourceHost); cmd != nil {
+		t.Error("a sample was taken with no fetch configured")
 	}
 	if layoutFor(100, 24, screen.system.HasBand()).band {
 		t.Error("the header reserved a row for a band that cannot exist")

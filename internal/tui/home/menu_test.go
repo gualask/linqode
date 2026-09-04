@@ -38,13 +38,9 @@ func key(k string) tea.KeyMsg {
 // screen only ever sees a panel the way the application hands it over.
 func screenWith(t *testing.T, config Config, names ...string) *Model {
 	t.Helper()
-	panel := status.New(status.Config{
-		Services: func() ([]compose.Service, error) { return serviceList(names...), nil },
-	})
-	screen := New(config, panel)
-	if cmd := panel.Refresh(); cmd != nil {
-		panel.Update(cmd())
-	}
+	config.Services = func() ([]compose.Service, error) { return serviceList(names...), nil }
+	screen := New(config, status.New(status.Config{}))
+	sampleAll(screen)
 	return screen
 }
 

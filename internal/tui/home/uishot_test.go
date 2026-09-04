@@ -249,43 +249,25 @@ func shotReadings() []compose.ContainerStats {
 // above. hostErr makes the host fetch fail, which is how the stale flag is
 // reached — through the panel's own path rather than by writing its fields.
 func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
-	panel := status.New(status.Config{
-		Services:  func() ([]compose.Service, error) { return shotServices(), nil },
-		Stats:     func() ([]compose.ContainerStats, error) { return shotReadings(), nil },
-		LiveStats: true,
-	})
+	panel := status.New(status.Config{Stats: true, LiveStats: true})
 	feed := &hostFeed{metrics: busyHost()}
-	config := Config{Target: "deploy@app-prod-01", ComposeDir: "/srv/myapp"}
+	config := Config{
+		Target:     "deploy@app-prod-01",
+		ComposeDir: "/srv/myapp",
+		Services:   func() ([]compose.Service, error) { return shotServices(), nil },
+		Stats:      func() ([]compose.ContainerStats, error) { return shotReadings(), nil },
+	}
 	if hostMetrics {
 		config.Host = feed.sample
 	}
 	screen := New(config, panel)
 	screen.SetSize(width, height)
-	sampleAll(screen, panel)
+	sampleAll(screen)
 	if hostErr != nil {
 		feed.err = hostErr
-		sampleAll(screen, panel)
+		resample(screen)
 	}
 	return screen
-}
-
-// apply runs a command the way the Bubble Tea loop would, feeding every
-// message it produces back into the panel. Sample is used rather than Init
-// because Init also arms the refresh timers, and a tick command run inline
-// would sleep for its whole interval.
-func apply(panel *status.Model, cmd tea.Cmd) {
-	if cmd == nil {
-		return
-	}
-	switch msg := cmd().(type) {
-	case nil:
-	case tea.BatchMsg:
-		for _, sub := range msg {
-			apply(panel, sub)
-		}
-	default:
-		apply(panel, panel.Update(msg))
-	}
 }
 
 func TestUIShot(t *testing.T) {

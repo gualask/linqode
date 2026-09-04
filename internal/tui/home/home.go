@@ -20,6 +20,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/operations"
 	"github.com/gualask/linqode/internal/tui/panel"
@@ -27,21 +28,41 @@ import (
 	"github.com/gualask/linqode/internal/tui/system"
 )
 
-// hostRefresh is how often the machine's meters are resampled. The command
-// costs ~2 ms against the ~60 ms of the `compose ps` on the same cadence, so
-// it is noise beside what is already being paid (docs/PROJECT.md, dashboard
-// cost budget).
-const hostRefresh = 5 * time.Second
+// The intervals the screen asks for. What it actually gets is stretched by
+// the sampler when a link is slow enough to earn it.
+const (
+	// servicesRefresh is the fallback cadence of `compose ps`, ~60 ms of
+	// server time per read (docs/PROJECT.md, dashboard cost budget).
+	servicesRefresh = 5 * time.Second
+	// hostRefresh is the meters' cadence. At ~2 ms it is noise beside the
+	// `ps` on the same clock.
+	hostRefresh = 5 * time.Second
+	// statsRefresh is the container readings' cadence. A sample costs ~2 s
+	// on the server whatever the project's size — the daemon reads each
+	// container's cgroups twice, a second apart, to derive a CPU percentage
+	// — so at 20 s the command is in flight a tenth of the time. Halving it
+	// would double that and say nothing new: each reading is already an
+	// average over docker's own sampling second. Watching fluctuation is
+	// what the live mode is for.
+	statsRefresh = 20 * time.Second
+)
 
-// hostTickMsg is the meters' interval firing.
-type hostTickMsg struct{}
-
-// hostSampleMsg is one host sample, delivered asynchronously so the UI never
-// blocks on the SSH round-trip.
-type hostSampleMsg struct {
-	metrics host.Metrics
-	err     error
-}
+// The samples, delivered asynchronously so the UI never blocks on an SSH
+// round-trip. Each carries the reading its source asked for.
+type (
+	servicesSampleMsg struct {
+		services []compose.Service
+		err      error
+	}
+	hostSampleMsg struct {
+		metrics host.Metrics
+		err     error
+	}
+	statsSampleMsg struct {
+		stats []compose.ContainerStats
+		err   error
+	}
+)
 
 // Config is the session's static context, plus the previews the confirmation
 // menu shows before running anything.
@@ -55,10 +76,14 @@ type Config struct {
 	// ActionPreview supplies the exact operations-owned command that the
 	// human confirmation menu shows before running it.
 	ActionPreview func(operations.ServiceAction, string) string
-	// Host samples the machine's resource usage. Nil turns the band and the
-	// system view off entirely — the escape hatch for a host where even a
-	// cheap extra command is unwelcome.
-	Host func() (host.Metrics, error)
+
+	// The readings the screen samples. Each blocks on an SSH round-trip and
+	// is always called from a background command, never from the UI loop.
+	// A nil one is a capability this host does not offer: no fetch, no
+	// cadence, and nothing on screen that would sit empty waiting for it.
+	Services func() ([]compose.Service, error)
+	Host     func() (host.Metrics, error)
+	Stats    func() ([]compose.ContainerStats, error)
 }
 
 type Model struct {
@@ -82,8 +107,8 @@ type Model struct {
 	// detail is the view an `enter` opened over the body, nil on the home.
 	detail panel.Panel
 
-	// hostSampling guards against a second sample while one is in flight.
-	hostSampling bool
+	// sampler owns what is read off the host and how often.
+	sampler *sampler
 
 	// menu is the open modal list, nil when none is. While one is open every
 	// key routes to it instead of to the focused panel.
@@ -102,6 +127,24 @@ type Model struct {
 
 func New(config Config, services *status.Model) *Model {
 	m := &Model{info: config, services: services, system: system.New()}
+	m.sampler = newSampler(map[sourceID]*source{
+		sourceServices: {every: servicesRefresh, start: read(config.Services,
+			func(services []compose.Service, err error) tea.Msg {
+				return servicesSampleMsg{services: services, err: err}
+			})},
+		sourceHost: {every: hostRefresh, start: read(config.Host,
+			func(metrics host.Metrics, err error) tea.Msg {
+				return hostSampleMsg{metrics: metrics, err: err}
+			})},
+		// The live stream feeds the same columns a second at a time, so
+		// while it runs the screen stops paying two seconds for a staler
+		// answer.
+		sourceStats: {every: statsRefresh, gate: func() bool { return !services.LiveActive() },
+			start: read(config.Stats,
+				func(stats []compose.ContainerStats, err error) tea.Msg {
+					return statsSampleMsg{stats: stats, err: err}
+				})},
+	})
 	// Top to bottom, the way `tab` walks them. Focus starts on the table:
 	// the band is what an operator reads, the table is what they act on.
 	m.panels = []panel.Panel{m.system, services}
@@ -111,24 +154,18 @@ func New(config Config, services *status.Model) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.services.Init(), m.sampleHost(), hostTick())
+	return tea.Batch(m.sampler.due(), heartbeat())
 }
 
-func hostTick() tea.Cmd {
-	return tea.Tick(hostRefresh, func(time.Time) tea.Msg { return hostTickMsg{} })
-}
-
-// sampleHost reads the machine's meters unless a read is already in flight,
-// and is nil when no sampler is configured.
-func (m *Model) sampleHost() tea.Cmd {
-	if m.info.Host == nil || m.hostSampling {
+// read turns a fetch into the command that carries its outcome back. A nil
+// fetch yields a nil start, which is how the sampler knows a reading is not
+// available on this host.
+func read[T any](fetch func() (T, error), wrap func(T, error) tea.Msg) func() tea.Cmd {
+	if fetch == nil {
 		return nil
 	}
-	m.hostSampling = true
-	fetch := m.info.Host
-	return func() tea.Msg {
-		metrics, err := fetch()
-		return hostSampleMsg{metrics: metrics, err: err}
+	return func() tea.Cmd {
+		return func() tea.Msg { return wrap(fetch()) }
 	}
 }
 
@@ -160,18 +197,26 @@ func (m *Model) SetSize(width, height int) {
 // so far — on the panel whose data it concerns.
 func (m *Model) SetError(text string) { m.services.SetError(text) }
 
-// Refresh re-reads the service list, which the application asks for when a
-// feed closes so an action's effect is visible immediately.
-func (m *Model) Refresh() tea.Cmd { return m.services.Refresh() }
+// Refresh reads everything again, now: what `r` means, and what the
+// application asks for when a feed closes so an action's effect is visible
+// immediately. The container readings are left out — two seconds of server
+// time to confirm what the table already shows is not what anyone means by
+// refresh.
+func (m *Model) Refresh() tea.Cmd {
+	return tea.Batch(m.sampler.read(sourceServices), m.sampler.read(sourceHost))
+}
 
 // UpdateBackground keeps the panels' timers and asynchronous results alive
 // while another view is on screen, without starting fetches nobody can see.
 func (m *Model) UpdateBackground(msg tea.Msg) (tea.Cmd, bool) {
 	switch msg := msg.(type) {
-	case hostTickMsg:
-		return hostTick(), true
-	case hostSampleMsg:
-		return m.applyHostSample(msg), true
+	case beatMsg:
+		// The heartbeat stays alive so the cadence resumes on return, but
+		// nothing is read for a screen nobody is looking at.
+		return heartbeat(), true
+	case servicesSampleMsg, hostSampleMsg, statsSampleMsg:
+		// A read already in flight when the view opened still lands.
+		return m.applySample(msg), true
 	}
 	return m.services.UpdateBackground(msg)
 }
@@ -180,19 +225,30 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
-	case hostTickMsg:
-		return tea.Batch(m.sampleHost(), hostTick())
-	case hostSampleMsg:
-		return m.applyHostSample(msg)
+	case beatMsg:
+		return tea.Batch(m.sampler.due(), heartbeat())
+	case servicesSampleMsg, hostSampleMsg, statsSampleMsg:
+		return m.applySample(msg)
 	}
-	// Everything else is data the table asked for: samples, ticks, stream
-	// outcomes.
+	// Everything else belongs to the table: its live stream, and the ticks
+	// that drain it.
 	return m.services.Update(msg)
 }
 
-func (m *Model) applyHostSample(msg hostSampleMsg) tea.Cmd {
-	m.hostSampling = false
-	m.system.SetSample(msg.metrics, msg.err)
+// applySample hands one reading to whichever panel shows it, and tells the
+// sampler its source is free again.
+func (m *Model) applySample(msg tea.Msg) tea.Cmd {
+	switch msg := msg.(type) {
+	case servicesSampleMsg:
+		m.services.SetServices(msg.services, msg.err)
+		m.sampler.finished(sourceServices)
+	case hostSampleMsg:
+		m.system.SetSample(msg.metrics, msg.err)
+		m.sampler.finished(sourceHost)
+	case statsSampleMsg:
+		m.services.SetStats(msg.stats, msg.err)
+		m.sampler.finished(sourceStats)
+	}
 	return nil
 }
 
@@ -224,7 +280,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	case "r":
 		// Refresh is the screen's, not a panel's: what an operator means by
 		// it is "read everything again, now".
-		return tea.Batch(m.services.Refresh(), m.sampleHost())
+		return m.Refresh()
 	case "c":
 		m.openActionMenu()
 	case "x":

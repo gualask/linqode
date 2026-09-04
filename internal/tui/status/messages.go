@@ -1,16 +1,16 @@
 package status
 
-import (
-	"github.com/gualask/linqode/internal/compose"
-	"github.com/gualask/linqode/internal/operations"
-)
+import "github.com/gualask/linqode/internal/operations"
 
-// Config supplies the panel's background operations. What the session is —
-// target, project directory, configured scripts — belongs to the screen that
-// composes this panel, not to the table itself.
+// Config says which readings exist for this host. The panel does not fetch
+// any of them: the screen owns the cadence and hands samples over, so that
+// what runs on the server is decided in one place (see internal/tui/home).
 type Config struct {
-	Services  func() ([]compose.Service, error)
-	Stats     func() ([]compose.ContainerStats, error)
+	// Stats reports whether container readings are available at all. The
+	// columns exist whenever something can fill them, and show "-" until
+	// the first sample lands.
+	Stats bool
+	// LiveStats reports whether the on-demand stream is available.
 	LiveStats bool
 }
 

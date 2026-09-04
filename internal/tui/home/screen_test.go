@@ -58,36 +58,46 @@ type screenOptions struct {
 }
 
 func buildScreen(options screenOptions) (*Model, *status.Model) {
-	config := status.Config{
+	panel := status.New(status.Config{Stats: options.stats != nil})
+	config := Config{
+		Target:   "deploy@prod",
 		Services: func() ([]compose.Service, error) { return options.services, nil },
+	}
+	if options.host != nil {
+		config.Host = options.host.sample
 	}
 	if options.stats != nil {
 		config.Stats = func() ([]compose.ContainerStats, error) { return options.stats, nil }
 	}
-	panel := status.New(config)
-	screenConfig := Config{Target: "deploy@prod"}
-	if options.host != nil {
-		screenConfig.Host = options.host.sample
-	}
-	screen := New(screenConfig, panel)
+	screen := New(config, panel)
 	screen.SetSize(options.width, options.height)
 	return screen, panel
 }
 
-// sampleAll fills both the table and the band, the way the first tick does.
-func sampleAll(screen *Model, panel *status.Model) {
-	apply(panel, panel.Sample())
-	applyScreen(screen, screen.sampleHost())
+// sampleAll reads every source once and applies what comes back, which is what
+// the first heartbeat does.
+func sampleAll(screen *Model) {
+	applyScreen(screen, screen.sampler.due())
+}
+
+// resample reads every source again on demand, the way `r` does. The sampler
+// would otherwise refuse a second reading whose interval has not elapsed,
+// which is the point of it.
+func resample(screen *Model) {
+	for _, id := range []sourceID{sourceServices, sourceHost, sourceStats} {
+		applyScreen(screen, screen.sampler.read(id))
+	}
 }
 
 // applyScreen runs a screen-owned command and feeds its message back, the way
-// the Bubble Tea loop would.
+// the Bubble Tea loop would. Beats are not followed: a heartbeat command
+// sleeps for its whole interval.
 func applyScreen(screen *Model, cmd tea.Cmd) {
 	if cmd == nil {
 		return
 	}
 	switch msg := cmd().(type) {
-	case nil:
+	case nil, beatMsg:
 	case tea.BatchMsg:
 		for _, sub := range msg {
 			applyScreen(screen, sub)
@@ -99,14 +109,14 @@ func applyScreen(screen *Model, cmd tea.Cmd) {
 
 func TestHostLineAppearsOnlyAfterFirstSample(t *testing.T) {
 	feed := &hostFeed{metrics: sampleMetrics()}
-	screen, panel := buildScreen(screenOptions{width: 120, height: 24, host: feed})
+	screen, _ := buildScreen(screenOptions{width: 120, height: 24, host: feed})
 
 	// "load[" rather than "load": the empty-table placeholder says "loading".
 	if strings.Contains(screen.View(), "load[") {
 		t.Errorf("meter band shown before any sample arrived:\n%s", screen.View())
 	}
 
-	sampleAll(screen, panel)
+	sampleAll(screen)
 
 	view := screen.View()
 	// Each meter prints its absolute amounts; the percentage is the bar, so
@@ -125,11 +135,11 @@ func TestHostLineAppearsOnlyAfterFirstSample(t *testing.T) {
 // flagged, exactly as a failed service refresh keeps the last good table.
 func TestFailedHostSampleKeepsLastAndMarksStale(t *testing.T) {
 	feed := &hostFeed{metrics: sampleMetrics()}
-	screen, panel := buildScreen(screenOptions{width: 120, height: 24, host: feed})
-	sampleAll(screen, panel)
+	screen, _ := buildScreen(screenOptions{width: 120, height: 24, host: feed})
+	sampleAll(screen)
 
 	feed.err = errors.New("connection lost")
-	sampleAll(screen, panel)
+	resample(screen)
 
 	view := screen.View()
 	if !strings.Contains(view, "0.50") {
@@ -145,7 +155,7 @@ func TestFailedHostSampleKeepsLastAndMarksStale(t *testing.T) {
 	}
 
 	feed.err = nil
-	sampleAll(screen, panel)
+	resample(screen)
 	if strings.Contains(screen.View(), "stale") {
 		t.Errorf("stale flag survived a good sample:\n%s", screen.View())
 	}
@@ -163,9 +173,9 @@ func bandLine(view string) string {
 // Host metrics off means no band, however wide the terminal is: the whole
 // point of that switch is that nothing extra runs on the server.
 func TestNoBandWithoutHostMetrics(t *testing.T) {
-	screen, panel := buildScreen(screenOptions{
+	screen, _ := buildScreen(screenOptions{
 		width: 200, height: 24, services: serviceList("web")})
-	sampleAll(screen, panel)
+	sampleAll(screen)
 
 	if strings.Contains(screen.View(), "load[") {
 		t.Errorf("meter band shown with host metrics disabled:\n%s", screen.View())
@@ -174,10 +184,10 @@ func TestNoBandWithoutHostMetrics(t *testing.T) {
 
 func TestBandFlagsStaleSample(t *testing.T) {
 	feed := &hostFeed{metrics: sampleMetrics()}
-	screen, panel := buildScreen(screenOptions{width: 120, height: 24, host: feed})
-	sampleAll(screen, panel)
+	screen, _ := buildScreen(screenOptions{width: 120, height: 24, host: feed})
+	sampleAll(screen)
 	feed.err = errors.New("connection lost")
-	sampleAll(screen, panel)
+	resample(screen)
 
 	line := bandLine(screen.View())
 	if !strings.Contains(line, "stale") {
@@ -192,7 +202,7 @@ func TestBandFlagsStaleSample(t *testing.T) {
 // every row. It rides on the title line: the footer's hints already compete
 // for every column they get.
 func TestSummaryRidesOnTheTitleLine(t *testing.T) {
-	screen, panel := buildScreen(screenOptions{width: 120, height: 24,
+	screen, _ := buildScreen(screenOptions{width: 120, height: 24,
 		host: &hostFeed{metrics: sampleMetrics()},
 		services: []compose.Service{
 			{Service: "web", Name: "app-web-1", State: "running", Status: "Up"},
@@ -200,7 +210,7 @@ func TestSummaryRidesOnTheTitleLine(t *testing.T) {
 			{Service: "cache", Name: "app-cache-1", State: "running", Health: "unhealthy", Status: "Up"},
 			{Service: "migrate", Name: "app-migrate-1", State: "exited", Status: "Exited (0)"},
 		}})
-	sampleAll(screen, panel)
+	sampleAll(screen)
 
 	title := strings.Split(screen.View(), "\n")[0]
 	for _, want := range []string{"3 running", "1 exited", "1 unhealthy"} {
@@ -220,14 +230,14 @@ func TestSummaryRidesOnTheTitleLine(t *testing.T) {
 // past the terminal.
 func TestViewNeverExceedsTheTerminalWidth(t *testing.T) {
 	for _, width := range []int{70, 80, 100, 110, 130, 200} {
-		screen, panel := buildScreen(screenOptions{width: width, height: 24,
+		screen, _ := buildScreen(screenOptions{width: width, height: 24,
 			host:     &hostFeed{metrics: sampleMetrics()},
 			services: serviceList("web", "db", "cache"),
 			stats: []compose.ContainerStats{{Name: "app-web-1", CPUPerc: "12.34%",
 				MemUsage: "153.6MiB / 2GiB", MemPerc: "7.5%",
 				NetIO: "1.45GB / 892.3MB", BlockIO: "4.1kB / 0B"}},
 		})
-		sampleAll(screen, panel)
+		sampleAll(screen)
 
 		for i, line := range strings.Split(screen.View(), "\n") {
 			if got := lipgloss.Width(line); got > width {
@@ -240,9 +250,9 @@ func TestViewNeverExceedsTheTerminalWidth(t *testing.T) {
 // The header block gets a blank line between it and the body, so the two do
 // not read as one wall of text.
 func TestHeaderBlockIsSeparatedFromTheBody(t *testing.T) {
-	screen, panel := buildScreen(screenOptions{width: 100, height: 24,
+	screen, _ := buildScreen(screenOptions{width: 100, height: 24,
 		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
-	sampleAll(screen, panel)
+	sampleAll(screen)
 
 	lines := strings.Split(screen.View(), "\n")
 	if strings.TrimSpace(lines[2]) != "" {
@@ -254,9 +264,9 @@ func TestHeaderBlockIsSeparatedFromTheBody(t *testing.T) {
 // header off the top, one too few leaves a gap above the footer.
 func TestScreenIsExactlyAsTallAsTheTerminal(t *testing.T) {
 	for _, height := range []int{10, 24, 40} {
-		screen, panel := buildScreen(screenOptions{width: 120, height: height,
+		screen, _ := buildScreen(screenOptions{width: 120, height: height,
 			host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web", "db")})
-		sampleAll(screen, panel)
+		sampleAll(screen)
 
 		if lines := strings.Count(screen.View(), "\n") + 1; lines != height {
 			t.Errorf("at %d rows the screen drew %d lines", height, lines)

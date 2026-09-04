@@ -11,12 +11,14 @@ import (
 	"github.com/gualask/linqode/internal/operations"
 )
 
-func TestSoftPollStandsDownWhileLive(t *testing.T) {
+// While the stream runs the panel says so, which is the screen's cue to stop
+// paying two seconds for a staler answer to the same question.
+func TestLiveStreamFeedsTheColumnsAndSaysSo(t *testing.T) {
 	m := withStatsFetch()
-	m.Update(servicesMsg{services: services("web")})
+	m.SetServices(services("web"), nil)
 	stream := openLive(t, m)
-	if cmd := m.refreshStats(); cmd != nil {
-		t.Error("a soft sample started while the live stream was running")
+	if !m.LiveActive() {
+		t.Error("the panel did not report the stream as running")
 	}
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
 	m.Update(statsTickMsg{})
@@ -24,14 +26,14 @@ func TestSoftPollStandsDownWhileLive(t *testing.T) {
 		t.Errorf("live samples did not reach the columns:\n%s", m.View())
 	}
 	m.Update(key("a"))
-	if cmd := m.refreshStats(); cmd == nil {
-		t.Error("the soft poll did not resume after the stream closed")
+	if m.LiveActive() {
+		t.Error("the panel still reports a stream it closed")
 	}
 }
 
 func TestClosingLiveKeepsReadingsOnlyWhenPolled(t *testing.T) {
 	m := withStatsFetch()
-	m.Update(servicesMsg{services: services("web")})
+	m.SetServices(services("web"), nil)
 	stream := openLive(t, m)
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
 	m.Update(statsTickMsg{})
@@ -45,7 +47,7 @@ func TestClosingLiveKeepsReadingsOnlyWhenPolled(t *testing.T) {
 	unpolled := New(Config{})
 	unpolled.liveStats = true
 	unpolled.SetSize(120, 24)
-	unpolled.Update(servicesMsg{services: services("web")})
+	unpolled.SetServices(services("web"), nil)
 	stream = openLive(t, unpolled)
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
 	unpolled.Update(statsTickMsg{})
@@ -93,7 +95,7 @@ func TestLiveToggleWhileStartingCancels(t *testing.T) {
 
 func TestLiveStreamEndingStopsTicking(t *testing.T) {
 	m := withStatsFetch()
-	m.Update(servicesMsg{services: services("web")})
+	m.SetServices(services("web"), nil)
 	stream := openLive(t, m)
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
 	stream.events <- operations.Event{Kind: operations.EventExit, ExitCode: 0}
@@ -113,7 +115,7 @@ func TestLiveStreamEndingStopsTicking(t *testing.T) {
 
 func TestLiveFailureReported(t *testing.T) {
 	m := withStatsFetch()
-	m.Update(servicesMsg{services: services("web")})
+	m.SetServices(services("web"), nil)
 	m.Update(key("a"))
 	m.Update(StatsFeedMsg{Err: errors.New("permission denied")})
 	if m.statsStarting || !strings.Contains(m.Status(), "permission denied") {
@@ -123,7 +125,7 @@ func TestLiveFailureReported(t *testing.T) {
 
 func TestLiveStderrSurfacedWithoutStopping(t *testing.T) {
 	m := withStatsFetch()
-	m.Update(servicesMsg{services: services("web")})
+	m.SetServices(services("web"), nil)
 	stream := openLive(t, m)
 	stream.events <- operations.Event{Kind: operations.EventStderr, Text: "cannot read stats for app-web-1"}
 	if cmd := m.Update(statsTickMsg{}); cmd == nil {
@@ -143,7 +145,7 @@ func TestStatsTickWithoutStreamIsInert(t *testing.T) {
 
 func TestLivePanelShowsSeriesPerContainer(t *testing.T) {
 	m := withStatsFetch()
-	m.Update(servicesMsg{services: services("web")})
+	m.SetServices(services("web"), nil)
 	if strings.Contains(m.View(), "samples") {
 		t.Errorf("live panel on screen before it was opened:\n%s", m.View())
 	}
@@ -169,7 +171,7 @@ func TestLivePanelShowsSeriesPerContainer(t *testing.T) {
 
 func TestLivePanelAnnouncesStartup(t *testing.T) {
 	m := withStatsFetch()
-	m.Update(servicesMsg{services: services("web")})
+	m.SetServices(services("web"), nil)
 	m.Update(key("a"))
 	if !strings.Contains(m.View(), "starting") {
 		t.Errorf("startup not announced:\n%s", m.View())
@@ -179,7 +181,7 @@ func TestLivePanelAnnouncesStartup(t *testing.T) {
 func TestLivePanelLeavesTheTableOnScreen(t *testing.T) {
 	m := withStatsFetch()
 	m.SetSize(120, 20)
-	m.Update(servicesMsg{services: services("web", "db", "cache")})
+	m.SetServices(services("web", "db", "cache"), nil)
 	stream := openLive(t, m)
 	for _, name := range []string{"web", "db", "cache"} {
 		stream.events <- liveReading(name, "12.34%", "153.6MiB")

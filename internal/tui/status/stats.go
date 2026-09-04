@@ -23,12 +23,6 @@ import (
 )
 
 const (
-	// statsPollInterval is how often the soft sample runs. At 20 s a ~2 s
-	// command is in flight a tenth of the time; halving it would double
-	// that without telling the operator anything new, since each reading is
-	// still an average over docker's own sampling second. Watching
-	// fluctuation is what the live mode is for.
-	statsPollInterval = 20 * time.Second
 	// statsDrainInterval is how often pending live samples are applied.
 	// Docker emits a block per second, so this only has to be fast enough
 	// to feel live.
@@ -45,46 +39,11 @@ const (
 	liveMaxRows = 8
 )
 
-// statsPollMsg is the soft interval firing.
-type statsPollMsg struct{}
-
-// statsSampleMsg is the outcome of one soft sample.
-type statsSampleMsg struct {
-	stats []compose.ContainerStats
-	err   error
-}
-
 // statsTickMsg drains the live stream.
 type statsTickMsg struct{}
 
-func statsPollTick() tea.Cmd {
-	return tea.Tick(statsPollInterval, func(time.Time) tea.Msg { return statsPollMsg{} })
-}
-
 func statsTick() tea.Cmd {
 	return tea.Tick(statsDrainInterval, func(time.Time) tea.Msg { return statsTickMsg{} })
-}
-
-// statsSampleCmd takes one soft sample, or nil when none is configured.
-func (m *Model) statsSampleCmd() tea.Cmd {
-	fetch := m.statsFetch
-	if fetch == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		stats, err := fetch()
-		return statsSampleMsg{stats: stats, err: err}
-	}
-}
-
-// refreshStats starts a soft sample unless one is already in flight or the
-// live stream is running — the stream feeds the same columns, faster.
-func (m *Model) refreshStats() tea.Cmd {
-	if m.statsFetch == nil || m.statsRefreshing || m.liveActive() {
-		return nil
-	}
-	m.statsRefreshing = true
-	return m.statsSampleCmd()
 }
 
 // applySample replaces the readings with a whole sample. Containers absent
@@ -109,7 +68,7 @@ func (m *Model) liveActive() bool {
 // — CPU, MEM, NET and BLOCK. They are part of the table whenever anything
 // can fill them, and show "-" until the first sample lands.
 func (m *Model) statsColumns() bool {
-	return m.statsFetch != nil || m.liveActive() || len(m.stats) > 0
+	return m.softStats || m.liveActive() || len(m.stats) > 0
 }
 
 // toggleLive turns the streaming panel on or off. Opening pays docker's ~2 s
@@ -142,7 +101,7 @@ func (m *Model) stopLive() {
 	m.statsStarting = false
 	m.history = nil
 	m.statsErr = ""
-	if m.statsFetch == nil {
+	if !m.softStats {
 		m.stats = nil
 		m.statsLoaded = false
 	}

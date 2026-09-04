@@ -31,53 +31,31 @@ func key(k string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
 }
 
-func TestUpdateBackgroundKeepsTimersWithoutStartingHiddenFetches(t *testing.T) {
-	servicesCalls, statsCalls := 0, 0
-	m := New(Config{
-		Services: func() ([]compose.Service, error) {
-			servicesCalls++
-			return nil, nil
-		},
-		Stats: func() ([]compose.ContainerStats, error) {
-			statsCalls++
-			return nil, nil
-		},
-	})
-
-	if cmd, handled := m.UpdateBackground(autoTickMsg{}); !handled || cmd == nil {
-		t.Fatal("background auto tick was not rescheduled")
-	}
-	if cmd, handled := m.UpdateBackground(statsPollMsg{}); !handled || cmd == nil {
-		t.Fatal("background stats poll was not rescheduled")
-	}
-	if servicesCalls != 0 || statsCalls != 0 || m.refreshing || m.statsRefreshing {
-		t.Fatal("background timers started a hidden fetch")
-	}
-
-	if _, handled := m.UpdateBackground(servicesMsg{services: services("web")}); !handled {
-		t.Fatal("in-flight status result was not handled in the background")
-	}
-	if !m.loaded || len(m.services) != 1 {
-		t.Fatal("in-flight status result was not applied")
-	}
+// A key must not act on a panel nobody can see; its own stream keeps
+// draining, which is what UpdateBackground is for.
+func TestBackgroundHandlesTheStreamButNotKeys(t *testing.T) {
+	m := New(Config{})
 	if _, handled := m.UpdateBackground(key("j")); handled {
-		t.Fatal("status handled a key while hidden")
+		t.Fatal("the table handled a key while hidden")
+	}
+	if _, handled := m.UpdateBackground(statsTickMsg{}); !handled {
+		t.Fatal("the live stream stopped draining while hidden")
 	}
 }
 
 func TestRefreshPreservesSelectionByName(t *testing.T) {
 	m := New(Config{})
-	m.Update(servicesMsg{services: services("db", "web", "worker")})
+	m.SetServices(services("db", "web", "worker"), nil)
 	m.Update(key("j")) // select "web"
 
 	// "db" disappeared: the cursor must stay on "web", now at index 0.
-	m.Update(servicesMsg{services: services("web", "worker")})
+	m.SetServices(services("web", "worker"), nil)
 	if m.services[m.selected].Service != "web" {
 		t.Errorf("selected %q, want web", m.services[m.selected].Service)
 	}
 
 	// The selected service disappeared: the cursor clamps into range.
-	m.Update(servicesMsg{services: services("worker")})
+	m.SetServices(services("worker"), nil)
 	if m.selected != 0 {
 		t.Errorf("selected index %d, want 0", m.selected)
 	}
@@ -85,8 +63,8 @@ func TestRefreshPreservesSelectionByName(t *testing.T) {
 
 func TestFailedRefreshKeepsServicesAndShowsError(t *testing.T) {
 	m := New(Config{})
-	m.Update(servicesMsg{services: services("db", "web")})
-	m.Update(servicesMsg{err: errors.New("connection lost")})
+	m.SetServices(services("db", "web"), nil)
+	m.SetServices(nil, errors.New("connection lost"))
 
 	if len(m.services) != 2 {
 		t.Errorf("previous services dropped: %+v", m.services)
@@ -101,7 +79,7 @@ func TestFailedRefreshKeepsServicesAndShowsError(t *testing.T) {
 	}
 
 	// The next successful refresh clears the error.
-	m.Update(servicesMsg{services: services("db", "web")})
+	m.SetServices(services("db", "web"), nil)
 	if strings.Contains(m.View(), "connection lost") {
 		t.Error("error not cleared after a good refresh")
 	}
@@ -109,7 +87,7 @@ func TestFailedRefreshKeepsServicesAndShowsError(t *testing.T) {
 
 func TestSelectionClampsAtBounds(t *testing.T) {
 	m := New(Config{})
-	m.Update(servicesMsg{services: services("a", "b")})
+	m.SetServices(services("a", "b"), nil)
 
 	m.Update(key("k"))
 	if m.selected != 0 {
@@ -135,12 +113,12 @@ func TestViewStatesWithoutServices(t *testing.T) {
 	if view := m.View(); !strings.Contains(view, "loading") {
 		t.Errorf("initial view:\n%s", view)
 	}
-	m.Update(servicesMsg{services: nil})
+	m.SetServices(nil, nil)
 	if view := m.View(); !strings.Contains(view, "no services") {
 		t.Errorf("empty view:\n%s", view)
 	}
 	m2 := New(Config{})
-	m2.Update(servicesMsg{err: errors.New("boom")})
+	m2.SetServices(nil, errors.New("boom"))
 	if view := m2.View(); !strings.Contains(view, "no data") {
 		t.Errorf("error-without-data view:\n%s", view)
 	}
@@ -149,7 +127,7 @@ func TestViewStatesWithoutServices(t *testing.T) {
 func TestRestartsColumnAppearsOnlyWithCounts(t *testing.T) {
 	m := New(Config{})
 	m.SetSize(120, 20)
-	m.Update(servicesMsg{services: services("web", "db")})
+	m.SetServices(services("web", "db"), nil)
 	if strings.Contains(m.View(), "RESTARTS") {
 		t.Errorf("column shown without any count:\n%s", m.View())
 	}
@@ -157,7 +135,7 @@ func TestRestartsColumnAppearsOnlyWithCounts(t *testing.T) {
 	// A refresh whose inspect answered brings the column with it.
 	list := services("web", "db")
 	compose.ApplyRestarts(list, map[string]int{"app-web-1": 0, "app-db-1": 12})
-	m.Update(servicesMsg{services: list})
+	m.SetServices(list, nil)
 
 	view := m.View()
 	if !strings.Contains(view, "RESTARTS") {

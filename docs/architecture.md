@@ -60,7 +60,7 @@ Four principles shape the design:
 | `internal/host` | machine resource metrics for the header band and the system view: one command over `/proc` and `df -Pk`, parsed into a typed sample |
 | `internal/logs` | log engine: line assembly, tail buffer, JSONL records, field filters, stats, search |
 | `internal/tui` | Bubble Tea application: the app model routing between the home screen and the follow view, and the backend adapting operations to background commands |
-| `internal/tui/home` | the home screen: header, layout, focus, footer, the modal menus and the `!` prompt. It owns the screen; a feature package owns only what is inside its own panel |
+| `internal/tui/home` | the home screen: header, layout, focus, footer, the modal menus, the `!` prompt, and the sampler that decides what is read off the host and how often. It owns the screen; a feature package owns only what is inside its own panel |
 | `internal/tui/status` | the services panel: the compose table, its columns, and the container readings behind them |
 | `internal/tui/system` | the machine: the header band, and the system view an `enter` on it opens |
 | `internal/tui/follow` | the full-screen view for a log, action, script, or ad-hoc command |
@@ -126,9 +126,21 @@ command is retried or reconnected automatically.
 
 ### Compose status
 
-The status view runs `docker compose ps --all --format json` in the
-project's directory — a one-shot exec per refresh, triggered manually or by
-a 5-second timer, always in a background command. Output is parsed into
+**One owner of the cadence.** Everything the screen reads off the host goes
+through a sampler in `internal/tui/home`: one heartbeat a second asks each
+source whether it is due. A source carries its own interval, refuses to
+overlap itself, and is skipped entirely when nobody is looking at what it
+feeds — the container readings stand down while the live stream is filling
+the same columns. A read that takes longer than a quarter of its own interval
+stretches it: on a link where `ps` takes a second, asking every five would
+keep a command in flight most of the time, and the honest response is to ask
+less often rather than to queue reads that overlap. Panels render what they
+are handed; none of them owns a timer. `r` reads everything again on demand,
+whatever the intervals say.
+
+The services source runs `docker compose ps --all --format json` in the
+project's directory — a one-shot exec per read, always in a background
+command. Output is parsed into
 typed service rows (both the NDJSON and the legacy array shape are
 accepted) and rendered as a table with state/health coloring. Selection is
 preserved on the same container across refreshes; a failed refresh shows
@@ -181,7 +193,7 @@ a lit bar. The gap between columns is the widest of four, three or
 two spaces whose layout still fits, so a wide terminal spends its slack on
 breathing room and a narrow one spends it on content.
 
-Per-container CPU and memory are a third exec on a third interval, because
+Per-container CPU and memory are a third source on a third interval, because
 they cost two orders of magnitude more: `docker stats` needs ~2 seconds to
 answer whatever the project's size, since the daemon reads each container's
 cgroups twice, a second apart, to derive a CPU percentage (measured
@@ -195,9 +207,9 @@ out of that:
 - **Live**, on `a`: the **streaming** form over the log-follow pipeline,
   emitting a block per second into a panel below the table — current
   readings plus a CPU sparkline per container, scaled to its own peak so
-  fluctuation is visible at any magnitude. While it runs the soft poll
-  stands down; closing it terminates the remote command and the poll takes
-  the columns back.
+  fluctuation is visible at any magnitude. While it runs the sampled source
+  stands down — that is what its gate is for; closing it terminates the
+  remote command and the sampling takes the columns back.
 
 Both are scoped to the project's container ids, since a bare `docker stats`
 would report every container on the host. Docker wraps its output in

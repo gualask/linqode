@@ -8,17 +8,14 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
-
-	"github.com/gualask/linqode/internal/compose"
 )
 
 // The table owns the full width now that nothing sits beside it.
 func TestTableKeepsItsColumnsAtFullWidth(t *testing.T) {
-	m := New(Config{})
-	m.statsFetch = func() ([]compose.ContainerStats, error) { return nil, nil }
+	m := New(Config{Stats: true})
 	m.SetSize(130, 24)
-	m.Update(servicesMsg{services: services("web", "db")})
-	m.Update(statsSampleMsg{stats: sample(reading("web", "12.34%", "153.6MiB"))})
+	m.SetServices(services("web", "db"), nil)
+	m.SetStats(sample(reading("web", "12.34%", "153.6MiB")), nil)
 
 	view := m.View()
 	for _, want := range []string{"SERVICE", "STATE", "HEALTH", "CPU", "MEM", "NET RX/TX", "IO R/W", "STATUS"} {
@@ -32,14 +29,13 @@ func TestTableKeepsItsColumnsAtFullWidth(t *testing.T) {
 // their digits line up. The live panel already prints its readings this
 // way; the table used to disagree with the panel beside it.
 func TestNumericColumnsAlignRight(t *testing.T) {
-	m := New(Config{})
-	m.statsFetch = func() ([]compose.ContainerStats, error) { return nil, nil }
+	m := New(Config{Stats: true})
 	m.SetSize(140, 24)
-	m.Update(servicesMsg{services: services("web", "db")})
-	m.Update(statsSampleMsg{stats: sample(
+	m.SetServices(services("web", "db"), nil)
+	m.SetStats(sample(
 		reading("web", "112.34%", "1.234GiB"),
 		reading("db", "3.02%", "64MiB"),
-	)})
+	), nil)
 
 	// The short readings are pushed right so their last characters sit
 	// under the long ones', rather than every cell starting at its column's
@@ -61,10 +57,9 @@ func TestNumericColumnsAlignRight(t *testing.T) {
 // The table's heading is a band across the whole terminal: a table narrower
 // than the screen must not look like it was cut off part way.
 func TestTableHeadingSpansTheWidth(t *testing.T) {
-	m := New(Config{})
-	m.statsFetch = func() ([]compose.ContainerStats, error) { return nil, nil }
+	m := New(Config{Stats: true})
 	m.SetSize(160, 24)
-	m.Update(servicesMsg{services: services("web")})
+	m.SetServices(services("web"), nil)
 
 	var heading string
 	for _, line := range strings.Split(m.View(), "\n") {
@@ -85,10 +80,9 @@ func TestTableHeadingSpansTheWidth(t *testing.T) {
 // alternative is ellipsizing content. Breathing room is worth having, but
 // not at the price of the readings it separates.
 func TestColumnGapAdaptsToWidth(t *testing.T) {
-	m := New(Config{})
-	m.statsFetch = func() ([]compose.ContainerStats, error) { return nil, nil }
-	m.Update(servicesMsg{services: services("web", "db")})
-	m.Update(statsSampleMsg{stats: sample(reading("web", "12.34%", "153.6MiB"))})
+	m := New(Config{Stats: true})
+	m.SetServices(services("web", "db"), nil)
+	m.SetStats(sample(reading("web", "12.34%", "153.6MiB")), nil)
 
 	headers := m.tableHeaders()
 	rows := [][]cell{m.serviceRow(m.services[0]), m.serviceRow(m.services[1])}

@@ -34,12 +34,10 @@ func liveReading(service, cpu, mem string) operations.Event {
 	return operations.Event{Kind: operations.EventStats, Stats: reading(service, cpu, mem)}
 }
 
-// withStatsFetch returns a model with the soft sample enabled. The function
-// itself is never called: these tests deliver samples directly.
+// withStatsFetch returns a model whose host offers both the sampled readings
+// and the live stream; the samples themselves are handed over directly.
 func withStatsFetch() *Model {
-	m := New(Config{})
-	m.statsFetch = func() ([]compose.ContainerStats, error) { return nil, nil }
-	m.liveStats = true
+	m := New(Config{Stats: true, LiveStats: true})
 	m.SetSize(120, 24)
 	return m
 }
@@ -79,7 +77,7 @@ func openLive(t *testing.T, m *Model) *statsStream {
 // table growing a column later.
 func TestStatsColumnsPresentBeforeFirstSample(t *testing.T) {
 	m := withStatsFetch()
-	m.Update(servicesMsg{services: services("web", "db")})
+	m.SetServices(services("web", "db"), nil)
 
 	view := m.View()
 	for _, header := range []string{"CPU", "MEM", "NET RX/TX", "IO R/W"} {
@@ -108,7 +106,7 @@ func TestStatsColumnsPresentBeforeFirstSample(t *testing.T) {
 	// stay out of the table entirely.
 	off := New(Config{})
 	off.SetSize(120, 24)
-	off.Update(servicesMsg{services: services("web")})
+	off.SetServices(services("web"), nil)
 	if strings.Contains(off.View(), "CPU") {
 		t.Errorf("resource columns present with no way to fill them:\n%s", off.View())
 	}
@@ -116,8 +114,8 @@ func TestStatsColumnsPresentBeforeFirstSample(t *testing.T) {
 
 func TestSoftSampleFillsColumns(t *testing.T) {
 	m := withStatsFetch()
-	m.Update(servicesMsg{services: services("web", "db")})
-	m.Update(statsSampleMsg{stats: sample(reading("web", "12.34%", "153.6MiB"))})
+	m.SetServices(services("web", "db"), nil)
+	m.SetStats(sample(reading("web", "12.34%", "153.6MiB")), nil)
 
 	view := m.View()
 	if !strings.Contains(view, "12.34%") {
@@ -148,12 +146,12 @@ func TestSoftSampleFillsColumns(t *testing.T) {
 // stopped, and its last numbers must not linger as if they were current.
 func TestSoftSampleReplacesPreviousReadings(t *testing.T) {
 	m := withStatsFetch()
-	m.Update(servicesMsg{services: services("web", "db")})
-	m.Update(statsSampleMsg{stats: sample(
+	m.SetServices(services("web", "db"), nil)
+	m.SetStats(sample(
 		reading("web", "12.34%", "153.6MiB"),
 		reading("db", "3.20%", "64MiB"),
-	)})
-	m.Update(statsSampleMsg{stats: sample(reading("web", "12.34%", "153.6MiB"))})
+	), nil)
+	m.SetStats(sample(reading("web", "12.34%", "153.6MiB")), nil)
 
 	if strings.Contains(m.View(), "3.20%") {
 		t.Errorf("reading of a vanished container survived the next sample:\n%s", m.View())
@@ -164,9 +162,9 @@ func TestSoftSampleReplacesPreviousReadings(t *testing.T) {
 // the header: a blip is not worth blanking the columns for.
 func TestFailedSoftSampleKeepsReadings(t *testing.T) {
 	m := withStatsFetch()
-	m.Update(servicesMsg{services: services("web")})
-	m.Update(statsSampleMsg{stats: sample(reading("web", "12.34%", "153.6MiB"))})
-	m.Update(statsSampleMsg{err: errors.New("cannot connect to the docker daemon")})
+	m.SetServices(services("web"), nil)
+	m.SetStats(sample(reading("web", "12.34%", "153.6MiB")), nil)
+	m.SetStats(nil, errors.New("cannot connect to the docker daemon"))
 
 	view := m.View()
 	if !strings.Contains(view, "12.34%") {
@@ -176,35 +174,8 @@ func TestFailedSoftSampleKeepsReadings(t *testing.T) {
 		t.Errorf("sample failure not reported: %q", m.Status())
 	}
 
-	m.Update(statsSampleMsg{stats: sample(reading("web", "1.00%", "150MiB"))})
+	m.SetStats(sample(reading("web", "1.00%", "150MiB")), nil)
 	if strings.Contains(m.Status(), "cannot connect") {
 		t.Error("error survived a good sample")
-	}
-}
-
-func TestSoftSampleDoesNotOverlap(t *testing.T) {
-	m := withStatsFetch()
-	if cmd := m.refreshStats(); cmd == nil {
-		t.Fatal("first sample did not start")
-	}
-	if cmd := m.refreshStats(); cmd != nil {
-		t.Error("second sample started while one was in flight")
-	}
-	m.Update(statsSampleMsg{stats: nil})
-	if cmd := m.refreshStats(); cmd == nil {
-		t.Error("sampling did not resume after the previous one landed")
-	}
-}
-
-func TestStatsPollTickKeepsTicking(t *testing.T) {
-	m := withStatsFetch()
-	if cmd := m.Update(statsPollMsg{}); cmd == nil {
-		t.Error("the poll tick did not schedule the next one")
-	}
-	// With no fetch configured the tick still reschedules; only the sample
-	// is skipped.
-	off := New(Config{})
-	if cmd := off.Update(statsPollMsg{}); cmd == nil {
-		t.Error("the poll tick stopped when no sample is configured")
 	}
 }
