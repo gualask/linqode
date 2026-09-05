@@ -491,3 +491,78 @@ func TestShiftTabFromTheTableReachesTheBand(t *testing.T) {
 		t.Error("enter on the band did not open the system view")
 	}
 }
+
+// A detail takes the whole body, and the focus ring with it. Moving around a
+// ring nobody can see changes nothing on screen and everything about where
+// `esc` lands: opening the system view from the header and coming back to the
+// table is not a thing an operator asked for.
+func TestTheRingDoesNotMoveBehindADetail(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 150, height: 24,
+		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
+		host:     &hostFeed{metrics: sampleMetrics()}})
+	sampleAll(screen)
+
+	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	if screen.detail == nil {
+		t.Fatal("the system view did not open")
+	}
+	opened := screen.focus
+
+	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if screen.focus != opened {
+		t.Errorf("focus moved to %d behind the detail, from %d", screen.focus, opened)
+	}
+
+	// And coming back lands where it was left, on the header.
+	screen.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if screen.detail != nil {
+		t.Fatal("esc did not close the detail")
+	}
+	if title := screen.focused().Title(); title != "system" {
+		t.Errorf("esc from the system view lands on %q, want the header", title)
+	}
+}
+
+// `enter` descends one level, and a detail is the level below: there is
+// nothing under it to open. Pressing it inside the system view used to run
+// `open()` again, which re-read the whole on-demand tier — three SSH round
+// trips for a keystroke that changed nothing on screen.
+func TestEnterInsideADetailAsksTheHostForNothing(t *testing.T) {
+	reads := 0
+	feed := &hostFeed{metrics: sampleMetrics()}
+	services := status.New(status.Config{})
+	screen := New(Config{
+		Target:   "deploy@prod",
+		Host:     feed.sample,
+		Services: func() ([]compose.Service, error) { return serviceList("api"), nil },
+		Processes: func() (host.ProcessSample, error) {
+			reads++
+			return host.ProcessSample{UptimeSeconds: 1000, ClockTck: 100}, nil
+		},
+	}, services)
+	screen.SetSize(150, 24)
+	sampleAll(screen)
+
+	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	if screen.detail == nil {
+		t.Fatal("the system view did not open")
+	}
+	opening := reads
+	if opening == 0 {
+		t.Fatal("opening the view did not read the process table")
+	}
+
+	for range 3 {
+		applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	}
+	if reads != opening {
+		t.Errorf("three enters inside the view cost %d further reads", reads-opening)
+	}
+	if screen.detail == nil {
+		t.Error("enter inside the system view closed it")
+	}
+}

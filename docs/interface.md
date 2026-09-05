@@ -146,6 +146,18 @@ one changes what the screen is about, and leaving a feed running alongside
 would be showing two contexts at once — which is the thing panels exist to
 avoid.
 
+**They take the focus ring with them.** `tab` and `shift+tab` do nothing while
+a detail is open, and `enter` goes to the detail rather than descending again.
+The panels those keys would move between are not on screen, so moving focus
+among them changed nothing an operator could see and everything about where
+`esc` landed — you opened the system view from the header and came back to the
+table. `enter` was worse than surprising: it ran the descent a second time and
+re-read the whole on-demand tier, three SSH round trips for a keystroke that
+changed nothing.
+
+The screen's own commands do go on working there — `r`, `c`, `x`, `!` — because
+none of them is about which panel has focus.
+
 ## The band
 
 One row of meters inside the header box, always drawn, on every screen of the

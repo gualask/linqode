@@ -481,11 +481,29 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return tea.Quit
 	case "ctrl+c":
 		return tea.Quit
-	case "tab":
-		m.moveFocus(1)
-	case "shift+tab":
-		m.moveFocus(-1)
+	case "tab", "shift+tab":
+		// A detail has taken the body, and the ring with it: the panels these
+		// keys move between are not on screen. Moving focus around an
+		// invisible ring changes nothing an operator can see and everything
+		// they find when they press esc — they opened the system view from
+		// the header and came back to the table — which is the shape of a
+		// surprise rather than of a feature.
+		if m.detail != nil {
+			return nil
+		}
+		if msg.String() == "tab" {
+			m.moveFocus(1)
+		} else {
+			m.moveFocus(-1)
+		}
 	case "enter", "l":
+		// `enter` descends one level, and a detail is the level below: there
+		// is nothing under it to open, and the panel it would have descended
+		// from is not the one being shown. It goes to the detail instead,
+		// with every other key the screen does not claim.
+		if m.detail != nil {
+			return m.detail.Update(msg)
+		}
 		return m.open()
 	case "r":
 		// Refresh is the screen's, not a panel's: what an operator means by
