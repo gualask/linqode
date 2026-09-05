@@ -61,6 +61,12 @@ func runConnectedCommand(
 	if closeConnection != nil {
 		defer closeConnection()
 	}
+	// What the host can be asked for, established once now that there is a
+	// session, so a command that cannot work says which precondition is
+	// missing rather than exiting non-zero with whatever the shell said.
+	if failure := cli.ComposePreflight(ctx, invocation, operator); failure != nil {
+		return cli.Report(stderr, failure)
+	}
 	if isMutation(invocation.Command) {
 		return cli.RunMutation(ctx, invocation, operator, stdout, stderr)
 	}

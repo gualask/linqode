@@ -11,9 +11,12 @@ import (
 
 	"github.com/gualask/linqode/internal/cli"
 	"github.com/gualask/linqode/internal/compose"
+	"strings"
+
 	"github.com/gualask/linqode/internal/config"
 	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/operations"
+	"github.com/gualask/linqode/internal/probe"
 )
 
 func TestRunMachineRejectsUnknownAndDisabledHostsBeforeConnecting(t *testing.T) {
@@ -142,7 +145,15 @@ func TestRunMachineConnectsConfiguredReadAndCloses(t *testing.T) {
 	}
 }
 
-type machineObserver struct{}
+type machineObserver struct {
+	// probe is what the host answered, zero when the test does not care —
+	// which is the reading that establishes nothing and rejects nothing.
+	probe probe.Result
+}
+
+func (m machineObserver) Probe(context.Context) (probe.Result, error) {
+	return m.probe, nil
+}
 
 type machineMutationOperator struct {
 	machineObserver
@@ -215,5 +226,44 @@ func assertErrorKind(t *testing.T, raw []byte, want string) {
 	}
 	if document.Error.Kind != want {
 		t.Fatalf("error kind = %q, want %q", document.Error.Kind, want)
+	}
+}
+
+// A machine command on a host whose socket refuses this user must say so in
+// the envelope, not exit non-zero with whatever the shell printed.
+func TestRunMachineReportsWhatTheHostCannotDo(t *testing.T) {
+	catalog := operations.NewCatalog(&config.Config{Hosts: map[string]config.Host{
+		"production": {Host: "production-alias", ComposeDir: "/srv/app"},
+	}})
+	denied := probe.Parse([]byte(
+		"#docker\n/usr/bin/docker\n#daemon\npermission denied\n#compose\n5.3.1\n#dir\npresent\n"),
+		"/srv/app")
+	connector := func(context.Context, operations.ConfiguredHost) (cli.SafeOperator, func(), error) {
+		return machineObserver{probe: denied}, func() {}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runMachine(context.Background(), cli.Invocation{
+		Command: cli.CommandStatus, Host: "production",
+	}, catalog, connector, &stdout, &stderr)
+	if code == 0 || stdout.Len() != 0 {
+		t.Fatalf("code = %d, stdout = %q", code, stdout.String())
+	}
+	var document struct {
+		Error struct {
+			Kind      string `json:"kind"`
+			Message   string `json:"message"`
+			Operation string `json:"operation"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(stderr.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Error.Kind != "docker_permission_denied" {
+		t.Errorf("kind = %q, want docker_permission_denied", document.Error.Kind)
+	}
+	if !strings.Contains(document.Error.Message, "docker") ||
+		document.Error.Operation != "status" {
+		t.Errorf("error = %+v", document.Error)
 	}
 }

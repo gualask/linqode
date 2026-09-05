@@ -6,8 +6,72 @@ import (
 	"fmt"
 
 	"github.com/gualask/linqode/internal/operations"
+	"github.com/gualask/linqode/internal/probe"
 	"github.com/gualask/linqode/internal/remote"
 )
+
+// Prober establishes what a connected host can be asked for. It is an
+// observation like any other on this boundary — it reads and changes nothing —
+// and it is here so a machine command can say which of its own preconditions
+// the host does not meet, instead of returning the opaque non-zero exit that a
+// compose command hitting a socket it may not open produces.
+type Prober interface {
+	Probe(context.Context) (probe.Result, error)
+}
+
+// needsCompose reports whether a command cannot work without a compose project
+// behind it. `script` is the exception, and the same one the TUI makes: a
+// configured script is a command the operator wrote, and it has never needed a
+// daemon.
+func needsCompose(command Command) bool {
+	switch command {
+	case CommandStatus, CommandStats, CommandLogs,
+		CommandRestart, CommandStop, CommandStart:
+		return true
+	default:
+		return false
+	}
+}
+
+// ComposePreflight rejects a command this host cannot run, after connecting and
+// before running it.
+//
+// It costs one round trip on a session that has already paid for an SSH
+// handshake, and it buys the difference between `remote_command_failed` with
+// whatever the shell happened to say and a named condition a caller can branch
+// on. A probe that fails, or that establishes nothing, rejects nothing: the
+// command then runs and reports its own failure, which is where this started.
+func ComposePreflight(ctx context.Context, invocation Invocation, prober Prober) *Failure {
+	if !needsCompose(invocation.Command) {
+		return nil
+	}
+	result, err := prober.Probe(ctx)
+	if err != nil || result.CanCompose() {
+		return nil
+	}
+	return &Failure{
+		Kind:      composeFailureKind(result),
+		Message:   result.ComposeUnavailable(),
+		Operation: invocation.Operation(),
+		ExitCode:  1,
+	}
+}
+
+// composeFailureKind names the condition, so a caller can tell apart the three
+// that need different things done about them: a host to install docker on, an
+// account to add to a group, and a path to correct in the config.
+func composeFailureKind(result probe.Result) string {
+	switch result.Docker {
+	case probe.DockerDenied:
+		return "docker_permission_denied"
+	case probe.DockerAbsent, probe.DockerUnreachable:
+		return "docker_unavailable"
+	}
+	if result.Directory == probe.DirectoryMissing {
+		return "compose_dir_missing"
+	}
+	return "compose_unavailable"
+}
 
 // ReadPreflight rejects configured capabilities before a machine connection
 // is opened.

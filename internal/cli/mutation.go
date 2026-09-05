@@ -17,9 +17,14 @@ type Mutator interface {
 
 // SafeOperator is the complete connected capability available to the machine
 // adapter. Human-only ad-hoc execution is intentionally absent.
+//
+// Prober is here rather than inside Observer because it is not one of the
+// operations this adapter presents: nothing prints a probe. It is what the
+// adapter asks the host before deciding whether an operation can run at all.
 type SafeOperator interface {
 	Observer
 	Mutator
+	Prober
 }
 
 // RunMutation invokes one typed mutation and streams JSONL events.
