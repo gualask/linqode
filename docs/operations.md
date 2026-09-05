@@ -40,9 +40,13 @@ capital away from the opposite outcome. Showing the exact command before
 running it falls out of the same design — the menu has to render something,
 and the command is the honest thing to render.
 
-The exemption is the bindings Linqode did not invent. `j`/`k`, `g`/`G` and
-`n`/`N` are vim and less conventions users already have in their fingers, and
-getting one wrong moves the cursor rather than a service.
+One exemption survives, and only one. `n`/`N` — next and previous search match
+in the log view — is a case pair because "previous" has no arrow of its own,
+and getting it wrong moves the cursor rather than a service. The vim aliases
+that used to sit beside it are gone: `j`/`k`, `g`/`G` and `l` were second
+spellings of keys every terminal already sends, so what they bought was a
+keymap to be learned twice. Navigation is the arrows, `PgUp`/`PgDn` and
+`Home`/`End`, and it is the same set in every list on the screen.
 
 ## Scripts
 
@@ -69,7 +73,7 @@ Menus and the prompt are both modal: while one is up, every key goes to it
 rather than to the table, so `q` types a `q` instead of quitting.
 
 - **Menus** (`c`, `x`) share one type: a list of entries, each a label plus
-  the command it runs, navigated with `j`/`k` and dismissed with `esc` or the
+  the command it runs, navigated with the arrows and dismissed with `esc` or the
   key that opened it.
 - **The prompt** (`!`) is an inline footer input: every key edits the line.
 

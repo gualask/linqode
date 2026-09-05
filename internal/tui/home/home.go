@@ -554,7 +554,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		} else {
 			m.moveFocus(-1)
 		}
-	case "enter", "l":
+	case "enter":
 		// `enter` descends one level, and a detail is the level below: there
 		// is nothing under it to open, and the panel it would have descended
 		// from is not the one being shown. It goes to the detail instead,

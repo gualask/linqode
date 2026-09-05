@@ -138,17 +138,25 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 	switch key.String() {
-	case "j", "down":
+	case "down":
 		m.move(1)
-	case "k", "up":
+	case "up":
 		m.move(-1)
-	case "g", "home":
+	case "pgdown":
+		m.move(m.page())
+	case "pgup":
+		m.move(-m.page())
+	case "home":
 		m.cursor = 0
-	case "G", "end":
+	case "end":
 		m.cursor = max(len(m.entries)-1, 0)
 	}
 	return nil
 }
+
+// page is how far pgup and pgdown move: the rows this panel can show at once,
+// less one of overlap so the line the eye was on survives the jump.
+func (m *Model) page() int { return max(m.height-1, 1) }
 
 func (m *Model) move(delta int) {
 	if len(m.entries) == 0 {

@@ -92,10 +92,12 @@ opened them), the RESTARTS column appearing only once counts exist, and the
 nothing, esc cancels, and it reopens on the last command). Views receive
 hand-built `operations.Feed` channels — no SSH involved.
 
-One test pins a design rule rather than a behavior: the keys Linqode
-invents must not differ only by case, so `R`, `S`, `C` and `X` are asserted
-to do nothing on the services table. The vim pairs (`g`/`G`, `n`/`N`) are
-exempt by decision — see [operations.md](operations.md), "Service actions".
+Two tests pin design rules rather than behaviors. The keys Linqode invents
+must not differ only by case, so `R`, `S`, `C` and `X` are asserted to do
+nothing on the services table; `n`/`N` in the log view is the one exempt pair
+— see [operations.md](operations.md), "Service actions". And navigation is the
+arrows alone, so `j`, `k`, `g` and `G` are asserted to move nothing, which is
+what keeps the removed aliases from creeping back one panel at a time.
 
 Assertions about color compare styles, not rendered strings: tests run
 without a TTY, where lipgloss drops the very colors under test. That leaves

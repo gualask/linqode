@@ -526,7 +526,7 @@ func TestUIShot(t *testing.T) {
 	// tab forward, with a row selected.
 	wide := shotScreen(150, 20, true, nil)
 	wide.Update(tea.KeyMsg{Type: tea.KeyTab})
-	wide.Update(key("j"))
+	wide.Update(tea.KeyMsg{Type: tea.KeyDown})
 
 	// Where the session opens: the header lit, the table quiet. It is a box
 	// like every other region now, so this frame is here to confirm it reads
@@ -541,7 +541,7 @@ func TestUIShot(t *testing.T) {
 
 	onFeed := shotScreen(150, 24, true, nil)
 	onFeed.Update(tea.KeyMsg{Type: tea.KeyTab})
-	onFeed.Update(key("j"))
+	onFeed.Update(tea.KeyMsg{Type: tea.KeyDown})
 
 	short := shotScreen(150, 14, true, nil)
 

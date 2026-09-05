@@ -119,7 +119,7 @@ func TestSelectionFollowsTheFeedUntilItIsMoved(t *testing.T) {
 		t.Errorf("cursor left the newest event on its own: %d", m.cursor)
 	}
 
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	if m.cursor != 1 {
 		t.Fatalf("j moved the cursor to %d", m.cursor)
 	}
@@ -186,7 +186,7 @@ func TestTheWindowFollowsTheCursor(t *testing.T) {
 		t.Errorf("a four-row panel drew %d lines", got)
 	}
 
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnd})
 	if m.cursor != len(m.entries)-1 {
 		t.Fatalf("G left the cursor at %d of %d", m.cursor, len(m.entries))
 	}

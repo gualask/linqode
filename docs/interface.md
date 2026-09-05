@@ -110,8 +110,8 @@ reason the session was opened at all, and it sat two keystrokes away —
 `shift+tab` backwards past the feed, then `enter` — while the table is one
 `tab` forward and fills the body regardless.
 
-The trade is real and worth naming: `j`, `k` and `enter` do nothing until that
-one `tab`, because the header answers none of them. It buys the machine a
+The trade is real and worth naming: the arrows and `enter` do nothing until
+that one `tab`, because the header answers none of them. It buys the machine a
 keystroke and makes the ring walk forward from where it starts rather than
 backwards.
 

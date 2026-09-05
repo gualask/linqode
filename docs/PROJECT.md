@@ -110,10 +110,13 @@ These decisions are settled — do not re-litigate them when implementing:
   production service one mistyped capital away from the opposite outcome.
   Where several related commands need a home, they go behind a menu (`c`
   for service actions, `x` for scripts), which also shows the exact command
-  before running it. The exemption is the bindings Linqode did not invent —
-  `j`/`k`, `g`/`G`, `n`/`N` are vim and less conventions users already
-  have in their fingers, and getting one wrong moves the cursor, not a
-  service.
+  before running it. **The vim aliases were removed in September 2026** and
+  the exemption went with most of them: `j`/`k`, `g`/`G` and `l` were second
+  spellings of keys every terminal already sends, and a keymap with two ways
+  to say "down" is one an operator learns twice. Navigation is the arrows,
+  `PgUp`/`PgDn` and `Home`/`End`, the same set in every list. `n`/`N` stays —
+  it is the one pair that is not an alias, since "previous match" has no
+  arrow, and getting it wrong moves the cursor rather than a service.
 - **A server pays rent for what is on screen, and by the second only while
   someone is watching** _(measured 2026-08-01, extended through 2026-09-05)_.
   Every reading sits on one of three tiers — event-driven, always-on, or read

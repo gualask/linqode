@@ -84,9 +84,9 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 		// means one thing on this screen and it is not "close the menu" —
 		// quitting from here is safe, since nothing has been run yet.
 		return tea.Quit
-	case "j", "down":
+	case "down":
 		m.menu.selected = min(m.menu.selected+1, len(m.menu.entries)-1)
-	case "k", "up":
+	case "up":
 		m.menu.selected = max(m.menu.selected-1, 0)
 	case "enter":
 		entry := m.menu.entries[m.menu.selected]

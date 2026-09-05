@@ -102,7 +102,7 @@ modify the operator-controlled config or SSH files.
 
 | Key | Action |
 | --- | ------ |
-| `j`/`k` | select service |
+| `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End` | move the selection |
 | `Tab` / `Shift+Tab` | move focus around the header, the table and the feed; focus starts on the header |
 | `Enter` | open what has focus: logs, the system view, an event's container |
 | `Esc` | back out of a detail, a menu, or the `!` prompt; never quits |
@@ -113,7 +113,7 @@ modify the operator-controlled config or SSH files.
 | `r` | refresh everything now |
 | `q` | quit, from wherever you are |
 
-`c` and `x` open a menu — `j`/`k` to choose, `Enter` to run, `Esc` to back
+`c` and `x` open a menu — arrows to choose, `Enter` to run, `Esc` to back
 out, `q` to quit — that shows the exact command before it runs. Service actions sit
 behind one deliberately: no two keys in Linqode differ only by the shift
 key, so a mistyped capital can never stop a service you meant to start.
@@ -167,8 +167,8 @@ command when you close it.
 
 | Key | Action |
 | --- | ------ |
-| `j`/`k`, `PgUp`/`PgDn` | scroll (leaves follow mode) |
-| `G` / `g` | jump to bottom (follow) / top |
+| `↑`/`↓`, `PgUp`/`PgDn` | scroll (leaves follow mode) |
+| `End` / `Home` | jump to bottom (follow) / top |
 | `/` then `n`/`N` | search, next/previous match |
 | `f` | filter JSONL logs by field (`level=error app!=web`) |
 | `s` | toggle structured rendering (auto-detected for JSONL) |

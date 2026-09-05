@@ -54,7 +54,7 @@ func requestMsg(t *testing.T, cmd tea.Cmd) tea.Msg {
 
 func TestEnterOpensLogsForSelectedService(t *testing.T) {
 	m := screenWith(t, Config{ComposeDir: "/srv/app"}, "db", "web")
-	m.Update(key("j"))
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	msg, ok := requestMsg(t, m.Update(tea.KeyMsg{Type: tea.KeyEnter})).(OpenLogsMsg)
 	if !ok || msg.Title != "logs: web" || msg.Service != "web" {
 		t.Fatalf("log request = %+v", msg)
@@ -68,7 +68,7 @@ func TestActionMenuTargetsSelectedService(t *testing.T) {
 	}
 	m := screenWith(t, config, "db", "web")
 	m.SetSize(120, 30)
-	m.Update(key("j"))
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m.Update(key("c"))
 	if m.menu == nil {
 		t.Fatal("c should open the action menu")
@@ -95,7 +95,7 @@ func assertActionRequest(t *testing.T, screen *Model, action operations.ServiceA
 		screen.Update(key("c"))
 	}
 	for range down {
-		screen.Update(key("j"))
+		screen.Update(tea.KeyMsg{Type: tea.KeyDown})
 	}
 	msg, ok := requestMsg(t, screen.Update(tea.KeyMsg{Type: tea.KeyEnter})).(OpenActionMsg)
 	if !ok || msg.Title != title || msg.Service != "web" || msg.Action != action {
@@ -124,7 +124,7 @@ func TestScriptsMenuRunsSelectedScript(t *testing.T) {
 	if view := m.View(); !strings.Contains(view, "disk") || !strings.Contains(view, "free -m") {
 		t.Errorf("menu content missing:\n%s", view)
 	}
-	m.Update(key("j"))
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	msg, ok := requestMsg(t, m.Update(tea.KeyMsg{Type: tea.KeyEnter})).(OpenScriptMsg)
 	if !ok || msg.Title != "script: mem" || msg.Name != "mem" || m.menu != nil {
 		t.Errorf("script request = %+v; menu = %+v", msg, m.menu)
@@ -229,8 +229,21 @@ func TestAdHocPromptCancelsAndRemembers(t *testing.T) {
 		t.Error("esc should close the prompt")
 	}
 	// Keys reach the panel again: the cursor moves.
-	m.Update(key("j"))
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	if service, _ := m.services.SelectedService(); service != "db" {
 		t.Errorf("selection is %q, want the keys to act again after esc", service)
+	}
+}
+
+// `l` was an alias for enter, and is gone with the rest of them.
+func TestLNoLongerDescends(t *testing.T) {
+	m := screenWith(t, Config{}, "web")
+	m.SetSize(120, 30)
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // onto the table
+	if cmd := m.Update(key("l")); cmd != nil {
+		t.Errorf("l still opened something: %#v", cmd())
+	}
+	if cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd == nil {
+		t.Error("enter no longer opens the logs")
 	}
 }

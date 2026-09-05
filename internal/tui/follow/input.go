@@ -33,7 +33,7 @@ func (m *Model) handleKey(key tea.KeyMsg) tea.Cmd {
 		return func() tea.Msg { return CloseMsg{} }
 	case "q", "ctrl+c":
 		return tea.Quit
-	case "j", "down", "k", "up", "pgdown", "pgup", "g", "home", "G", "end":
+	case "down", "up", "pgdown", "pgup", "home", "end":
 		m.handleNavigationKey(key.String())
 	case "/", "n", "N", "f", "s", "a", "t":
 		m.handleToolKey(key.String())
@@ -43,18 +43,18 @@ func (m *Model) handleKey(key tea.KeyMsg) tea.Cmd {
 
 func (m *Model) handleNavigationKey(key string) {
 	switch key {
-	case "j", "down":
+	case "down":
 		m.scrollBy(1)
-	case "k", "up":
+	case "up":
 		m.scrollBy(-1)
 	case "pgdown":
 		m.scrollBy(m.viewport)
 	case "pgup":
 		m.scrollBy(-m.viewport)
-	case "g", "home":
+	case "home":
 		m.follow = false
 		m.scroll = 0
-	case "G", "end":
+	case "end":
 		m.follow = true
 	}
 }

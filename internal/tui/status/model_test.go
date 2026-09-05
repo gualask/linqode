@@ -35,7 +35,7 @@ func key(k string) tea.KeyMsg {
 // draining, which is what UpdateBackground is for.
 func TestBackgroundHandlesTheStreamButNotKeys(t *testing.T) {
 	m := New(Config{})
-	if _, handled := m.UpdateBackground(key("j")); handled {
+	if _, handled := m.UpdateBackground(tea.KeyMsg{Type: tea.KeyDown}); handled {
 		t.Fatal("the table handled a key while hidden")
 	}
 	if _, handled := m.UpdateBackground(statsTickMsg{}); !handled {
@@ -46,7 +46,7 @@ func TestBackgroundHandlesTheStreamButNotKeys(t *testing.T) {
 func TestRefreshPreservesSelectionByName(t *testing.T) {
 	m := New(Config{})
 	m.SetServices(services("db", "web", "worker"), nil)
-	m.Update(key("j")) // select "web"
+	m.Update(tea.KeyMsg{Type: tea.KeyDown}) // select "web"
 
 	// "db" disappeared: the cursor must stay on "web", now at index 0.
 	m.SetServices(services("web", "worker"), nil)
@@ -89,20 +89,20 @@ func TestSelectionClampsAtBounds(t *testing.T) {
 	m := New(Config{})
 	m.SetServices(services("a", "b"), nil)
 
-	m.Update(key("k"))
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	if m.selected != 0 {
 		t.Errorf("selected %d after k at top, want 0", m.selected)
 	}
-	m.Update(key("j"))
-	m.Update(key("j"))
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	if m.selected != 1 {
 		t.Errorf("selected %d after j at bottom, want 1", m.selected)
 	}
-	m.Update(key("g"))
+	m.Update(tea.KeyMsg{Type: tea.KeyHome})
 	if m.selected != 0 {
 		t.Errorf("selected %d after g, want 0", m.selected)
 	}
-	m.Update(key("G"))
+	m.Update(tea.KeyMsg{Type: tea.KeyEnd})
 	if m.selected != 1 {
 		t.Errorf("selected %d after G, want 1", m.selected)
 	}
@@ -180,5 +180,44 @@ func TestAnUnavailablePanelSaysWhyRatherThanLoading(t *testing.T) {
 	}
 	if status := m.Status(); !strings.Contains(status, "compose unavailable") {
 		t.Errorf("Status() = %q", status)
+	}
+}
+
+// One way to move, not two. The vim aliases were duplicates of keys every
+// terminal already sends, and a keymap with two spellings of "down" is a
+// keymap an operator has to learn twice.
+func TestNavigationIsArrowsOnly(t *testing.T) {
+	m := New(Config{})
+	m.SetServices(services("web", "db", "cache", "queue"), nil)
+	m.SetSize(80, 6)
+
+	for _, gone := range []string{"j", "k", "g", "G"} {
+		m.Update(key(gone))
+		if name, _ := m.SelectedService(); name != "web" {
+			t.Errorf("%q still moved the cursor, to %q", gone, name)
+		}
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if name, _ := m.SelectedService(); name != "db" {
+		t.Errorf("down selected %q", name)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	if name, _ := m.SelectedService(); name != "queue" {
+		t.Errorf("end selected %q", name)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyHome})
+	if name, _ := m.SelectedService(); name != "web" {
+		t.Errorf("home selected %q", name)
+	}
+	// Page keys reach the table now, where they used to be the log view's
+	// alone: one navigation set, the same everywhere it applies.
+	m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	if name, _ := m.SelectedService(); name == "web" {
+		t.Error("pgdown did not move the cursor")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	if name, _ := m.SelectedService(); name != "web" {
+		t.Errorf("pgup left the cursor on %q", name)
 	}
 }

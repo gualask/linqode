@@ -69,19 +69,19 @@ func TestScrollUpLeavesFollowAndBottomReenters(t *testing.T) {
 	m := newTestModel(lineEvents(lines...)...)
 	m.View() // computes scroll = max
 
-	m.Update(key("k"))
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	if m.follow {
 		t.Error("scrolling up should leave follow mode")
 	}
-	m.Update(key("j"))
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	if !m.follow {
 		t.Error("hitting bottom should re-enter follow mode")
 	}
-	m.Update(key("g"))
+	m.Update(tea.KeyMsg{Type: tea.KeyHome})
 	if m.follow || m.scroll != 0 {
 		t.Errorf("g: follow=%v scroll=%d", m.follow, m.scroll)
 	}
-	m.Update(key("G"))
+	m.Update(tea.KeyMsg{Type: tea.KeyEnd})
 	if !m.follow {
 		t.Error("G should re-enter follow mode")
 	}

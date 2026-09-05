@@ -78,19 +78,29 @@ func (m *Model) handleStatsTick() tea.Cmd {
 // screen composing this panel.
 func (m *Model) handleStatusKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
-	case "j", "down":
+	case "down":
 		m.move(1)
-	case "k", "up":
+	case "up":
 		m.move(-1)
-	case "g", "home":
+	case "pgdown":
+		m.move(m.page())
+	case "pgup":
+		m.move(-m.page())
+	case "home":
 		m.selected = 0
-	case "G", "end":
+	case "end":
 		m.selected = max(0, len(m.services)-1)
 	case "a":
 		return m.toggleLive()
 	}
 	return nil
 }
+
+// page is how far pgup and pgdown move: the rows the table can show at once —
+// its height less the heading band — less one of overlap, so the line the eye
+// was on is still there after the jump. Never zero, or the key would do
+// nothing on a panel too short to have a page.
+func (m *Model) page() int { return max(m.height-2, 1) }
 
 // SelectedService is the service the cursor is on, for the screen to open or
 // to build an action menu around. It reports false on an empty table.
