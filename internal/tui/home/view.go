@@ -36,7 +36,7 @@ func (m *Model) View() string {
 // back to the plain line it always was, with the blank rule under it. Two rows
 // either way, which is what the layout arithmetic already assumes.
 func (m *Model) header(frame frame) string {
-	if !frame.band {
+	if !frame.headerBox {
 		return m.clip(m.title()) + "\n"
 	}
 	return panel.Box(m.session(), "", m.system.Band(m.width-2), m.headerFocused(),

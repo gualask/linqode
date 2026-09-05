@@ -16,14 +16,16 @@ import (
 	"github.com/gualask/linqode/internal/tui/status"
 )
 
-func TestLayoutGivesTheBandItsRowOnlyWhenThereIsASample(t *testing.T) {
-	withBand := layoutFor(100, 24, true, false)
-	without := layoutFor(100, 24, false, false)
-	if !withBand.band {
-		t.Error("layout dropped the band although there is a sample")
+func TestLayoutGivesTheHeaderItsBoxOnlyWhereThereAreMeters(t *testing.T) {
+	boxed := layoutFor(100, 24, true, false)
+	bare := layoutFor(100, 24, false, false)
+	if !boxed.headerBox {
+		t.Error("layout dropped the header box on a host that reports meters")
 	}
-	if got, want := without.body.height-withBand.body.height, 1; got != want {
-		t.Errorf("the band cost %d rows, want %d", got, want)
+	// A box is three rows against the bare line's two: the title line and
+	// the blank rule under it pay for two of them, so it costs one.
+	if got, want := bare.body.height-boxed.body.height, 1; got != want {
+		t.Errorf("the header box cost %d rows, want %d", got, want)
 	}
 }
 
@@ -136,29 +138,28 @@ func TestBodyIsDrawnAsATitledPanel(t *testing.T) {
 	}
 }
 
-// Focus starts on the table — the band is what an operator reads, the table
-// is what they act on — and tab walks the ring in both directions without
-// falling off either end.
-func TestTabWalksTheRing(t *testing.T) {
+// Focus starts at the top, on the machine — often the reason the session was
+// opened — and `tab` walks the ring forward from there, in the order the
+// panels sit on the screen, without falling off either end.
+func TestTabWalksTheRingFromTheTop(t *testing.T) {
 	screen, _ := buildScreen(screenOptions{width: 100, height: 24,
 		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
-	// The band has to exist before focus can reach it, so take the sample
-	// that draws it — which is what the first heartbeat does.
 	sampleAll(screen)
-	if screen.focus != screen.anchor {
-		t.Fatalf("focus started at %d, want the table at %d", screen.focus, screen.anchor)
+
+	walk := []string{"system", "services", "system"}
+	if got := screen.focused().Title(); got != walk[0] {
+		t.Fatalf("focus started on %q, want %q", got, walk[0])
 	}
-	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if screen.focus == screen.anchor {
-		t.Error("tab did not leave the table")
+	for _, want := range walk[1:] {
+		screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+		if got := screen.focused().Title(); got != want {
+			t.Fatalf("tab reached %q, want %q", got, want)
+		}
 	}
-	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if screen.focus != screen.anchor {
-		t.Error("tab did not come back round to the table")
-	}
+	// And the other way round, off the top and onto the last stop.
 	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	if screen.focus == screen.anchor {
-		t.Error("shift-tab did not walk the ring the other way")
+	if got := screen.focused().Title(); got != "services" {
+		t.Errorf("shift+tab from the top reached %q, want the table", got)
 	}
 }
 
@@ -170,8 +171,7 @@ func TestEnterOnTheBandOpensTheSystemView(t *testing.T) {
 		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
 	sampleAll(screen)
 
-	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
-	screen.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	openSystemView(screen)
 	if screen.detail == nil {
 		t.Fatal("enter on the band opened nothing")
 	}
@@ -237,8 +237,8 @@ func TestNoHostFetchNoBand(t *testing.T) {
 	if cmd := screen.sampler.read(sourceHost); cmd != nil {
 		t.Error("a sample was taken with no fetch configured")
 	}
-	if layoutFor(100, 24, screen.system.HasBand(), false).band {
-		t.Error("the header reserved a row for a band that cannot exist")
+	if screen.frame().headerBox {
+		t.Error("the header boxed meters this host will never report")
 	}
 }
 
@@ -267,8 +267,7 @@ func TestTheProcessTableIsReadOnlyWhileItsViewIsOpen(t *testing.T) {
 
 	// Opening the view asks for it: waiting for the next beat would be
 	// waiting for a source that was not due a moment ago.
-	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	openSystemView(screen)
 	if reads != 1 {
 		t.Fatalf("opening the view read the process table %d times", reads)
 	}
@@ -288,8 +287,7 @@ func TestTheDetailsOwnKeysReachTheFooter(t *testing.T) {
 	screen, _ := buildScreen(screenOptions{width: 140, height: 30,
 		services: serviceList("web"), host: &hostFeed{metrics: sampleMetrics()}})
 	sampleAll(screen)
-	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	screen.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	openSystemView(screen)
 
 	footer := screen.footer()
 	if !strings.Contains(footer, "esc back") {

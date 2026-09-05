@@ -68,13 +68,23 @@ func TestMeterBandFitsItsWidth(t *testing.T) {
 
 // Before the first sample there is nothing to draw, and the header must not
 // reserve a row for numbers that are not there.
-func TestNoBandBeforeTheFirstSample(t *testing.T) {
+//
+// The row itself is the header's and is drawn either way — one that appeared
+// on the first sample would push the body down a line a second after the
+// screen opened — so what must not appear is a *reading*, not the row.
+func TestNoNumbersBeforeTheFirstSample(t *testing.T) {
 	m := New("", "")
 	if m.HasBand() {
-		t.Error("band claimed a row before any sample arrived")
+		t.Error("a sample was claimed before any arrived")
 	}
-	if line := m.Band(120); line != "" {
-		t.Errorf("band rendered without a sample: %q", line)
+	line := m.Band(120)
+	if !strings.Contains(line, "waiting") {
+		t.Errorf("the band says nothing about having no sample yet: %q", line)
+	}
+	for _, meter := range []string{"cpu[", "mem[", "swap[", "%"} {
+		if strings.Contains(line, meter) {
+			t.Errorf("the band drew %q with no sample behind it: %q", meter, line)
+		}
 	}
 }
 

@@ -257,10 +257,22 @@ func New(config Config, services *status.Model) *Model {
 					return gpuSampleMsg{gpus: gpus, err: err}
 				})},
 	})
-	// Top to bottom, the way `tab` walks them. Focus starts on the table:
-	// the band is what an operator reads, the table is what they act on.
+	// Top to bottom, the way `tab` walks them, and focus starts at the top.
+	//
+	// The machine is often the reason the session was opened at all, and it
+	// was two keystrokes away — `shift+tab` backwards past the feed, then
+	// `enter` — while the table it starts on is what fills the body anyway
+	// and can be reached with one `tab` forward. The cost is real and worth
+	// naming: `j`, `k` and `enter` do nothing until that `tab`, because the
+	// header answers none of them. It buys the machine one keystroke and
+	// makes the ring walk forward from where it starts.
 	m.panels = []panel.Panel{m.system, services}
-	m.anchor, m.focus = 1, 1
+	m.anchor, m.focus = 1, 0
+	if config.Host == nil {
+		// No meters on this host, so no header box and nothing at the top to
+		// focus: the table is the only thing drawn.
+		m.focus = 1
+	}
 	// A host with no compose has no table to anchor the screen on, and giving
 	// the body to a panel that can only explain its own absence would be
 	// showing the absence at the largest size on the screen. The machine
@@ -349,7 +361,7 @@ func (m *Model) onScreen(index int) bool {
 	case index == m.eventsIndex:
 		return m.frame().events.height > 0
 	case m.panels[index] == panel.Panel(m.system):
-		return m.frame().band || m.anchor == index
+		return m.frame().headerBox || m.anchor == index
 	default:
 		return true
 	}
@@ -384,7 +396,11 @@ func (m *Model) headerFocused() bool {
 // frame is the current layout, computed from the same inputs the rendering
 // uses so the two can never disagree about what is on screen.
 func (m *Model) frame() frame {
-	return layoutFor(m.width, m.height, m.system.HasBand(), m.events != nil)
+	// The header is a box wherever this host reports meters at all, sample or
+	// not: one that appeared on the first reading would push the body down a
+	// line a second after the screen opened, and would make the first stop of
+	// the focus ring exist only after a round trip.
+	return layoutFor(m.width, m.height, m.info.Host != nil, m.events != nil)
 }
 
 // SetSize records the terminal. The panels are sized at render time instead,

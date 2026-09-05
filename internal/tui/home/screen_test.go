@@ -94,6 +94,23 @@ func buildScreen(options screenOptions) (*Model, *status.Model) {
 	return screen, panel
 }
 
+// focusHeader puts focus on the header wherever the ring starts, so a test
+// about what the system view does is not also a test of where focus begins.
+func focusHeader(screen *Model) {
+	for range len(screen.panels) {
+		if screen.focused().Title() == "system" {
+			return
+		}
+		screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+	}
+}
+
+// openSystemView focuses the header and descends into the machine's readings.
+func openSystemView(screen *Model) {
+	focusHeader(screen)
+	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+}
+
 // sampleAll reads every source once and applies what comes back, which is what
 // the first heartbeat does.
 func sampleAll(screen *Model) {
@@ -455,8 +472,7 @@ func TestTheRingIsAdvertisedOnTheScreenThatHasOne(t *testing.T) {
 	}
 
 	// Inside a detail `tab` moves a focus nobody can see.
-	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	openSystemView(screen)
 	if screen.detail == nil {
 		t.Fatal("the system view did not open")
 	}
@@ -471,25 +487,31 @@ func TestTheRingIsAdvertisedOnTheScreenThatHasOne(t *testing.T) {
 	}
 }
 
-// `shift+tab` from the table reaches the band, which is the path an operator
-// takes to the machine's readings. Pinned because the ring's order is what
-// makes the hint above true.
-func TestShiftTabFromTheTableReachesTheBand(t *testing.T) {
+// The machine is one keystroke from where the session opens, and the table
+// is one the other way. Pinned because it is the trade the starting point was
+// chosen for: `j`, `k` and `enter` are inert until that one `tab`.
+func TestTheMachineIsOneKeystrokeFromTheStart(t *testing.T) {
 	screen, _ := buildScreen(screenOptions{width: 150, height: 24,
 		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
 		host:     &hostFeed{metrics: sampleMetrics()}})
 	sampleAll(screen)
-	if title := screen.focused().Title(); title != "services" {
-		t.Fatalf("focus starts on %q, want the table", title)
-	}
-	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	if title := screen.focused().Title(); title != "system" {
-		t.Errorf("shift+tab from the table reaches %q, want the band", title)
+		t.Fatalf("focus starts on %q, want the machine", title)
 	}
-	// And `enter` there is what opens the readings behind it.
 	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
 	if screen.detail == nil {
-		t.Error("enter on the band did not open the system view")
+		t.Fatal("enter at the starting point did not open the system view")
+	}
+	screen.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	// One tab forward and the table answers its own keys again.
+	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if title := screen.focused().Title(); title != "services" {
+		t.Fatalf("tab reached %q, want the table", title)
+	}
+	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	if screen.detail != nil {
+		t.Error("enter on the table opened a detail rather than a log view")
 	}
 }
 
@@ -503,8 +525,7 @@ func TestTheRingDoesNotMoveBehindADetail(t *testing.T) {
 		host:     &hostFeed{metrics: sampleMetrics()}})
 	sampleAll(screen)
 
-	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	openSystemView(screen)
 	if screen.detail == nil {
 		t.Fatal("the system view did not open")
 	}
@@ -547,8 +568,7 @@ func TestEnterInsideADetailAsksTheHostForNothing(t *testing.T) {
 	screen.SetSize(150, 24)
 	sampleAll(screen)
 
-	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	openSystemView(screen)
 	if screen.detail == nil {
 		t.Fatal("the system view did not open")
 	}
@@ -625,8 +645,7 @@ func TestEscBacksOutOfEveryLevel(t *testing.T) {
 	}
 
 	// The system view.
-	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	openSystemView(screen)
 	if screen.detail == nil {
 		t.Fatal("the system view did not open")
 	}
@@ -660,8 +679,7 @@ func TestQQuitsFromEveryLevel(t *testing.T) {
 		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
 		host:     &hostFeed{metrics: sampleMetrics()}})
 	sampleAll(detail)
-	detail.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	applyScreen(detail, detail.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	openSystemView(detail)
 	if detail.detail == nil {
 		t.Fatal("the system view did not open")
 	}
@@ -687,20 +705,20 @@ func TestQQuitsFromEveryLevel(t *testing.T) {
 // without anything changing, and the footer would offer the keys of a panel
 // nobody can see.
 func TestFocusSkipsWhatIsNotDrawn(t *testing.T) {
-	// Before the first sample there is no band, so the machine is not on
-	// screen and the ring has one reachable stop.
+	// The header is a box from the first frame on a host that reports meters,
+	// so it is reachable before the first sample lands — and says it is
+	// waiting rather than drawing numbers it does not have.
 	waiting, _ := buildScreen(screenOptions{width: 100, height: 24,
 		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
-	waiting.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if waiting.focus != waiting.anchor {
-		t.Errorf("tab reached the band before there was one to draw")
+	if !strings.Contains(waiting.View(), "waiting") {
+		t.Errorf("the header shows no sample and does not say so:\n%s", waiting.View())
 	}
-	if strings.Contains(waiting.View(), "tab panels") {
-		t.Error("the ring is advertised on a screen with one panel drawn")
+	if !waiting.onScreen(0) {
+		t.Error("the header is not on screen before the first sample")
 	}
 
-	// With `host_metrics` off there is never a band, so the same holds for
-	// the life of the session.
+	// With `host_metrics` off there is never a band, so the machine is never
+	// on screen at all.
 	off, _ := buildScreen(screenOptions{width: 100, height: 24,
 		services: serviceList("web")})
 	sampleAll(off)
@@ -709,13 +727,13 @@ func TestFocusSkipsWhatIsNotDrawn(t *testing.T) {
 		t.Errorf("shift+tab reached a band this host never draws")
 	}
 
-	// And once the sample lands it is reachable.
+	// And where there is one, it is the ring's first stop and where focus
+	// begins.
 	ready, _ := buildScreen(screenOptions{width: 100, height: 24,
 		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
 	sampleAll(ready)
-	ready.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	if ready.focused().Title() != "system" {
-		t.Errorf("shift+tab reached %q once there was a band", ready.focused().Title())
+		t.Errorf("focus starts on %q where there is a header box", ready.focused().Title())
 	}
 }
 
@@ -732,11 +750,10 @@ func TestOnlyOneRegionWearsTheAccent(t *testing.T) {
 	}
 
 	// On an ordinary host the header is the machine's only rendering, and
-	// takes the accent when focus reaches it.
+	// takes the accent, which is where focus starts.
 	ordinary, _ := buildScreen(screenOptions{width: 150, height: 24,
 		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
 	sampleAll(ordinary)
-	ordinary.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	if !ordinary.headerFocused() {
 		t.Error("the header is not lit when focus is on it and nothing else shows it")
 	}

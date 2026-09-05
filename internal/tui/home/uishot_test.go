@@ -456,8 +456,7 @@ func shotUnavailable(width, height int, reason string) *Model {
 // the second process reading a CPU share needs to exist. Opening it is what
 // asks for the first: the source is gated on being there.
 func openSystem(screen *Model) {
-	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	openSystemView(screen)
 	applyScreen(screen, screen.sampler.read(sourceProcesses))
 }
 
@@ -523,21 +522,19 @@ func TestUIShot(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
 
+	// Focus starts on the header. This is the table holding it instead, one
+	// tab forward, with a row selected.
 	wide := shotScreen(150, 20, true, nil)
+	wide.Update(tea.KeyMsg{Type: tea.KeyTab})
 	wide.Update(key("j"))
 
-	// The header holding focus. It is a box like every other region now, so
-	// this frame is here to confirm that it reads as one — that the accent
-	// lands on a border and a title, the way it does everywhere else.
+	// Where the session opens: the header lit, the table quiet. It is a box
+	// like every other region now, so this frame is here to confirm it reads
+	// as one — the accent on a border and a title, as everywhere else.
 	onHeader := shotScreen(150, 20, true, nil)
-	onHeader.Update(key("j"))
-	onHeader.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 
 	// Focus on the band: its label lights up and the table's box goes quiet,
 	// which is the whole point of the ring having two stops.
-	onBand := shotScreen(150, 20, true, nil)
-	onBand.Update(key("j"))
-	onBand.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 
 	systemView := shotScreen(150, 24, true, nil)
 	openSystem(systemView)
@@ -574,9 +571,10 @@ func TestUIShot(t *testing.T) {
 	bare.SetSize(150, 20)
 
 	frames := []shotFrame{
-		{Name: "150 columns — every state, second row selected", Text: wide.View()},
-		{Name: "150 columns — focus on the header, the table's box goes quiet",
+		{Name: "150 columns — where the session opens: focus on the header",
 			Text: onHeader.View()},
+		{Name: "150 columns — one tab forward, the table with a row selected",
+			Text: wide.View()},
 		{Name: "150 columns — the system view, opened with enter on the band",
 			Text: systemView.View()},
 		{Name: "150 columns — the same view, ranked by CPU", Text: byCPUView.View()},

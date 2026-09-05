@@ -103,7 +103,7 @@ modify the operator-controlled config or SSH files.
 | Key | Action |
 | --- | ------ |
 | `j`/`k` | select service |
-| `Tab` / `Shift+Tab` | move focus around the band, the table and the feed; `Shift+Tab` reaches the band |
+| `Tab` / `Shift+Tab` | move focus around the header, the table and the feed; focus starts on the header |
 | `Enter` | open what has focus: logs, the system view, an event's container |
 | `Esc` | back out of a detail, a menu, or the `!` prompt; never quits |
 | `c` | act on the service: restart / stop / start |
@@ -141,8 +141,8 @@ filesystem (not always `/`: a comfortable root says nothing about the
 is in use, and a temperature where the hardware reports one. The whole
 sample costs about 6 ms every 5 seconds.
 
-`Shift+Tab` to the band and `Enter` opens the **system view**: per-core CPU,
-both other load figures, swap, every filesystem with its device, network
+The session opens with the header focused, so `Enter` goes straight into the
+**system view**: per-core CPU, both other load figures, swap, every filesystem with its device, network
 throughput, kernel pressure, temperatures, graphics cards, what docker is
 holding in images and volumes, and the top processes — `s` switches those
 between ranking by memory and by CPU. The readings only that view shows are

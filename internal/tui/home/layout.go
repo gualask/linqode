@@ -45,10 +45,10 @@ const eventsBox = 6
 const anchorFloor = 8
 
 type frame struct {
-	// band reports whether the host meters get their row. They are one line
-	// and the first thing an operator reads, so they are given up only when
-	// there is no sample to draw — never to buy space for a panel.
-	band bool
+	// headerBox reports whether the header is a box with the meters in it,
+	// which it is wherever this host reports any. It is never given up to buy
+	// space for a panel: the meters are the first thing an operator reads.
+	headerBox bool
 	// body is what the anchor panel gets, borders included.
 	body box
 	// events is the satellite under it, zero-height when the terminal is too
@@ -65,21 +65,21 @@ type frame struct {
 // daemon is being watched, which is a thing worth knowing, and a panel that
 // appeared the first time a container died would move the table under the
 // operator at the worst possible moment.
-func layoutFor(width, height int, band, events bool) frame {
+func layoutFor(width, height int, headerBox, events bool) frame {
 	if width <= 0 || height <= 0 {
-		return frame{band: band}
+		return frame{headerBox: headerBox}
 	}
 	header := titleLines + blankLines
-	if band {
+	if headerBox {
 		header++
 	}
 	body := box{width: width, height: max(height-header-footerLine, 0)}
 	if !events || body.height < anchorFloor+eventsBox {
-		return frame{band: band, body: body}
+		return frame{headerBox: headerBox, body: body}
 	}
 	return frame{
-		band:   band,
-		body:   box{width: width, height: body.height - eventsBox},
-		events: box{width: width, height: eventsBox},
+		headerBox: headerBox,
+		body:      box{width: width, height: body.height - eventsBox},
+		events:    box{width: width, height: eventsBox},
 	}
 }

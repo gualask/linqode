@@ -119,10 +119,19 @@ func (m *Model) meters() []meter {
 // Band is the header line, drawn to the width the screen gives it. It is
 // empty until the first sample, so the header does not reserve a row for
 // numbers that are not there yet.
-func (m *Model) Band(width int) string { return m.renderBand(width) }
+func (m *Model) Band(width int) string {
+	if band := m.renderBand(width); band != "" {
+		return band
+	}
+	// The header is a box from the first frame, before there is anything to
+	// put in it: a row that appeared on the first sample would push the whole
+	// body down one line a second after the screen opened.
+	return theme.Dim.Render(" host  (waiting for the first sample…)")
+}
 
-// HasBand reports whether there is a sample to draw, so the screen knows
-// whether to reserve the row.
+// HasBand reports whether there is a sample behind the band — which is not
+// whether there is a band, since the header draws one either way. It is what
+// says whether there is a system view worth opening.
 func (m *Model) HasBand() bool { return m.loaded && len(m.meters()) > 0 }
 
 func (m *Model) renderBand(width int) string {

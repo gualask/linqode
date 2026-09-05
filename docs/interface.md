@@ -103,17 +103,32 @@ panel rather than editing a screen.
 order they sit on the screen, so `shift+tab` from the table reaches the band
 and `enter` there opens the machine's readings.
 
-Focus starts on the **table**, not on the first stop: the ring is ordered by
-where things sit, and the initial focus by what an operator does. The band is
-read; the table is acted on — `j`/`k` selects a service, `enter` opens its
-logs, `c` operates on it.
+Focus starts at the **top**, on the machine, and the ring walks forward from
+there. It used to start on the table, on the reasoning that the band is read
+and the table is acted on; what that missed is that the machine is often the
+reason the session was opened at all, and it sat two keystrokes away —
+`shift+tab` backwards past the feed, then `enter` — while the table is one
+`tab` forward and fills the body regardless.
+
+The trade is real and worth naming: `j`, `k` and `enter` do nothing until that
+one `tab`, because the header answers none of them. It buys the machine a
+keystroke and makes the ring walk forward from where it starts rather than
+backwards.
+
+Where `host_metrics` is off there is no header box and nothing at the top, so
+focus starts on the table, which is then the only thing drawn.
 
 **Focus never lands on a region that is not drawn**, and leaves one the
 terminal shrinks under. Two of the three can be absent: the satellite gives up
-its rows on a short terminal, and the machine has no band before the first
-sample arrives or on a host where `host_metrics` is off. Moving the ring
-through them would change nothing on screen and offer the keys of a region
-nobody can see.
+its rows on a short terminal, and the machine has no header box on a host where
+`host_metrics` is off. Moving the ring through them would change nothing on
+screen and offer the keys of a region nobody can see.
+
+The header box is drawn from the first frame, before any sample, saying it is
+waiting rather than drawing numbers it does not have. One that appeared on the
+first reading would push the whole body down a row a second after the screen
+opened, and would make the ring's first stop — and the place focus starts —
+exist only after a round trip.
 
 The ring is advertised in the footer as `tab panels`, and it is the one thing
 on this screen that has to be: every other key is either on the panel that
