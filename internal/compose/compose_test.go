@@ -164,12 +164,12 @@ func TestParseInspectedSkipsUnparseableLines(t *testing.T) {
 	}
 }
 
-func TestApplyRestartsMatchesOnContainerName(t *testing.T) {
+func TestApplyInspectedMatchesOnContainerName(t *testing.T) {
 	services := []Service{
 		{Service: "db", Name: "myapp-db-1"},
 		{Service: "web", Name: "myapp-web-1"},
 	}
-	ApplyRestarts(services, map[string]int{"myapp-db-1": 0})
+	ApplyInspected(services, map[string]Inspected{"myapp-db-1": {Restarts: 0, Pid: 4711}})
 
 	if services[0].Restarts == nil || *services[0].Restarts != 0 {
 		t.Errorf("db restarts %v, want 0", services[0].Restarts)

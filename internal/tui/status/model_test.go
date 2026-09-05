@@ -134,7 +134,8 @@ func TestRestartsColumnAppearsOnlyWithCounts(t *testing.T) {
 
 	// A refresh whose inspect answered brings the column with it.
 	list := services("web", "db")
-	compose.ApplyRestarts(list, map[string]int{"app-web-1": 0, "app-db-1": 12})
+	compose.ApplyInspected(list, map[string]compose.Inspected{
+		"app-web-1": {Restarts: 0}, "app-db-1": {Restarts: 12}})
 	m.SetServices(list, nil)
 
 	view := m.View()

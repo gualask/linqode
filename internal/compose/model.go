@@ -39,7 +39,7 @@ type Service struct {
 	Publishers []Publisher `json:"Publishers"`
 
 	// Restarts is how many times docker has restarted the container. It is
-	// not part of `compose ps` output — ApplyRestarts fills it from a
+	// not part of `compose ps` output — ApplyInspected fills it from a
 	// separate `docker inspect` — so it stays nil when that reading is
 	// unavailable, which the view shows differently from a genuine zero.
 	Restarts *int `json:"-"`
@@ -56,20 +56,11 @@ type Inspected struct {
 	Pid      int
 }
 
-// ApplyRestarts attaches restart counts to the services they belong to,
-// matching on container name. A service with no entry keeps an unknown
-// count rather than being reported as never restarted.
-func ApplyRestarts(services []Service, counts map[string]int) {
-	for i := range services {
-		if n, ok := counts[services[i].Name]; ok {
-			services[i].Restarts = &n
-		}
-	}
-}
-
 // ApplyInspected attaches what inspect reported to the services it belongs
-// to. Like ApplyRestarts it is best-effort: a container that disappeared
-// between the two commands simply keeps what `ps` said about it.
+// to, matching on container name. It is best-effort: a container that
+// disappeared between the two commands simply keeps what `ps` said about it,
+// and a service with no entry keeps an unknown restart count rather than
+// being reported as never restarted.
 func ApplyInspected(services []Service, inspected map[string]Inspected) {
 	for i := range services {
 		found, ok := inspected[services[i].Name]

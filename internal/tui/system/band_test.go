@@ -159,22 +159,31 @@ func TestUsageAndLoadThresholds(t *testing.T) {
 	}
 }
 
-func TestBarClamps(t *testing.T) {
-	if got := bar(0, 4); got != "░░░░" {
-		t.Errorf("bar(0) = %q", got)
+// The fill of every gauge on the screen, band and view alike: they differ in
+// how they are coloured and share how they are measured.
+func TestBarFillClamps(t *testing.T) {
+	for _, test := range []struct {
+		percent float64
+		width   int
+		want    int
+	}{
+		{0, 4, 0},
+		{50, 4, 2},
+		{100, 4, 4},
+		// Load can exceed one per core; the gauge fills rather than
+		// overflowing its width.
+		{250, 4, 4},
+		{-10, 4, 0},
+		{50, 0, 0},
+	} {
+		if got := barFill(test.percent, test.width); got != test.want {
+			t.Errorf("barFill(%.0f, %d) = %d, want %d",
+				test.percent, test.width, got, test.want)
+		}
 	}
-	if got := bar(100, 4); got != "████" {
-		t.Errorf("bar(100) = %q", got)
-	}
-	// Load can exceed one per core; the bar fills rather than overflowing.
-	if got := bar(250, 4); got != "████" {
-		t.Errorf("bar(250) = %q", got)
-	}
-	if got := bar(50, 4); got != "██░░" {
-		t.Errorf("bar(50) = %q", got)
-	}
-	if got := bar(50, 0); got != "" {
-		t.Errorf("bar with no width = %q", got)
+	// And the drawn form still uses it: a half-full gauge is half blocks.
+	if got := styledBar(50, 4, theme.Dim); lipgloss.Width(got) != 4 {
+		t.Errorf("styledBar is %d cells wide, want 4", lipgloss.Width(got))
 	}
 }
 

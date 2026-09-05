@@ -234,18 +234,9 @@ func (m *Model) renderBand(width int) string {
 	return line
 }
 
-// bar renders a percentage as a filled block gauge, clamped at both ends so
-// an over-100% reading (load above one per core) stays a full bar rather
-// than overflowing its meter.
-func bar(percent float64, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	filled := barFill(percent, width)
-	return strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
-}
-
-// barFill is how many cells of a bar of this width are filled.
+// barFill is how many cells of a bar of this width are filled. It is clamped
+// at both ends, so an over-100% reading — load above one per core — fills the
+// gauge rather than overflowing it.
 func barFill(percent float64, width int) int {
 	filled := int(percent/100*float64(width) + 0.5)
 	return min(max(filled, 0), width)

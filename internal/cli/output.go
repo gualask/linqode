@@ -50,10 +50,6 @@ type Failure struct {
 	ExitCode  int
 }
 
-func (f *Failure) Error() string {
-	return f.Message
-}
-
 // OperationalFailure classifies a Linqode failure after valid input.
 func OperationalFailure(operation, kind string, err error) *Failure {
 	return &Failure{Kind: kind, Message: err.Error(), Operation: operation, ExitCode: 1}

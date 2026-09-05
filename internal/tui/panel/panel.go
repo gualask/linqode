@@ -254,30 +254,6 @@ func joinHintText(hints []Hint) string {
 	return strings.Join(texts, " · ")
 }
 
-// JoinHints renders hints separated by a middle dot, dropping the most
-// expendable ones until the line fits. A width of zero means unknown, and
-// nothing is dropped.
-func JoinHints(hints []Hint, width int) string {
-	hints = slices.Clone(hints)
-	for {
-		texts := make([]string, len(hints))
-		for index, hint := range hints {
-			texts[index] = hint.Text
-		}
-		joined := strings.Join(texts, " · ")
-		if width <= 0 || len(hints) <= 1 || lipgloss.Width(joined) <= width {
-			return joined
-		}
-		worst := 0
-		for index, hint := range hints {
-			if hint.Drop >= hints[worst].Drop {
-				worst = index
-			}
-		}
-		hints = slices.Delete(hints, worst, worst+1)
-	}
-}
-
 // A Panel is one focusable region of the screen. The model composing them
 // owns where each goes and which one holds focus; the panel owns what is
 // inside it and which keys it answers to.
@@ -288,8 +264,11 @@ func JoinHints(hints []Hint, width int) string {
 type Panel interface {
 	// Title names the panel in its top rule.
 	Title() string
-	// Status is the panel's half of the footer: what it is showing, or what
-	// went wrong while showing it.
+	// Status is the panel's half of the footer, and for most panels it is
+	// empty: what a region is *showing* goes on its own rule, where it is
+	// legible without focus. What is left for here is what went wrong while
+	// showing it, which has nowhere else to go and should be absent when
+	// there is nothing to report.
 	Status() string
 	// Hints are the keys this panel answers to, joined into the footer
 	// beside the screen's own.
