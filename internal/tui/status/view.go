@@ -69,6 +69,12 @@ func (m *Model) selectionStyle() lipgloss.Style {
 // Hints are the keys the table itself answers to. The screen adds its own and
 // decides which survive a narrow terminal.
 func (m *Model) Hints() []panel.Hint {
+	// Nothing here can work without compose, so nothing here is offered. A
+	// key advertised in the footer and answered with an error is worse than
+	// the reason already standing where the table would be.
+	if m.unavailable != "" {
+		return nil
+	}
 	hints := []panel.Hint{{Text: "enter logs", Drop: 2}}
 	if m.liveStats {
 		live := "a live"
@@ -83,6 +89,11 @@ func (m *Model) Hints() []panel.Hint {
 // Status is the panel's half of the footer: how many services it is showing,
 // or the failure that kept it from showing them.
 func (m *Model) Status() string {
+	if m.unavailable != "" {
+		// Yellow, not red: nothing failed here. The host is what it is, and
+		// this is a thing the operator may be able to change on the server.
+		return theme.Yellow.Render(" compose unavailable")
+	}
 	if m.errText != "" {
 		return theme.Red.Render(" " + strings.ReplaceAll(m.errText, "\n", " · "))
 	}
@@ -108,6 +119,14 @@ func (m *Model) View() string {
 	}
 	var b strings.Builder
 	switch {
+	case m.unavailable != "":
+		// Said here, where the table would have been, because this is the
+		// answer to the question an empty panel provokes. Once, at connect —
+		// not rediscovered on every safety-net interval for the life of the
+		// session, which is what this replaces.
+		b.WriteString(theme.Yellow.Render("  compose is unavailable on this host") + "\n")
+		b.WriteString(theme.Dim.Render("  "+m.unavailable) + "\n")
+		b.WriteString(theme.Dim.Render("  the machine's own readings are unaffected"))
 	case len(m.services) == 0 && !m.loaded:
 		b.WriteString(theme.Dim.Render("  (loading services…)"))
 	case len(m.services) == 0 && m.errText != "":

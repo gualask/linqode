@@ -20,6 +20,14 @@ type Info struct {
 	ComposeDir string
 	// Scripts are the predefined commands from the config, sorted by name.
 	Scripts []operations.Script
+	// OS is what the host calls itself, from /etc/os-release. Empty on a host
+	// that did not say.
+	OS string
+	// ComposeUnavailable is why this host cannot run compose commands, empty
+	// when it can. The connect-time probe establishes it once; it names a
+	// permanent condition, not a refresh that failed, and the panel it stands
+	// in for says so instead of sitting empty.
+	ComposeUnavailable string
 }
 
 // Fetch loads the current service list. It blocks on the SSH round-trip,
@@ -91,26 +99,35 @@ type appModel struct {
 	width, height int
 }
 
-// Run shows the application until the user quits. A nil Backend.Host leaves
-// the system panel out, and nil Backend.Stats leaves the soft resource columns
-// out.
+// Run shows the application until the user quits.
+//
+// A nil field is a capability this session does not have, and the screen is
+// built around what is left rather than around what is missing: nil
+// Backend.Host leaves the meters out, nil Backend.Stats the soft resource
+// columns, nil Backend.Services the compose table. Two things decide which
+// are nil — the `host_metrics` opt-out in the config, and what the
+// connect-time probe found on the host — and the screen is told the reason
+// for the second so it can say it where the panel would have been.
 func Run(info Info, backend Backend) error {
 	services := status.New(status.Config{
-		Stats:     backend.Stats != nil,
-		LiveStats: backend.LiveStats != nil,
+		Stats:       backend.Stats != nil,
+		LiveStats:   backend.LiveStats != nil,
+		Unavailable: info.ComposeUnavailable,
 	})
 	screen := home.New(home.Config{
-		Target:        info.Target,
-		ComposeDir:    info.ComposeDir,
-		Scripts:       info.Scripts,
-		ActionPreview: backend.ActionPreview,
-		Services:      backend.Services,
-		Host:          backend.Host,
-		Stats:         backend.Stats,
-		Processes:     backend.Processes,
-		DiskUsage:     backend.DiskUsage,
-		GPUs:          backend.GPUs,
-		Watch:         backend.Watch,
+		Target:             info.Target,
+		ComposeDir:         info.ComposeDir,
+		OS:                 info.OS,
+		Scripts:            info.Scripts,
+		ComposeUnavailable: info.ComposeUnavailable,
+		ActionPreview:      backend.ActionPreview,
+		Services:           backend.Services,
+		Host:               backend.Host,
+		Stats:              backend.Stats,
+		Processes:          backend.Processes,
+		DiskUsage:          backend.DiskUsage,
+		GPUs:               backend.GPUs,
+		Watch:              backend.Watch,
 	}, services)
 	app := appModel{info: info, backend: backend, home: screen}
 	_, err := tea.NewProgram(app, tea.WithAltScreen()).Run()

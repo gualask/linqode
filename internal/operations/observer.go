@@ -9,6 +9,7 @@ import (
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
+	"github.com/gualask/linqode/internal/probe"
 	"github.com/gualask/linqode/internal/remote"
 )
 
@@ -54,6 +55,26 @@ func (o *HostOperator) Status(ctx context.Context) ([]compose.Service, error) {
 	}
 	o.addRestarts(ctx, services)
 	return services, nil
+}
+
+// Probe establishes what this host can be asked for, once, before anything
+// asks it. Unlike every other reading here it is not sampled: what it
+// establishes does not change while a session is open, and a host that gains
+// a docker group mid-session is a reconnect, not a refresh.
+//
+// A transport failure is returned, because it means the session itself is in
+// trouble. Anything else the host said is Parse's business, and Parse does not
+// fail: an answer nobody can make sense of leaves every capability Unknown,
+// which reads as "carry on".
+func (o *HostOperator) Probe(ctx context.Context) (probe.Result, error) {
+	out, err := o.executor.Exec(ctx, probe.Command(o.composeDir))
+	if err != nil {
+		return probe.Result{}, err
+	}
+	// The exit code is deliberately ignored. The batch ends with a grep that
+	// finds nothing on a host with no /etc/os-release, and a non-zero status
+	// there says nothing about the four sections that matter.
+	return probe.Parse(out.Stdout, o.composeDir), nil
 }
 
 // HostMetrics samples the remote machine. Individual unavailable metric

@@ -420,6 +420,38 @@ func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 	return screen
 }
 
+// shotUnavailable is the host the probe found without a usable compose. Every
+// machine reading is there; the table is one sentence saying why it is not.
+//
+// It is here to be looked at rather than asserted on, because what can go
+// wrong with it is a colour: this frame must not read as a failure. Nothing
+// failed — the host simply is what it is — and a panel dressed in the red the
+// stale meters and the refresh errors use would say the opposite.
+func shotUnavailable(width, height int, reason string) *Model {
+	services := status.New(status.Config{Unavailable: reason})
+	hostRound, processRound := 0, 0
+	screen := New(Config{
+		Target:             "deploy@app-prod-01",
+		ComposeDir:         "/srv/myapp",
+		OS:                 "Debian GNU/Linux 12 (bookworm)",
+		ComposeUnavailable: reason,
+		Host: func() (host.Metrics, error) {
+			hostRound++
+			return busyHost(hostRound), nil
+		},
+		Processes: func() (host.ProcessSample, error) {
+			processRound++
+			return busyProcesses(processRound), nil
+		},
+	}, services)
+	screen.SetSize(width, height)
+	sampleAll(screen)
+	for range shotRounds {
+		applyScreen(screen, screen.sampler.read(sourceHost))
+	}
+	return screen
+}
+
 // openSystem walks into the system view the way an operator does, and takes
 // the second process reading a CPU share needs to exist. Opening it is what
 // asks for the first: the source is gated on being there.
@@ -522,6 +554,18 @@ func TestUIShot(t *testing.T) {
 
 	stale := shotScreen(150, 20, true, errors.New("dial tcp: i/o timeout"))
 
+	denied := shotUnavailable(150, 20,
+		"the docker daemon refuses this user — not in the `docker` group?")
+	// The same finding on a host that also has host_metrics off: nothing
+	// behind the band either, so the panel that at least says why keeps the
+	// body.
+	noMachine := status.New(status.Config{
+		Unavailable: "this host has docker-compose v1, which linqode does not drive"})
+	bare := New(Config{Target: "deploy@old-box", ComposeDir: "/srv/myapp",
+		ComposeUnavailable: "this host has docker-compose v1, which linqode does not drive",
+	}, noMachine)
+	bare.SetSize(150, 20)
+
 	frames := []shotFrame{
 		{Name: "150 columns — every state, second row selected", Text: wide.View()},
 		{Name: "150 columns — focus on the band, the table's box goes quiet",
@@ -537,6 +581,10 @@ func TestUIShot(t *testing.T) {
 		{Name: "100 columns — I/O columns dropped, gap narrowed", Text: narrow.View()},
 		{Name: "150 columns — before the first host sample", Text: noMetrics.View()},
 		{Name: "150 columns — host sample gone stale", Text: stale.View()},
+		{Name: "150 columns — no compose on this host: the machine takes the body",
+			Text: denied.View()},
+		{Name: "150 columns — no compose and no host metrics either: nothing left to promote",
+			Text: bare.View()},
 	}
 	if err := os.WriteFile(path, []byte(shotPage("Linqode home screen", frames)), 0o644); err != nil {
 		t.Fatal(err)

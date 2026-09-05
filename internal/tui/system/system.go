@@ -66,9 +66,22 @@ type Model struct {
 
 	focused       bool
 	width, height int
+
+	// os is what the host calls itself, established once by the connect-time
+	// probe. It is the one thing here that is not a reading: it does not
+	// change, it is not sampled, and it never goes stale.
+	os string
+	// unavailable is what the probe found this host cannot do. It is a
+	// sentence about the machine, which is what this view is a list of, and
+	// it goes at the top for the reason the rest of the list is ordered the
+	// way it is: the box truncates from the bottom, and this is the row most
+	// likely to be the answer to "why is this screen not what I expected".
+	unavailable string
 }
 
-func New() *Model { return &Model{} }
+func New(os, unavailable string) *Model {
+	return &Model{os: os, unavailable: unavailable}
+}
 
 // SetSample applies one host sample. A failed sample marks what is on screen
 // stale instead of clearing it; the error itself is not shown, because the
@@ -200,6 +213,13 @@ func (m *Model) View() string {
 	column := m.labelColumn()
 	var rows []row
 
+	if m.unavailable != "" {
+		rows = append(rows,
+			row{text: "  " + theme.Yellow.Render("compose is unavailable on this host")},
+			row{text: "  " + theme.Dim.Render(m.unavailable)},
+			row{})
+	}
+
 	load := ""
 	if metrics.HasLoad() {
 		load = theme.Dim.Render(fmt.Sprintf("   load %.2f  %.2f  %.2f   over %d cores",
@@ -291,6 +311,12 @@ func (m *Model) View() string {
 	rows = append(rows, m.gpuRows(column)...)
 	if metrics.Uptime > 0 {
 		rows = append(rows, row{text: m.textRow(column, "uptime", formatUptime(metrics.Uptime))})
+	}
+	// Last, because it is the row that answers no question about what is
+	// wrong: the list is ordered by urgency and the box truncates from the
+	// bottom, so what the machine calls itself is what should go first.
+	if m.os != "" {
+		rows = append(rows, row{text: m.textRow(column, "system", theme.Dim.Render(m.os))})
 	}
 	if m.stale {
 		rows = append(rows, row{}, row{text: theme.Dim.Render(

@@ -159,3 +159,26 @@ func TestRestartStyleEscalatesWithTheCount(t *testing.T) {
 		t.Error("a looping container should look different from one restart")
 	}
 }
+
+// A panel with no compose behind it must never claim to be loading something
+// that is never coming, and must not dress a permanent condition as a refresh
+// that failed.
+func TestAnUnavailablePanelSaysWhyRatherThanLoading(t *testing.T) {
+	m := New(Config{Unavailable: "docker is not installed on this host"})
+	m.SetSize(60, 10)
+
+	view := m.View()
+	if !strings.Contains(view, "docker is not installed on this host") {
+		t.Errorf("the panel does not say why it is empty: %q", view)
+	}
+	if strings.Contains(view, "loading") {
+		t.Errorf("the panel is waiting for a sample that is never coming: %q", view)
+	}
+	// Every key it could offer needs compose.
+	if hints := m.Hints(); len(hints) != 0 {
+		t.Errorf("Hints() = %v on a panel where none of them can work", hints)
+	}
+	if status := m.Status(); !strings.Contains(status, "compose unavailable") {
+		t.Errorf("Status() = %q", status)
+	}
+}

@@ -295,3 +295,95 @@ func TestScreenIsExactlyAsTallAsTheTerminal(t *testing.T) {
 		}
 	}
 }
+
+// A host the probe found without compose. Services is nil, which is how every
+// capability this codebase does not have is expressed; the reason is what nil
+// alone cannot say.
+func noComposeScreen(width, height int, reason string, withHost bool) (*Model, *status.Model) {
+	services := status.New(status.Config{Unavailable: reason})
+	config := Config{
+		Target: "deploy@prod", ComposeUnavailable: reason,
+		OS: "Debian GNU/Linux 12 (bookworm)",
+	}
+	if withHost {
+		feed := &hostFeed{metrics: sampleMetrics()}
+		config.Host = feed.sample
+		config.Processes = func() (host.ProcessSample, error) {
+			return host.ProcessSample{UptimeSeconds: 1000, ClockTck: 100}, nil
+		}
+	}
+	screen := New(config, services)
+	screen.SetSize(width, height)
+	sampleAll(screen)
+	return screen, services
+}
+
+// The screen is built around what is left, not around what is missing. A
+// table that can only explain its own absence must not hold the body at the
+// largest size on the screen while the machine it is on has every reading it
+// always had.
+func TestNoComposeGivesTheBodyToTheMachine(t *testing.T) {
+	screen, _ := noComposeScreen(150, 24, "docker is not installed on this host", true)
+
+	if title := screen.panels[screen.anchor].Title(); title != "system" {
+		t.Errorf("the anchor is %q, want the machine", title)
+	}
+	view := screen.View()
+	if !strings.Contains(view, "docker is not installed on this host") {
+		t.Error("the screen never says why there is no table")
+	}
+	// The readings that were always there are still there.
+	for _, want := range []string{"memory", "uptime", "system"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the machine lost its %q row along with compose", want)
+		}
+	}
+	// And nothing that cannot work is advertised.
+	for _, gone := range []string{"c actions", "enter logs", "a live"} {
+		if strings.Contains(view, gone) {
+			t.Errorf("%q is offered on a host that cannot do it", gone)
+		}
+	}
+	// What never needed a daemon stays.
+	for _, kept := range []string{"x scripts", "! run"} {
+		if !strings.Contains(view, kept) {
+			t.Errorf("%q was withdrawn, and it never needed docker", kept)
+		}
+	}
+}
+
+// The on-demand tier is gated on somebody looking at the view that shows it.
+// When that view is the body there is no `enter` to press, and a gate that
+// waited for one would leave the process table permanently unread.
+func TestTheOnDemandTierFollowsTheSystemViewToTheBody(t *testing.T) {
+	screen, _ := noComposeScreen(150, 24, "docker is not installed on this host", true)
+	if !screen.systemShown() {
+		t.Fatal("the machine holds the body and is not considered shown")
+	}
+	if cmd := screen.sampler.read(sourceProcesses); cmd == nil {
+		t.Error("the process table is never read on a screen that is showing it")
+	}
+
+	// And the gate still closes on a screen where the view is behind a band
+	// nobody has opened.
+	home, _ := buildScreen(screenOptions{width: 150, height: 24,
+		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
+		host:     &hostFeed{metrics: sampleMetrics()}})
+	if home.systemShown() {
+		t.Error("the machine is considered shown while the table holds the body")
+	}
+}
+
+// With host_metrics off as well there is nothing behind the band either. The
+// panel that at least says why is then the best thing to be looking at, and
+// promoting an empty machine over it would be trading one blank panel for a
+// worse one.
+func TestNothingLeftToPromoteKeepsTheExplainingPanel(t *testing.T) {
+	screen, _ := noComposeScreen(150, 20, "this host has docker-compose v1, which linqode does not drive", false)
+	if title := screen.panels[screen.anchor].Title(); title != "services" {
+		t.Errorf("the anchor is %q, want the panel that can explain itself", title)
+	}
+	if !strings.Contains(screen.View(), "docker-compose v1") {
+		t.Error("the screen never says why there is no table")
+	}
+}

@@ -17,7 +17,7 @@ import (
 // climbing is a model fed rounds samples five host-seconds apart, in which
 // memory rises steadily and one core does all the work.
 func climbing(rounds int) *Model {
-	m := New()
+	m := New("", "")
 	for round := 1; round <= rounds; round++ {
 		metrics := richMetrics()
 		metrics.UptimeSeconds = 5400 + float64(round*5)

@@ -175,6 +175,19 @@ func (r Result) ComposeUnavailable() string {
 // should create.
 func (r Result) CanCompose() bool { return r.ComposeUnavailable() == "" }
 
+// CanReachDaemon reports whether commands that talk to docker but not through
+// compose are worth offering — `docker system df`, and the event stream.
+//
+// It is a separate question on purpose. A host with a working daemon and
+// compose v1 has no service table and still has a daemon holding images,
+// containers, volumes and build cache, which is a reading worth showing to
+// somebody who cannot get at the project any other way. Unknown counts as yes
+// here for the same reason it does above.
+func (r Result) CanReachDaemon() bool {
+	return r.Docker != DockerAbsent && r.Docker != DockerDenied &&
+		r.Docker != DockerUnreachable
+}
+
 // shellQuote quotes s as a single POSIX shell word. The same three lines live
 // in internal/compose; sharing them would mean a package dependency in one
 // direction or the other purely to pass a string through, which is a worse

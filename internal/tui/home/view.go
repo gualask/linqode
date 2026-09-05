@@ -120,9 +120,15 @@ func (m *Model) hints() []panel.Hint {
 	} else {
 		hints = append(hints, m.detail.Hints()...)
 	}
+	hints = append(hints, panel.Hint{Text: "r refresh", Drop: 2})
+	// Service actions are the one screen-level command that needs compose. On
+	// a host without it the key is not advertised, because everything it could
+	// open is a lifecycle action on a service that was never listed. The
+	// scripts and the `!` prompt stay: neither has ever needed a daemon.
+	if m.services.Unavailable() == "" {
+		hints = append(hints, panel.Hint{Text: "c actions", Drop: 3})
+	}
 	return append(hints,
-		panel.Hint{Text: "r refresh", Drop: 2},
-		panel.Hint{Text: "c actions", Drop: 3},
 		panel.Hint{Text: "x scripts", Drop: 6},
 		panel.Hint{Text: "! run", Drop: 4},
 		panel.Hint{Text: "q quit", Drop: 0})

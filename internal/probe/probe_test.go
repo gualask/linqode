@@ -226,3 +226,24 @@ func TestNoComposeDirIsNotAMissingOne(t *testing.T) {
 		t.Errorf("Directory = %v, want DirectoryUnconfigured", got)
 	}
 }
+
+// The daemon and compose are separate questions. A host with docker and
+// compose v1 has no service table and still has a daemon holding images —
+// which is a reading worth showing to somebody who cannot reach the project
+// any other way.
+func TestTheDaemonSurvivesComposeBeingUnusable(t *testing.T) {
+	legacy := Parse([]byte("#docker\n/usr/bin/docker\n#daemon\n20.10.24\n#compose\n#legacy\n/usr/local/bin/docker-compose\n"), "")
+	if legacy.CanCompose() {
+		t.Error("compose v1 was offered")
+	}
+	if !legacy.CanReachDaemon() {
+		t.Error("a working daemon was turned off along with compose v1")
+	}
+	denied := Parse([]byte("#docker\n/usr/bin/docker\n#daemon\npermission denied\n#compose\n5.3.1\n"), "")
+	if denied.CanReachDaemon() {
+		t.Error("a refused socket was called reachable")
+	}
+	if !Parse(nil, "").CanReachDaemon() {
+		t.Error("an unestablished daemon was turned off")
+	}
+}

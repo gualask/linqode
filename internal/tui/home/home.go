@@ -112,6 +112,14 @@ type Config struct {
 	Target string
 	// ComposeDir is the remote project directory shown in the header.
 	ComposeDir string
+	// OS is what the host calls itself, from the connect-time probe. Empty on
+	// a host that did not say, and then the system view simply has one row
+	// fewer.
+	OS string
+	// ComposeUnavailable is why this host has no compose, from the same
+	// probe, and empty when it has one. Services is nil whenever this is set;
+	// this is the sentence that says why, which nil alone cannot.
+	ComposeUnavailable string
 	// Scripts are the predefined commands from the config, sorted by name.
 	Scripts []operations.Script
 	// ActionPreview supplies the exact operations-owned command that the
@@ -211,7 +219,8 @@ type Model struct {
 }
 
 func New(config Config, services *status.Model) *Model {
-	m := &Model{info: config, services: services, system: system.New()}
+	m := &Model{info: config, services: services,
+		system: system.New(config.OS, config.ComposeUnavailable)}
 	m.sampler = newSampler(map[sourceID]*source{
 		sourceServices: {every: servicesRefresh, start: read(config.Services,
 			func(services []compose.Service, err error) tea.Msg {
@@ -230,19 +239,19 @@ func New(config Config, services *status.Model) *Model {
 		// not otherwise. This is what phase A's panel model was for — a
 		// panel nobody is looking at costs nothing.
 		sourceProcesses: {every: processesRefresh,
-			gate: func() bool { return m.detail == m.system },
+			gate: m.systemShown,
 			start: read(config.Processes,
 				func(sample host.ProcessSample, err error) tea.Msg {
 					return processSampleMsg{sample: sample, err: err}
 				})},
 		sourceDiskUsage: {every: diskUsageRefresh,
-			gate: func() bool { return m.detail == m.system },
+			gate: m.systemShown,
 			start: read(config.DiskUsage,
 				func(usage []compose.DiskUsage, err error) tea.Msg {
 					return diskUsageMsg{usage: usage, err: err}
 				})},
 		sourceGPU: {every: gpuRefresh,
-			gate: func() bool { return m.detail == m.system },
+			gate: m.systemShown,
 			start: read(config.GPUs,
 				func(gpus []host.GPU, err error) tea.Msg {
 					return gpuSampleMsg{gpus: gpus, err: err}
@@ -252,6 +261,23 @@ func New(config Config, services *status.Model) *Model {
 	// the band is what an operator reads, the table is what they act on.
 	m.panels = []panel.Panel{m.system, services}
 	m.anchor, m.focus = 1, 1
+	// A host with no compose has no table to anchor the screen on, and giving
+	// the body to a panel that can only explain its own absence would be
+	// showing the absence at the largest size on the screen. The machine
+	// takes the body instead: the readings are all still there, and this
+	// becomes what it can honestly be, which is a machine monitor. The
+	// sentence about compose goes with them, as the view's first row.
+	//
+	// Only when there is a machine to show, though. With host_metrics off as
+	// well there is nothing behind the band either, and then the panel that
+	// at least says why is the better one to be looking at.
+	if config.Services == nil && config.Host != nil {
+		m.panels = []panel.Panel{m.system}
+		m.anchor, m.focus = 0, 0
+		// It is the view rather than the band from the start, and stays that
+		// way: there is no `enter` to press and nothing behind it.
+		m.system.SetOpen(true)
+	}
 	m.eventsIndex = -1
 	if config.Watch != nil {
 		m.events = events.New()
@@ -281,6 +307,16 @@ func read[T any](fetch func() (T, error), wrap func(T, error) tea.Msg) func() te
 // focused is the panel the keys are talking to. The ring is never empty, so
 // this never returns nil.
 func (m *Model) focused() panel.Panel { return m.panels[m.focus] }
+
+// systemShown reports whether the machine's readings are on screen, which is
+// what the on-demand tier is gated on. There are two ways for them to be
+// there — opened over the home with `enter`, or holding the body because this
+// host has no table — and a reading nobody is looking at must be taken in
+// neither.
+func (m *Model) systemShown() bool {
+	return m.detail == panel.Panel(m.system) ||
+		(m.detail == nil && m.panels[m.anchor] == panel.Panel(m.system))
+}
 
 // applyFocus tells every panel whether it currently holds focus, so a
 // selection outside the focused panel can recede instead of competing.
@@ -479,19 +515,23 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 // destinations, and each of them is the obvious next question about what has
 // focus.
 func (m *Model) open() tea.Cmd {
-	switch m.focus {
-	case m.anchor:
+	// On identity rather than on index: which panel sits where is no longer
+	// fixed, and a screen whose body is the machine would otherwise read the
+	// anchor as the table.
+	switch m.focused() {
+	case panel.Panel(m.services):
 		if service, ok := m.services.SelectedService(); ok {
 			return openLogs(service)
 		}
-	case m.eventsIndex:
+	case panel.Panel(m.events):
 		// An event about a container the project no longer has — one that
 		// was destroyed — has no logs to open.
 		if service, ok := m.events.SelectedService(); ok {
 			return openLogs(service)
 		}
-	default:
-		if m.system.HasBand() {
+	case panel.Panel(m.system):
+		// Nothing to descend into when the readings are already the body.
+		if m.system.HasBand() && m.anchor != 0 {
 			m.detail = m.system
 			m.system.SetOpen(true)
 			// Opening the view is what asks for the readings it alone
@@ -508,7 +548,8 @@ func (m *Model) open() tea.Cmd {
 // the keys it answers to and the hints in the footer are not the same in its
 // two forms.
 func (m *Model) closeDetail() {
-	if m.detail == panel.Panel(m.system) {
+	// Unless it is the body, in which case it was never a band to go back to.
+	if m.detail == panel.Panel(m.system) && m.panels[m.anchor] != panel.Panel(m.system) {
 		m.system.SetOpen(false)
 	}
 	m.detail = nil

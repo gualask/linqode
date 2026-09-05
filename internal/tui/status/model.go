@@ -21,6 +21,9 @@ type Model struct {
 	softStats bool
 	// liveStats reports whether the backend exposes the on-demand stream.
 	liveStats bool
+	// unavailable is why there is no compose on this host, established once
+	// at connect. Every compose affordance is off while it is set.
+	unavailable string
 
 	// stats is the latest reading per container name, keyed to match
 	// compose.Service.Name. It comes from the screen's sample, or from the
@@ -54,8 +57,14 @@ type Model struct {
 }
 
 func New(config Config) *Model {
-	return &Model{softStats: config.Stats, liveStats: config.LiveStats}
+	return &Model{
+		softStats: config.Stats, liveStats: config.LiveStats,
+		unavailable: config.Unavailable,
+	}
 }
+
+// Unavailable is why this panel has no table, empty when it has one.
+func (m *Model) Unavailable() string { return m.unavailable }
 
 // SetServices applies one reading of the service list. A failure keeps the
 // last good table on screen and reports itself in the panel's footer line:

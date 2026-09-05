@@ -12,6 +12,12 @@ type Config struct {
 	Stats bool
 	// LiveStats reports whether the on-demand stream is available.
 	LiveStats bool
+	// Unavailable is why this host cannot run compose commands at all, empty
+	// when it can. It is not an error: an error is a refresh that failed and
+	// may succeed next time, and this will not change while the session is
+	// open. The panel says it in place of the table rather than sitting empty
+	// or claiming to be loading something that is never coming.
+	Unavailable string
 }
 
 // OpenStatsMsg asks the application for the live stats stream, which only it

@@ -33,7 +33,7 @@ func sampleMetrics() host.Metrics {
 // sampled is a model holding one good sample, which is the state every one of
 // these tests starts from.
 func sampled(metrics host.Metrics) *Model {
-	m := New()
+	m := New("", "")
 	m.SetSample(metrics, nil)
 	return m
 }
@@ -69,7 +69,7 @@ func TestMeterBandFitsItsWidth(t *testing.T) {
 // Before the first sample there is nothing to draw, and the header must not
 // reserve a row for numbers that are not there.
 func TestNoBandBeforeTheFirstSample(t *testing.T) {
-	m := New()
+	m := New("", "")
 	if m.HasBand() {
 		t.Error("band claimed a row before any sample arrived")
 	}
@@ -203,7 +203,7 @@ func richMetrics() host.Metrics {
 // between them, and in them one core does all the work.
 func measured() *Model {
 	before := richMetrics()
-	m := New()
+	m := New("", "")
 	m.SetSample(before, nil)
 
 	after := richMetrics()
