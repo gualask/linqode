@@ -137,6 +137,13 @@ into the system view, an event into the logs of the container it happened to.
 `esc` comes back up. One concept, three destinations, and each is the obvious
 next question about what has focus.
 
+**`esc` only ever goes up.** Out of a detail, a modal menu, or the `!` prompt,
+and on the home — where there is no level above — it does nothing at all.
+Leaving the application is `q`, and only `q`: a key that means "up one level"
+in three places must not also mean "throw this session away" in the fourth,
+where the two are one keystroke apart and only one of them can be undone. The
+footer offers `esc back` exactly where there is something to go back to.
+
 **Maximising a panel is a separate gesture and is deliberately unbound.**
 Opening a detail changes context; making a box full-screen changes layout
 only. With one anchor on the home it would buy nothing.

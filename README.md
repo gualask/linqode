@@ -105,7 +105,7 @@ modify the operator-controlled config or SSH files.
 | `j`/`k` | select service |
 | `Tab` / `Shift+Tab` | move focus around the band, the table and the feed; `Shift+Tab` reaches the band |
 | `Enter` | open what has focus: logs, the system view, an event's container |
-| `Esc` | back out of a detail view |
+| `Esc` | back out of a detail, a menu, or the `!` prompt; never quits |
 | `c` | act on the service: restart / stop / start |
 | `x` | run a predefined script |
 | `!` | type a command to run on the host |

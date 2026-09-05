@@ -566,3 +566,77 @@ func TestEnterInsideADetailAsksTheHostForNothing(t *testing.T) {
 		t.Error("enter inside the system view closed it")
 	}
 }
+
+// `esc` means "up one level" everywhere it appears — out of a detail, out of
+// a menu, out of the `!` prompt. At the top there is no level above, so it
+// does nothing. Leaving the application is `q`: the two keys are one
+// keystroke apart and only one of them can be undone.
+func TestEscNeverQuits(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 150, height: 24,
+		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
+		host:     &hostFeed{metrics: sampleMetrics()}})
+	sampleAll(screen)
+
+	if cmd := screen.Update(tea.KeyMsg{Type: tea.KeyEsc}); cmd != nil {
+		if _, quit := cmd().(tea.QuitMsg); quit {
+			t.Error("esc on the home quit the application")
+		}
+	}
+	// And `q` from the same place still does.
+	quitting, _ := buildScreen(screenOptions{width: 150, height: 24,
+		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
+		host:     &hostFeed{metrics: sampleMetrics()}})
+	sampleAll(quitting)
+	cmd := quitting.Update(key("q"))
+	if cmd == nil {
+		t.Fatal("q on the home did nothing")
+	}
+	if _, quit := cmd().(tea.QuitMsg); !quit {
+		t.Error("q on the home did not quit")
+	}
+}
+
+// Backing out of each level in turn, none of which may leave the application.
+func TestEscBacksOutOfEveryLevel(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 150, height: 24,
+		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
+		host:     &hostFeed{metrics: sampleMetrics()}})
+	sampleAll(screen)
+
+	// The `!` prompt, where esc cancels what was typed.
+	screen.Update(key("!"))
+	if !screen.commandPrompt {
+		t.Fatal("the command prompt did not open")
+	}
+	screen.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if screen.commandPrompt {
+		t.Error("esc did not cancel the command prompt")
+	}
+
+	// The action menu.
+	screen.Update(key("c"))
+	if screen.menu == nil {
+		t.Fatal("the action menu did not open")
+	}
+	screen.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if screen.menu != nil {
+		t.Error("esc did not close the action menu")
+	}
+
+	// The system view.
+	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	if screen.detail == nil {
+		t.Fatal("the system view did not open")
+	}
+	screen.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if screen.detail != nil {
+		t.Error("esc did not close the system view")
+	}
+	// And now at the top, where it stops rather than quitting.
+	if cmd := screen.Update(tea.KeyMsg{Type: tea.KeyEsc}); cmd != nil {
+		if _, quit := cmd().(tea.QuitMsg); quit {
+			t.Error("esc quit once there was nothing left to back out of")
+		}
+	}
+}

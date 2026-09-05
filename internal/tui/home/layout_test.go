@@ -195,15 +195,6 @@ func TestEnterOnTheBandOpensTheSystemView(t *testing.T) {
 	}
 }
 
-// Esc on the home quits, as it always has; only a detail intercepts it.
-func TestEscQuitsFromTheHome(t *testing.T) {
-	screen, _ := buildScreen(screenOptions{width: 100, height: 24,
-		services: serviceList("web")})
-	if cmd := screen.Update(tea.KeyMsg{Type: tea.KeyEsc}); cmd == nil {
-		t.Error("esc on the home did not quit")
-	}
-}
-
 // Nothing to show, nothing to open: without a sample the band is not on the
 // header, and enter on it must not put an empty box over the table.
 func TestTheSystemViewNeedsASample(t *testing.T) {

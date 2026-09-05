@@ -471,9 +471,17 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	}
 
 	switch msg.String() {
-	case "q", "esc":
-		// Back out of a detail view first; from the home itself these quit,
-		// which is what they do in the follow view too.
+	case "esc":
+		// Back, and only back. On the home there is nothing above to come
+		// back to, so it does nothing at all — leaving the application is
+		// `q`, and a key that means "up one level" everywhere else must not
+		// also mean "throw this session away" at the top, where the two are
+		// one keystroke apart and only one of them is undoable.
+		if m.detail != nil {
+			m.closeDetail()
+		}
+		return nil
+	case "q":
 		if m.detail != nil {
 			m.closeDetail()
 			return nil
