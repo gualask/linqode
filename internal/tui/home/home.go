@@ -482,10 +482,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		}
 		return nil
 	case "q":
-		if m.detail != nil {
-			m.closeDetail()
-			return nil
-		}
+		// The way out, from wherever you are. It is `esc` that walks back up
+		// a level at a time; a second key doing the same thing left the
+		// footer's `q quit` a lie in every view that had one open.
 		return tea.Quit
 	case "ctrl+c":
 		return tea.Quit

@@ -76,8 +76,14 @@ func (m *Model) openScriptMenu() {
 
 func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
-	case "esc", "q", m.menu.key:
+	case "esc", m.menu.key:
+		// Backing out: `esc`, or the key that opened this, pressed again.
 		m.menu = nil
+	case "q":
+		// Not a cancel. A menu takes every key while it is open, but `q`
+		// means one thing on this screen and it is not "close the menu" —
+		// quitting from here is safe, since nothing has been run yet.
+		return tea.Quit
 	case "j", "down":
 		m.menu.selected = min(m.menu.selected+1, len(m.menu.entries)-1)
 	case "k", "up":

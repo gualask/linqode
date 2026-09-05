@@ -128,7 +128,7 @@ func (m *Model) footer() string {
 	case m.commandPrompt:
 		text = " $ " + m.commandText + "▏" + theme.Dim.Render("  enter run · esc cancel")
 	case m.menu != nil:
-		text = theme.Dim.Render(" j/k select · enter run · esc cancel")
+		text = theme.Dim.Render(" j/k select · enter run · esc cancel · q quit")
 	default:
 		status := m.focused().Status()
 		if m.detail != nil {

@@ -281,3 +281,58 @@ func TestStatsPanelShowsLevelsAndTopField(t *testing.T) {
 		t.Errorf("top field header missing:\n%s", view)
 	}
 }
+
+// `esc` goes back to the screen this was opened from; `q` leaves the
+// application. They used to do the same thing, which made the footer's
+// promise of two different keys wrong about one of them.
+func TestEscGoesBackAndQuitLeaves(t *testing.T) {
+	feed, _ := feedOf(lineEvents("first line")...)
+	m := New("deploy@prod", "logs: web", feed)
+	m.SetSize(100, 24)
+
+	cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatal("esc did nothing")
+	}
+	if _, closing := cmd().(CloseMsg); !closing {
+		t.Errorf("esc did not ask to close the view: %T", cmd())
+	}
+
+	cmd = m.Update(key("q"))
+	if cmd == nil {
+		t.Fatal("q did nothing")
+	}
+	if _, quit := cmd().(tea.QuitMsg); !quit {
+		t.Errorf("q did not quit: %T", cmd())
+	}
+
+	// And the footer says both.
+	view := m.View()
+	for _, want := range []string{"esc back", "q quit"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the footer does not offer %q:\n%s", want, view)
+		}
+	}
+}
+
+// While a search or a filter is being typed, `q` is a character. The way out
+// of the input is `esc`, which cancels it rather than the view.
+func TestQTypesWhileSearching(t *testing.T) {
+	feed, _ := feedOf(lineEvents("first line")...)
+	m := New("deploy@prod", "logs: web", feed)
+	m.SetSize(100, 24)
+
+	m.Update(key("/"))
+	for _, k := range []string{"q", "u", "e"} {
+		if cmd := m.Update(key(k)); cmd != nil {
+			t.Fatalf("key %q acted while typing", k)
+		}
+	}
+	if m.inputText != "que" {
+		t.Errorf("typed text %q", m.inputText)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.input != inputNone {
+		t.Error("esc did not cancel the search input")
+	}
+}

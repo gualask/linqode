@@ -640,3 +640,44 @@ func TestEscBacksOutOfEveryLevel(t *testing.T) {
 		}
 	}
 }
+
+// `q` is the way out, from wherever you are. It used to close a detail or a
+// menu instead — a second key doing `esc`'s job, which left the footer's
+// `q quit` wrong in every view that had one open.
+func TestQQuitsFromEveryLevel(t *testing.T) {
+	quits := func(t *testing.T, where string, cmd tea.Cmd) {
+		t.Helper()
+		if cmd == nil {
+			t.Fatalf("q from %s did nothing", where)
+		}
+		if _, quit := cmd().(tea.QuitMsg); !quit {
+			t.Errorf("q from %s did not quit", where)
+		}
+	}
+
+	detail, _ := buildScreen(screenOptions{width: 150, height: 24,
+		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
+		host:     &hostFeed{metrics: sampleMetrics()}})
+	sampleAll(detail)
+	detail.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	applyScreen(detail, detail.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	if detail.detail == nil {
+		t.Fatal("the system view did not open")
+	}
+	quits(t, "the system view", detail.Update(key("q")))
+
+	menu, _ := buildScreen(screenOptions{width: 150, height: 24,
+		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
+		host:     &hostFeed{metrics: sampleMetrics()}})
+	sampleAll(menu)
+	menu.Update(key("c"))
+	if menu.menu == nil {
+		t.Fatal("the action menu did not open")
+	}
+	// Nothing has been run from a menu yet, so leaving from one is safe.
+	quits(t, "the action menu", menu.Update(key("q")))
+	// And the menu says so, rather than letting the key be a surprise.
+	if !strings.Contains(menu.View(), "q quit") {
+		t.Errorf("the menu footer does not offer the way out:\n%s", menu.View())
+	}
+}

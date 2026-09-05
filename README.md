@@ -111,10 +111,10 @@ modify the operator-controlled config or SSH files.
 | `!` | type a command to run on the host |
 | `a` | live panel: per-second CPU sparkline per container |
 | `r` | refresh everything now |
-| `q` | quit |
+| `q` | quit, from wherever you are |
 
 `c` and `x` open a menu — `j`/`k` to choose, `Enter` to run, `Esc` to back
-out — that shows the exact command before it runs. Service actions sit
+out, `q` to quit — that shows the exact command before it runs. Service actions sit
 behind one deliberately: no two keys in Linqode differ only by the shift
 key, so a mistyped capital can never stop a service you meant to start.
 
@@ -175,6 +175,10 @@ command when you close it.
 | `a` | toggle the live stats panel |
 | `t` | choose the field the stats panel counts |
 | `Esc` | back to the status view |
+| `q` | quit |
+
+While a search, a filter or a field name is being typed, every key types:
+`Esc` cancels the input, and `q` is a `q`.
 
 ## Documentation
 

@@ -154,7 +154,8 @@ func (m *Model) activeFooter() string {
 	if m.query != "" {
 		out += theme.Yellow.Render("  /" + m.query)
 	}
-	return out + theme.Dim.Render("  ·  / search · f filter · s json · a stats · t field · esc back")
+	return out + theme.Dim.Render(
+		"  ·  / search · f filter · s json · a stats · t field · esc back · q quit")
 }
 
 func levelStyle(level string) lipgloss.Style {

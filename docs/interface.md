@@ -137,12 +137,20 @@ into the system view, an event into the logs of the container it happened to.
 `esc` comes back up. One concept, three destinations, and each is the obvious
 next question about what has focus.
 
-**`esc` only ever goes up.** Out of a detail, a modal menu, or the `!` prompt,
-and on the home — where there is no level above — it does nothing at all.
-Leaving the application is `q`, and only `q`: a key that means "up one level"
-in three places must not also mean "throw this session away" in the fourth,
-where the two are one keystroke apart and only one of them can be undone. The
-footer offers `esc back` exactly where there is something to go back to.
+**`esc` only ever goes up, and `q` only ever leaves.** `esc` backs out of a
+detail, a modal menu, the `!` prompt or the log view, and on the home — where
+there is no level above — it does nothing at all. `q` quits from any of them.
+
+Neither key does the other's job, which is the whole rule. `esc` used to quit
+from the home, so in three places it meant "up one level" and in the fourth
+"throw this session away", one keystroke apart and only one of them undoable.
+`q` used to close a detail or a menu, which made it a second `esc` and left
+the footer's own `q quit` wrong in every view that had one open.
+
+The one exception is text: while the `!` prompt, a search, a filter or a field
+name is being typed, every key types, so `q` is a `q` and `esc` cancels the
+input rather than the view. A key being a character is self-evidently not a
+command, and it is the only place either rule bends.
 
 **Maximising a panel is a separate gesture and is deliberately unbound.**
 Opening a detail changes context; making a box full-screen changes layout

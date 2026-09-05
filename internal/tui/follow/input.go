@@ -27,9 +27,11 @@ func (m *Model) handleKey(key tea.KeyMsg) tea.Cmd {
 	}
 
 	switch key.String() {
-	case "q", "esc":
+	case "esc":
+		// Back to the screen this was opened from, never out of the
+		// application: that is `q`, here as everywhere else.
 		return func() tea.Msg { return CloseMsg{} }
-	case "ctrl+c":
+	case "q", "ctrl+c":
 		return tea.Quit
 	case "j", "down", "k", "up", "pgdown", "pgup", "g", "home", "G", "end":
 		m.handleNavigationKey(key.String())
