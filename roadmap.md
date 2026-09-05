@@ -408,11 +408,32 @@ what showed it:
 
 ### D. Events
 
-- **D1 — events panel.** One persistent `docker events --format json` stream
-  through the existing follow pipeline, rendered as the "what just happened"
-  feed: restarts, health transitions, OOM kills. Additive and low risk.
-- **D2 — event-driven refresh** _(gated on decision 3.1)_. `ps` re-runs on
-  change instead of on a timer, with a slow safety-net refresh.
+- **D1 — events panel** _(done, September 2026)_. The "what just happened"
+  feed — restarts, health transitions, OOM kills — rendered from the stream
+  B2 already runs, so it costs nothing new on the wire. Each line is read
+  rather than printed: an exit code of 137 is a container that was killed,
+  and once the row is gone that is not visible anywhere else on the screen.
+  `enter` on an event opens the logs of the container it happened to.
+
+  Three things it settled beyond itself:
+
+  - **How a satellite behaves.** In the focus ring but not always drawn,
+    fixed height, and the one that gives its rows back when the terminal
+    cannot hold both — the anchor never shrinks below what makes it a table.
+    Focus skips it while it is off the screen and leaves it if the terminal
+    shrinks under it. It is laid out whenever there is a stream at all, empty
+    or not: a panel that appeared the first time a container died would move
+    the table under the operator at the worst possible moment.
+  - **The daemon's timestamp, not the client's.** `{{.Time}}` costs eleven
+    bytes an event and removes a whole class of wrong: a link that stalls and
+    then delivers a burst is exactly when the feed is worth reading, and
+    client-side stamping would give every event in it the same wrong time.
+    Verified against a real daemon, like every other format detail here.
+  - **A selected row is drawn plain and then filled**, the way the table
+    already draws its own. A background laid over text that carries its own
+    colours ends wherever the first of them resets — which showed up as a
+    highlight bar the width of the timestamp.
+- **D2 — event-driven refresh** — absorbed into B2 (September 2026).
 
 ### E. Detail views with on-demand data
 

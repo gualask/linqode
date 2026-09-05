@@ -63,6 +63,7 @@ Four principles shape the design:
 | `internal/tui/home` | the home screen: header, layout, focus, footer, the modal menus, the `!` prompt, and the sampler that decides what is read off the host and how often. It owns the screen; a feature package owns only what is inside its own panel |
 | `internal/tui/status` | the services panel: the compose table, its columns, and the container readings behind them |
 | `internal/tui/system` | the machine: the header band, and the system view an `enter` on it opens |
+| `internal/tui/events` | the feed of what the daemon reported happening, fed by the stream the refresh already runs |
 | `internal/tui/follow` | the full-screen view for a log, action, script, or ad-hoc command |
 | `internal/tui/panel` | the chrome a focusable region wears: a titled box that occupies exactly the cells it was given, the focus tokens, and the footer hints |
 | `internal/tui/theme` | the visual tokens every view shares: named adaptive colors rather than the terminal's ANSI slots, so what an operator sees does not depend on their color scheme |
@@ -146,7 +147,33 @@ filtered server-side to the actions that change a row, re-reads the table as
 soon as something happens. The interval stays as a sixty-second safety net
 (see PROJECT.md, "The daemon is watched, not polled"). News arriving while a
 read is already in flight is remembered rather than dropped: that read
-answers a question older than the news, so another follows it. Output is parsed into
+answers a question older than the news, so another follows it.
+
+Those same events are also worth reading on their own, which is the **events
+panel**: a satellite under the table showing what the daemon reported, newest
+first, each line read for what it means rather than printed as the daemon
+wrote it — an exit code of 137 is a container that was killed, and that is
+not visible anywhere else on the screen once the row is gone. It answers the
+question a table structurally cannot: a table is a statement about now, and
+what an operator usually needs to know is *when* something happened and in
+what order. It costs nothing extra on the wire — the stream is already
+running for the refresh — which is the only reason it earns a place at all.
+Each event carries the daemon's own timestamp rather than the moment the line
+was read: normally the two differ by the drain interval, but a link that
+stalls and then delivers a burst is exactly when the feed is worth reading,
+and client-side stamping would give every event in that burst the same wrong
+time. `enter` on one opens the logs of the container it happened to, mapping
+the container back to its service through the list the table already holds.
+
+The panel is the first **satellite**, and it establishes how satellites
+behave: it is in the focus ring but not always on the screen, it has a fixed
+height, and it is what gives its rows back when the terminal is too short to
+hold both — the anchor never shrinks below what makes it a table. Focus skips
+it while it is not drawn, and leaves it if the terminal shrinks under it. It
+is also laid out whenever the session has a stream at all, empty or not: an
+empty feed says the daemon is being watched, which is worth knowing, and a
+panel that appeared the first time a container died would move the table
+under the operator at the worst possible moment. Output is parsed into
 typed service rows (both the NDJSON and the legacy array shape are
 accepted) and rendered as a table with state/health coloring. Selection is
 preserved on the same container across refreshes; a failed refresh shows

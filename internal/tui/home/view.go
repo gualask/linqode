@@ -11,7 +11,7 @@ import (
 )
 
 func (m *Model) View() string {
-	frame := layoutFor(m.width, m.height, m.system.HasBand())
+	frame := m.frame()
 
 	var b strings.Builder
 	b.WriteString(m.clip(m.title()) + "\n")
@@ -48,22 +48,38 @@ func (m *Model) title() string {
 	return b.String()
 }
 
-// body is the open detail, the anchor panel, or the modal that has taken the
-// screen from both.
+// body is the anchor panel with its satellite under it, or the detail or the
+// modal that has taken the screen from both.
+//
+// A detail and a menu take the *whole* body, the satellite's rows included.
+// Opening one changes what the screen is about, and leaving a feed running
+// alongside would be showing two contexts at once — which is the thing
+// panels exist to avoid.
 func (m *Model) body(frame frame) string {
+	whole := box{width: frame.body.width, height: frame.body.height + frame.events.height}
 	if m.menu != nil {
-		return m.renderMenu(frame.body.width, frame.body.height)
+		return m.renderMenu(whole.width, whole.height)
 	}
-	shown, focused := m.panels[m.anchor], m.anchor == m.focus
 	if m.detail != nil {
 		// A detail was asked for by name; it holds focus for as long as it
 		// is open.
-		shown, focused = m.detail, true
+		return m.panelBox(m.detail, whole, true)
 	}
-	content := frame.body.content()
+	rendered := m.panelBox(m.panels[m.anchor], frame.body, m.anchor == m.focus)
+	if frame.events.height > 0 {
+		rendered += "\n" + m.panelBox(m.panels[m.eventsIndex], frame.events,
+			m.eventsIndex == m.focus)
+	}
+	return rendered
+}
+
+// panelBox sizes a panel to the space it was given and draws its chrome
+// around it. The panel is told its content area, borders already subtracted,
+// so no feature package has to know what a border costs.
+func (m *Model) panelBox(shown panel.Panel, at box, focused bool) string {
+	content := at.content()
 	shown.SetSize(content.width, content.height)
-	return panel.Box(shown.Title(), shown.View(), focused,
-		frame.body.width, frame.body.height)
+	return panel.Box(shown.Title(), shown.View(), focused, at.width, at.height)
 }
 
 func (m *Model) footer() string {

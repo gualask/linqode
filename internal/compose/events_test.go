@@ -8,6 +8,7 @@ package compose
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestEventsCommandScopesToTheProject(t *testing.T) {
@@ -39,22 +40,31 @@ func TestEventsCommandNeedsAProject(t *testing.T) {
 }
 
 func TestParseEvent(t *testing.T) {
+	const restartedAt = 1788593169
 	cases := []struct {
 		line   string
 		want   Event
 		kind   string
 		detail string
 	}{
-		{line: "die|evtest-hc-1|137",
-			want: Event{Action: "die", Container: "evtest-hc-1", ExitCode: "137"},
+		{line: "1788593169|die|demo-web-1|137",
+			want: Event{At: time.Unix(restartedAt, 0), Action: "die",
+				Container: "demo-web-1", ExitCode: "137"},
 			kind: "die"},
-		{line: "start|evtest-hc-1|",
-			want: Event{Action: "start", Container: "evtest-hc-1"},
+		{line: "1788593169|start|demo-web-1|",
+			want: Event{At: time.Unix(restartedAt, 0), Action: "start",
+				Container: "demo-web-1"},
 			kind: "start"},
-		{line: "health_status: healthy|evtest-hc-1|",
-			want:   Event{Action: "health_status: healthy", Container: "evtest-hc-1"},
+		{line: "1788593170|health_status: healthy|demo-web-1|",
+			want: Event{At: time.Unix(restartedAt+1, 0),
+				Action: "health_status: healthy", Container: "demo-web-1"},
 			kind:   "health_status",
 			detail: "healthy"},
+		// A daemon that did not give a time still reported an event; the
+		// caller fills the gap with when it read the line.
+		{line: "|start|demo-web-1|",
+			want: Event{Action: "start", Container: "demo-web-1"},
+			kind: "start"},
 	}
 	for _, test := range cases {
 		got, ok := ParseEvent(test.line)
@@ -73,7 +83,8 @@ func TestParseEvent(t *testing.T) {
 // The daemon writes warnings to the same stream; a line that is not an event
 // must not become one with empty fields.
 func TestParseEventRejectsWhatIsNotAnEvent(t *testing.T) {
-	for _, line := range []string{"", "   ", "no separator here", "|missing-action", "die|"} {
+	for _, line := range []string{"", "   ", "no separator here",
+		"1788593169||demo-web-1|", "1788593169|die|", "die|demo-web-1|137"} {
 		if event, ok := ParseEvent(line); ok {
 			t.Errorf("ParseEvent(%q) accepted it as %+v", line, event)
 		}

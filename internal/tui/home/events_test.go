@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/operations"
 	"github.com/gualask/linqode/internal/tui/status"
@@ -53,6 +55,7 @@ func watched(t *testing.T, stream *watchStream) (*Model, *int) {
 			return stream.feed(), nil
 		},
 	}, status.New(status.Config{}))
+	screen.SetSize(120, 30)
 	applyScreen(screen, screen.sampler.due())
 	if screen.watch == nil {
 		t.Fatal("the stream was not opened after the first service list")
@@ -174,5 +177,98 @@ func TestTheStreamDrainsWhileAnotherViewIsOnScreen(t *testing.T) {
 	cmd, handled := screen.UpdateBackground(watchTickMsg{})
 	if !handled || cmd == nil {
 		t.Fatal("the stream stopped draining behind another view")
+	}
+}
+
+// The stream already runs for the refresh; the feed panel is what the same
+// events are worth on their own, which is the question a table cannot
+// answer — not what is running now, but what happened a minute ago.
+func TestTheFeedRecordsWhatTheStreamReported(t *testing.T) {
+	stream := newWatchStream()
+	screen, _ := watched(t, stream)
+
+	if !strings.Contains(screen.View(), "events") {
+		t.Errorf("no feed panel on a session that is watching:\n%s", screen.View())
+	}
+
+	stream.change("app-web-1")
+	applyScreen(screen, screen.handleWatchTick())
+
+	view := screen.View()
+	// Named the way the table names it, and read for what the exit code
+	// means rather than printed as a number nobody has to decode.
+	for _, want := range []string{"web", "killed (137)"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the feed does not show %q:\n%s", want, view)
+		}
+	}
+}
+
+// `enter` descends one level on whatever has focus. On an event that is the
+// logs of the container it happened to.
+func TestEnterOnAnEventOpensThatContainersLogs(t *testing.T) {
+	stream := newWatchStream()
+	screen, _ := watched(t, stream)
+	stream.change("app-web-1")
+	applyScreen(screen, screen.handleWatchTick())
+
+	// The ring is band, table, feed, and focus starts on the table.
+	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if screen.focus != screen.eventsIndex {
+		t.Fatalf("tab did not reach the feed: focus is %d", screen.focus)
+	}
+
+	cmd := screen.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter on an event opened nothing")
+	}
+	msg, ok := cmd().(OpenLogsMsg)
+	if !ok {
+		t.Fatalf("enter produced %T, want a request to open logs", cmd())
+	}
+	// The daemon reports the container; the logs are asked for by service.
+	if msg.Service != "web" {
+		t.Errorf("opened %q, want the service behind app-web-1", msg.Service)
+	}
+}
+
+// A terminal too short for both loses the satellite, and focus must not be
+// left pointing at a panel nobody can see.
+func TestFocusLeavesTheFeedWhenTheTerminalLosesIt(t *testing.T) {
+	stream := newWatchStream()
+	screen, _ := watched(t, stream)
+
+	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if screen.focus != screen.eventsIndex {
+		t.Fatalf("tab did not reach the feed: focus is %d", screen.focus)
+	}
+
+	screen.SetSize(120, 12)
+	if screen.focus == screen.eventsIndex {
+		t.Error("focus stayed on a panel the terminal no longer draws")
+	}
+	if strings.Contains(screen.View(), "─ events") {
+		t.Errorf("the feed was drawn on a terminal with no room for it:\n%s", screen.View())
+	}
+	// And tab must not walk back onto it.
+	for range 4 {
+		screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+		if screen.focus == screen.eventsIndex {
+			t.Fatal("tab landed on the feed while it is off the screen")
+		}
+	}
+}
+
+// A session with no stream has no feed panel at all: the rows belong to the
+// table rather than to an empty box that will never fill.
+func TestNoFeedPanelWithoutAStream(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 120, height: 30,
+		services: serviceList("web")})
+	sampleAll(screen)
+	if screen.eventsIndex != -1 {
+		t.Error("a feed panel joined the ring with nothing to feed it")
+	}
+	if strings.Contains(screen.View(), "─ events") {
+		t.Errorf("a feed panel was drawn:\n%s", screen.View())
 	}
 }

@@ -8,7 +8,11 @@ package compose
 // Linqode open drops to the stream itself; a container that dies is on screen
 // as soon as the daemon says so, rather than within the next interval.
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+	"time"
+)
 
 // watchedActions are the events worth re-reading the table for. Everything
 // else the daemon reports is either about another kind of object or about
@@ -26,10 +30,16 @@ var watchedActions = []string{
 	"pause", "unpause", "rename", "update", "oom", "health_status",
 }
 
-// eventFormat keeps each event to about thirty bytes: the action, the
-// container it happened to, and its exit code when it has one. The default
-// `{{json .}}` carries every compose label the container was created with,
-// which is a kilobyte per event to say "web restarted".
+// eventFormat keeps each event to about forty bytes: when it happened, the
+// action, the container it happened to, and its exit code when it has one.
+// The default `{{json .}}` carries every compose label the container was
+// created with, which is a kilobyte per event to say "web restarted".
+//
+// The time is the daemon's own rather than the moment the line was read.
+// Normally the two differ by the drain interval and nothing else — but a link
+// that stalls and then delivers a burst is exactly when the feed is worth
+// reading, and client-side stamping would give every event in that burst the
+// same wrong time.
 //
 // Two details, both measured rather than assumed. `index` rather than a field
 // lookup, because a missing attribute yields the zero value instead of the
@@ -40,7 +50,8 @@ var watchedActions = []string{
 // restricted to word characters, and the actions are the daemon's own.
 const eventSeparator = "|"
 
-const eventFormat = `{{.Action}}` + eventSeparator +
+const eventFormat = `{{.Time}}` + eventSeparator +
+	`{{.Action}}` + eventSeparator +
 	`{{index .Actor.Attributes "name"}}` + eventSeparator +
 	`{{index .Actor.Attributes "exitCode"}}`
 
@@ -65,6 +76,8 @@ func EventsCommand(project string) string {
 
 // Event is one change the daemon reported.
 type Event struct {
+	// At is when the daemon says it happened, zero when it did not say.
+	At time.Time
 	// Action is what happened: `start`, `die`, or a compound the daemon
 	// writes with its detail attached, such as `health_status: healthy`.
 	Action string
@@ -80,14 +93,27 @@ type Event struct {
 // ParseEvent reads one line of EventsCommand output. A line that is not an
 // event — a warning the daemon wrote to stdout, a blank — is reported as not
 // ok rather than as an empty event.
+//
+// A *missing* timestamp is not one of those: the event still happened, and a
+// zero time is something the caller can fill in with the moment it read the
+// line. A timestamp that is there but is not a number is a different thing —
+// it means the line is not in this format at all, and reading it anyway
+// would silently shift every field one to the left.
 func ParseEvent(line string) (Event, bool) {
 	fields := strings.Split(strings.TrimRight(line, "\r\n"), eventSeparator)
-	if len(fields) < 2 || fields[0] == "" || fields[1] == "" {
+	if len(fields) < 3 || fields[1] == "" || fields[2] == "" {
 		return Event{}, false
 	}
-	event := Event{Action: strings.TrimSpace(fields[0]), Container: fields[1]}
-	if len(fields) > 2 {
-		event.ExitCode = strings.TrimSpace(fields[2])
+	event := Event{Action: strings.TrimSpace(fields[1]), Container: fields[2]}
+	if stamp := strings.TrimSpace(fields[0]); stamp != "" {
+		seconds, err := strconv.ParseInt(stamp, 10, 64)
+		if err != nil {
+			return Event{}, false
+		}
+		event.At = time.Unix(seconds, 0)
+	}
+	if len(fields) > 3 {
+		event.ExitCode = strings.TrimSpace(fields[3])
 	}
 	return event, true
 }

@@ -36,6 +36,7 @@ import (
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
+	"github.com/gualask/linqode/internal/operations"
 	"github.com/gualask/linqode/internal/tui/status"
 )
 
@@ -281,23 +282,23 @@ func shotWave(round int) float64 {
 func shotServices() []compose.Service {
 	count := func(n int) *int { return &n }
 	return []compose.Service{
-		{Service: "nginx", Name: "myapp-nginx-1", ID: "id-nginx", Pid: 100,
+		{Service: "nginx", Name: "myapp-nginx-1", ID: "id-nginx", Pid: 100, Project: "myapp",
 			State: "running", Health: "healthy",
 			Status: "Up 3 days (healthy)", Restarts: count(0),
 			Publishers: []compose.Publisher{{PublishedPort: 443, TargetPort: 443, Protocol: "tcp"}}},
-		{Service: "api", Name: "myapp-api-1", ID: "id-api", Pid: 101,
+		{Service: "api", Name: "myapp-api-1", ID: "id-api", Pid: 101, Project: "myapp",
 			State: "running", Health: "healthy",
 			Status: "Up 3 days (healthy)", Restarts: count(2),
 			Publishers: []compose.Publisher{{PublishedPort: 8080, TargetPort: 3000, Protocol: "tcp"}}},
-		{Service: "postgres", Name: "myapp-postgres-1", ID: "id-postgres", Pid: 102,
+		{Service: "postgres", Name: "myapp-postgres-1", ID: "id-postgres", Pid: 102, Project: "myapp",
 			State: "running", Health: "starting",
 			Status: "Up 4 seconds (health: starting)", Restarts: count(0)},
-		{Service: "cache", Name: "myapp-cache-1", ID: "id-cache", Pid: 103,
+		{Service: "cache", Name: "myapp-cache-1", ID: "id-cache", Pid: 103, Project: "myapp",
 			State: "running", Health: "unhealthy",
 			Status: "Up 2 hours (unhealthy)", Restarts: count(0)},
-		{Service: "migrate", Name: "myapp-migrate-1", State: "exited",
+		{Service: "migrate", Name: "myapp-migrate-1", Project: "myapp", State: "exited",
 			Status: "Exited (0) 3 days ago", Restarts: count(0)},
-		{Service: "worker", Name: "myapp-worker-1", State: "restarting",
+		{Service: "worker", Name: "myapp-worker-1", Project: "myapp", State: "restarting",
 			Status: "Restarting (137) 12 seconds ago", Restarts: count(7)},
 	}
 }
@@ -344,10 +345,14 @@ func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 	panel := status.New(status.Config{Stats: true, LiveStats: true})
 	round, hostRound := 0, 0
 	failing := false
+	stream := make(chan operations.Event, 32)
 	config := Config{
 		Target:     "deploy@app-prod-01",
 		ComposeDir: "/srv/myapp",
 		Services:   func() ([]compose.Service, error) { return shotServices(), nil },
+		Watch: func(string) (operations.Feed, error) {
+			return operations.Feed{Events: stream, Stop: func() {}}, nil
+		},
 		Stats: func([]compose.Service) (compose.CgroupSample, error) {
 			round++
 			return shotCgroups(round), nil
@@ -376,7 +381,27 @@ func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 		failing = true
 		resample(screen)
 	}
+	for _, event := range shotEvents() {
+		stream <- operations.Event{Kind: operations.EventChange, Change: event}
+	}
+	applyScreen(screen, screen.handleWatchTick())
 	return screen
+}
+
+// shotEvents is a minute in the life of a deployment going wrong, oldest
+// first: the worker runs out of memory, is killed, comes back, and the cache
+// fails its health check. Every colour the feed can draw is in here.
+func shotEvents() []compose.Event {
+	start := time.Date(2026, 9, 5, 12, 3, 14, 0, time.UTC)
+	at := func(seconds int) time.Time { return start.Add(time.Duration(seconds) * time.Second) }
+	return []compose.Event{
+		{At: at(0), Action: "health_status: healthy", Container: "myapp-api-1"},
+		{At: at(19), Action: "oom", Container: "myapp-worker-1"},
+		{At: at(19), Action: "die", Container: "myapp-worker-1", ExitCode: "137"},
+		{At: at(21), Action: "start", Container: "myapp-worker-1"},
+		{At: at(38), Action: "health_status: unhealthy", Container: "myapp-cache-1"},
+		{At: at(44), Action: "die", Container: "myapp-migrate-1", ExitCode: "0"},
+	}
 }
 
 func TestUIShot(t *testing.T) {
@@ -396,14 +421,20 @@ func TestUIShot(t *testing.T) {
 	// which is the whole point of the ring having two stops.
 	onBand := shotScreen(150, 20, true, nil)
 	onBand.Update(key("j"))
-	onBand.Update(tea.KeyMsg{Type: tea.KeyTab})
+	onBand.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 
 	systemView := shotScreen(150, 20, true, nil)
-	systemView.Update(tea.KeyMsg{Type: tea.KeyTab})
+	systemView.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	systemView.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
+	onFeed := shotScreen(150, 24, true, nil)
+	onFeed.Update(tea.KeyMsg{Type: tea.KeyTab})
+	onFeed.Update(key("j"))
+
+	short := shotScreen(150, 14, true, nil)
+
 	narrowSystem := shotScreen(100, 20, true, nil)
-	narrowSystem.Update(tea.KeyMsg{Type: tea.KeyTab})
+	narrowSystem.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	narrowSystem.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	narrow := shotScreen(100, 20, true, nil)
@@ -418,6 +449,9 @@ func TestUIShot(t *testing.T) {
 			Text: onBand.View()},
 		{Name: "150 columns — the system view, opened with enter on the band",
 			Text: systemView.View()},
+		{Name: "150x24 — focus on the feed, second event selected", Text: onFeed.View()},
+		{Name: "150x14 — too short for both: the satellite gives its rows back",
+			Text: short.View()},
 		{Name: "100 columns — the system view, where the rows have to give something up",
 			Text: narrowSystem.View()},
 		{Name: "100 columns — I/O columns dropped, gap narrowed", Text: narrow.View()},

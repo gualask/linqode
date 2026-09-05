@@ -71,6 +71,7 @@ func (m *Model) applyWatchFeed(msg watchFeedMsg) tea.Cmd {
 	}
 	feed := msg.feed
 	m.watch = &feed
+	m.events.SetWatching(true)
 	m.sampler.setInterval(sourceServices, servicesWatched)
 	return watchTick()
 }
@@ -86,6 +87,11 @@ func (m *Model) drainWatch() (changed bool, ended bool) {
 			switch event.Kind {
 			case operations.EventChange:
 				changed = true
+				// The same event does two things: it says the table is out
+				// of date, and it is itself worth reading. The second is
+				// what the feed panel is for, and it costs nothing extra —
+				// the stream is already running for the first.
+				m.events.Add(event.Change, time.Now())
 			case operations.EventExit:
 				return changed, true
 			}
@@ -128,5 +134,10 @@ func (m *Model) stopWatching() {
 		m.watch = nil
 	}
 	m.watchStarting = false
+	if m.events != nil {
+		// The feed keeps what it caught: those events still happened, and
+		// an empty panel would say the opposite.
+		m.events.SetWatching(false)
+	}
 	m.sampler.setInterval(sourceServices, servicesRefresh)
 }

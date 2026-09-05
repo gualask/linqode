@@ -82,6 +82,16 @@ collect:
 					if strings.Contains(change.Container, "noise") {
 						t.Errorf("an event from outside the project reached the client: %q", line)
 					}
+					// The time is the daemon's own. Only a real daemon can
+					// say whether `{{.Time}}` is a field it fills in, and
+					// with what — the last format detail that looked
+					// obvious cost an afternoon (`\t`, which docker prints
+					// as two characters).
+					if change.At.IsZero() {
+						t.Errorf("the daemon reported no time for %q", line)
+					} else if drift := time.Since(change.At); drift < -time.Minute || drift > time.Minute {
+						t.Errorf("event %q is stamped %v away from now", line, drift)
+					}
 					if !strings.Contains(change.Container, "web") {
 						continue
 					}

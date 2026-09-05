@@ -16,8 +16,8 @@ import (
 )
 
 func TestLayoutGivesTheBandItsRowOnlyWhenThereIsASample(t *testing.T) {
-	withBand := layoutFor(100, 24, true)
-	without := layoutFor(100, 24, false)
+	withBand := layoutFor(100, 24, true, false)
+	without := layoutFor(100, 24, false, false)
 	if !withBand.band {
 		t.Error("layout dropped the band although there is a sample")
 	}
@@ -31,15 +31,58 @@ func TestLayoutGivesTheBandItsRowOnlyWhenThereIsASample(t *testing.T) {
 func TestLayoutSpendsEveryRow(t *testing.T) {
 	for _, height := range []int{8, 24, 60} {
 		for _, band := range []bool{false, true} {
-			frame := layoutFor(100, height, band)
-			header := titleLines + blankLines
-			if band {
-				header++
-			}
-			if got := header + frame.body.height + footerLine; got != height {
-				t.Errorf("band=%v at %d rows: parts add up to %d", band, height, got)
+			for _, events := range []bool{false, true} {
+				frame := layoutFor(100, height, band, events)
+				header := titleLines + blankLines
+				if band {
+					header++
+				}
+				got := header + frame.body.height + frame.events.height + footerLine
+				if got != height {
+					t.Errorf("band=%v events=%v at %d rows: parts add up to %d",
+						band, events, height, got)
+				}
 			}
 		}
+	}
+}
+
+// The satellite is what gives way. The table is the anchor and never shrinks
+// below what makes it a table; the feed takes its rows back when the terminal
+// cannot hold both.
+func TestTheSatelliteYieldsBeforeTheAnchor(t *testing.T) {
+	roomy := layoutFor(100, 30, true, true)
+	if roomy.events.height != eventsBox {
+		t.Errorf("the feed got %d rows at 30, want %d", roomy.events.height, eventsBox)
+	}
+	if roomy.body.height < anchorFloor {
+		t.Errorf("the table was squeezed to %d rows", roomy.body.height)
+	}
+
+	// Somewhere on the way down the feed has to disappear rather than take
+	// the table below its floor.
+	for height := 30; height >= 6; height-- {
+		frame := layoutFor(100, height, true, true)
+		if frame.events.height > 0 && frame.body.height < anchorFloor {
+			t.Fatalf("at %d rows the table was cut to %d to keep the feed",
+				height, frame.body.height)
+		}
+	}
+	if frame := layoutFor(100, 12, true, true); frame.events.height != 0 {
+		t.Errorf("the feed kept %d rows on a terminal too short for both",
+			frame.events.height)
+	}
+}
+
+// A session with no stream has no feed panel, and its rows belong to the
+// table rather than being reserved for something that will never arrive.
+func TestNoRowsReservedForAFeedThatIsNotThere(t *testing.T) {
+	frame := layoutFor(100, 30, true, false)
+	if frame.events.height != 0 {
+		t.Errorf("a feed panel was laid out with nothing to feed it: %+v", frame.events)
+	}
+	if frame.body.height != layoutFor(100, 30, true, true).body.height+eventsBox {
+		t.Error("the feed's rows did not go back to the table")
 	}
 }
 
@@ -47,7 +90,7 @@ func TestLayoutSpendsEveryRow(t *testing.T) {
 // than a negative one that would panic on the way to being rendered.
 func TestLayoutNeverReturnsANegativeBody(t *testing.T) {
 	for _, height := range []int{1, 2, 3, 4} {
-		if got := layoutFor(80, height, true).body.height; got < 0 {
+		if got := layoutFor(80, height, true, false).body.height; got < 0 {
 			t.Errorf("at %d rows the body is %d", height, got)
 		}
 	}
@@ -56,7 +99,7 @@ func TestLayoutNeverReturnsANegativeBody(t *testing.T) {
 // Before the first WindowSizeMsg nothing is known, and the views render
 // unbounded rather than to a guessed size.
 func TestLayoutAtUnknownSize(t *testing.T) {
-	frame := layoutFor(0, 0, true)
+	frame := layoutFor(0, 0, true, false)
 	if frame.body.width != 0 || frame.body.height != 0 {
 		t.Errorf("unknown size produced a body of %+v", frame.body)
 	}
@@ -199,7 +242,7 @@ func TestNoHostFetchNoBand(t *testing.T) {
 	if cmd := screen.sampler.read(sourceHost); cmd != nil {
 		t.Error("a sample was taken with no fetch configured")
 	}
-	if layoutFor(100, 24, screen.system.HasBand()).band {
+	if layoutFor(100, 24, screen.system.HasBand(), false).band {
 		t.Error("the header reserved a row for a band that cannot exist")
 	}
 }

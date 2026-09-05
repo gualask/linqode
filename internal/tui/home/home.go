@@ -9,10 +9,13 @@
 // editing a screen.
 //
 // The gestures are two. `tab` moves focus between panels; `enter` descends
-// one level on whichever has it — into a service's logs from the table, and
-// (from A3 on) into the system view from the host band. Nothing here
-// maximises a panel: opening a detail changes context, and with a single box
-// on the home a layout gesture would buy nothing.
+// one level on whichever has it — into a service's logs from the table, into
+// the system view from the host band, into the logs of the container an
+// event happened to from the feed. Nothing here maximises a panel: opening a
+// detail changes context, where a layout gesture would only change layout.
+//
+// The table is the anchor and fills the body; anything else is a satellite,
+// which is the thing that gives up its rows when the terminal runs short.
 package home
 
 import (
@@ -23,6 +26,7 @@ import (
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/operations"
+	"github.com/gualask/linqode/internal/tui/events"
 	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/status"
 	"github.com/gualask/linqode/internal/tui/system"
@@ -110,8 +114,16 @@ type Model struct {
 	// system is the machine itself: the header band, and the view an `enter`
 	// on it opens.
 	system *system.Model
+	// events is the feed of what the daemon reported, nil when this session
+	// has no stream to fill it.
+	events *events.Model
 
 	panels []panel.Panel
+	// eventsIndex is where the feed sits in the ring, -1 when there is none.
+	// The panel is in the ring but not always on screen: a short terminal
+	// gives its rows back to the table, and focus has to skip what is not
+	// drawn.
+	eventsIndex int
 	// anchor is the panel that fills the body; focus is the one the keys are
 	// talking to, which is not the same thing — the band takes focus without
 	// ever leaving the header.
@@ -175,6 +187,12 @@ func New(config Config, services *status.Model) *Model {
 	// the band is what an operator reads, the table is what they act on.
 	m.panels = []panel.Panel{m.system, services}
 	m.anchor, m.focus = 1, 1
+	m.eventsIndex = -1
+	if config.Watch != nil {
+		m.events = events.New()
+		m.panels = append(m.panels, m.events)
+		m.eventsIndex = len(m.panels) - 1
+	}
 	m.applyFocus()
 	return m
 }
@@ -208,8 +226,29 @@ func (m *Model) applyFocus() {
 }
 
 func (m *Model) moveFocus(delta int) {
-	m.focus = (m.focus + delta + len(m.panels)) % len(m.panels)
+	for range len(m.panels) {
+		m.focus = (m.focus + delta + len(m.panels)) % len(m.panels)
+		if m.onScreen(m.focus) {
+			break
+		}
+	}
 	m.applyFocus()
+}
+
+// onScreen reports whether a panel is currently drawn. Only the satellite
+// can fail to be: it is the one that gives up its rows on a short terminal,
+// and focus must not land on a panel nobody can see.
+func (m *Model) onScreen(index int) bool {
+	if index != m.eventsIndex {
+		return true
+	}
+	return m.frame().events.height > 0
+}
+
+// frame is the current layout, computed from the same inputs the rendering
+// uses so the two can never disagree about what is on screen.
+func (m *Model) frame() frame {
+	return layoutFor(m.width, m.height, m.system.HasBand(), m.events != nil)
 }
 
 // SetSize records the terminal. The panels are sized at render time instead,
@@ -217,6 +256,11 @@ func (m *Model) moveFocus(delta int) {
 // how much room a panel was given.
 func (m *Model) SetSize(width, height int) {
 	m.width, m.height = width, height
+	// A terminal that shrank far enough took the satellite off the screen
+	// with it; focus cannot stay on a panel that is no longer drawn.
+	if !m.onScreen(m.focus) {
+		m.moveFocus(-1)
+	}
 }
 
 // SetError shows a failure the screen itself learned about — starting a feed,
@@ -280,6 +324,11 @@ func (m *Model) applySample(msg tea.Msg) tea.Cmd {
 		m.sampler.finished(sourceServices)
 		if msg.err == nil {
 			m.containers = msg.services
+			if m.events != nil {
+				// The feed names containers the way the table does, and
+				// opens the right logs, from the same list.
+				m.events.SetServices(msg.services)
+			}
 			if len(msg.services) > 0 {
 				m.project = msg.services[0].Project
 			}
@@ -346,20 +395,31 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // open descends one level on the focused panel: from the table into the
-// selected service's logs, from the band into the system view. Everything a
-// later phase measures about the machine lands in that view rather than in
-// another box on the home.
+// selected service's logs, from the band into the system view, from an event
+// into the logs of the container it happened to. One gesture, three
+// destinations, and each of them is the obvious next question about what has
+// focus.
 func (m *Model) open() tea.Cmd {
-	if m.focus != m.anchor {
+	switch m.focus {
+	case m.anchor:
+		if service, ok := m.services.SelectedService(); ok {
+			return openLogs(service)
+		}
+	case m.eventsIndex:
+		// An event about a container the project no longer has — one that
+		// was destroyed — has no logs to open.
+		if service, ok := m.events.SelectedService(); ok {
+			return openLogs(service)
+		}
+	default:
 		if m.system.HasBand() {
 			m.detail = m.system
 		}
-		return nil
 	}
-	service, ok := m.services.SelectedService()
-	if !ok {
-		return nil
-	}
+	return nil
+}
+
+func openLogs(service string) tea.Cmd {
 	return openRequest(OpenLogsMsg{Title: "logs: " + service, Service: service})
 }
 
