@@ -17,8 +17,9 @@ package host
 // gate: read while the system view is open, and never otherwise.
 //
 // Both vendors are asked in one exec, and the NVIDIA half is guarded by
-// `command -v`. A host without the driver pays a shell builtin, which is what
-// the roadmap wanted a connect-time probe for and gets without the state.
+// `command -v`. A host without the driver pays a shell builtin, which buys
+// what a connect-time probe would have bought without the state it would
+// have cost.
 
 import (
 	"strconv"

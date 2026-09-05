@@ -1,11 +1,15 @@
 # Linqode — Project Document
 
-_Last updated: 2026-08-08_
+_Last updated: 2026-09-05._
 
-Vision, scope, settled decisions, and roadmap. How the system works is in
-[architecture.md](architecture.md); testing in [tests.md](tests.md); the Go
-porting plan in [porting.md](porting.md); user setup (install, configuration,
-keys) in the top-level [README](../README.md).
+Vision, scope, settled decisions, and roadmap. How the system works is
+documented by capability — the codebase's shape in
+[architecture.md](architecture.md), what is read off a host in
+[monitoring.md](monitoring.md), the screen in [interface.md](interface.md),
+what the tool does to a host in [operations.md](operations.md). Testing is
+[tests.md](tests.md); the Go porting plan is [porting.md](porting.md); user
+setup (install, configuration, keys) is the top-level
+[README](../README.md).
 
 ## Vision
 
@@ -54,7 +58,11 @@ to surface problems immediately.
 - Kubernetes, Swarm, Podman.
 - Multi-host dashboards / fleet management (single host per session first).
 - A server-side agent or daemon of any kind.
-- Metrics collection beyond what `docker compose ps` / `docker stats` provide.
+- Retention: nothing is kept once the session ends. History while nobody is
+  connected, alerting, and fleet are what an agent would buy, and all three
+  are out.
+- Acting on the host beyond the compose lifecycle and the operator's own
+  configured scripts — see "The mutation surface stays narrow" below.
 
 ## Decided policies
 
@@ -106,117 +114,47 @@ These decisions are settled — do not re-litigate them when implementing:
   `j`/`k`, `g`/`G`, `n`/`N` are vim and less conventions users already
   have in their fingers, and getting one wrong moves the cursor, not a
   service.
-- **Dashboard cost budget** _(measured 2026-08-01; reproduce with
-  `go test -tags e2e ./tests/e2e/ -run TestRemoteCommandCost -cost.measure`)_.
-  Round-trip cost of the status view's candidate commands, against the e2e
-  fixture:
+- **A server pays rent for what is on screen, and by the second only while
+  someone is watching** _(measured 2026-08-01, extended through 2026-09-05)_.
+  Every reading sits on one of three tiers — event-driven, always-on, or read
+  only while the view that shows it is open — and which tier it sits on is
+  decided by a measurement, not by intuition. The tiers, the numbers, and the
+  reasoning behind each placement are in [monitoring.md](monitoring.md).
 
-  | Command | 4 containers | 30 containers |
-  | ------- | ------------ | ------------- |
-  | exec overhead (`true`) | 1 ms | 1 ms |
-  | host metrics (`/proc` + `df -Pk`) | 6 ms, 2.8 KB | — |
-  | container cgroups (`/sys/fs/cgroup` + `/proc/<pid>/net/dev`) | 6 ms | — |
-  | process table (`/proc/<pid>/stat`, on demand) | 3 ms, 200 B per process | — |
-  | `docker system df` (on demand) | 65 ms | — |
-  | graphics cards (on demand, no card here) | 2 ms | — |
-  | `compose ps --all --format json` | 64 ms | 60 ms |
-  | `docker stats --no-stream` | 2.01 s | 2.07 s |
-
-  _(host metrics re-measured 2026-09-05, cgroups 2026-09-04, the others
-  2026-08-01. All against the loopback fixture, which is why they say what a
-  command costs on the server and nothing about what a real link adds — see
-  the sampler's stretch rule.)_
-
-  Host metrics therefore belong in the automatic refresh: their cost is
-  noise beside the `ps` already being paid, so they are always on
-  (`host_metrics = false` opts out for hosts where even that is unwelcome).
-  Temperatures joined that batch in September 2026 for no measurable cost:
-  neither the fixture nor the VM under it exposes a sensor, so the globs match
-  nothing there. On a host that does have them the cost scales with the number
-  of chips rather than the number of cores, by reading only each chip's
-  principal sensor — which is the difference between a handful of lines and
-  one per core.
-  The 6 ms is the whole batch — load, uptime, memory and swap, per-core CPU,
-  every interface, pressure, and both `df`s — after phase C widened it from
-  four readings to nine _(2026-09-05; the earlier 2 ms in this table measured
-  a stand-in command, not the one the tool runs)_. That is the point of the
-  marker batch: a reading added to it costs no round trip, only bytes, which
-  is why the list is longer than a per-command budget would allow.
-
-  `docker stats` is not on that path any more _(revised 2026-09-04)_. Its
-  ~2 s is fixed sampling latency — the daemon reads each container's cgroups
-  twice, a second apart, to compute CPU% — so it can never be made quick.
-  **The TUI reads the same cgroups itself**, at 6 ms, because the second
-  reading is the previous sample, which the client already has. Everything
-  needed is world-readable: the cgroup files, and `/proc/<pid>/net/dev` for
-  the network counters, whose pids come from the `docker inspect` the refresh
-  already runs. Two modes follow:
-
-  - **Sampled**, always on: the cgroup counters every **5 s**, behind the
-    table's CPU, MEM, NET RX/TX and IO R/W columns. The interval is now what
-    an operator can use rather than what the server can bear, and five
-    seconds means the first CPU percentage — which needs two readings to
-    exist at all — arrives while they are still looking.
-  - **Live**, on request (`a`): `docker stats` in its streaming form, a
-    sample per second, for as long as the panel is open. Streaming is the
-    one form where docker's own sampling is not a tax, and it stays the
-    source of the sparklines. The sampled source stands down while it runs,
-    and the remote command is terminated when it closes.
-
-  `docker stats --no-stream` remains the machine interface's one-shot: an
-  agent asking once for a JSON reading is not holding a dashboard open, and
-  a single answer that needs no previous reading is worth two seconds to it.
-
-  The rule this encodes: **a server pays a small fixed rent for what is on
-  screen, and pays by the second only while someone is watching**.
-
-  The process table is the first reading that takes that rule literally
-  _(2026-09-05)_. It is cheap in time and expensive in bytes — 200 per
-  process, so 20 KB on an ordinary host and 80 KB on a busy one — which is
-  far too much to pay every few seconds for a screen nobody is looking at.
-  So it is **never read on the home at all**: the sampler's gate keeps it to
-  the system view, it is read the moment that view opens, and it stops when
-  the view closes. That is the on-demand tier the panel model was built for,
-  and where every later reading of the same shape belongs.
-
-  The graphics reading is on that gate too, and for a reason worth writing
-  down _(2026-09-05)_. AMD puts everything in sysfs and costs what any other
-  `/sys` read costs; NVIDIA puts nothing usable there and everything behind
-  `nvidia-smi`, which is not a file read — it initialises a driver context,
-  typically hundreds of milliseconds and worse with persistence mode off. One
-  slow vendor is enough to keep the whole reading off the tier that runs every
-  five seconds whether or not anyone is looking. Both are asked in one exec,
-  with the NVIDIA half behind `command -v`, so a host without the driver pays
-  a shell builtin: 2 ms and 16 bytes, measured. What a host *with* a card pays
-  is not measurable from here and is not claimed.
-
-  `docker system df` is on the same gate at a much slower cadence. Its 65 ms
-  here is not what it costs on a real host: the fixture holds two images and
-  no build cache, and what the daemon spends answering is the walk over the
-  ones it does have. It is the one reading in the plan whose cost the fixture
-  cannot demonstrate, which is why it is on the on-demand tier rather than
-  measured onto a faster one.
+  Two rules that follow and are not negotiable: **no reading joins the
+  always-on tier without being measured**, and a measurement over the loopback
+  fixture says what a command costs *on the server* and nothing about what a
+  real link adds.
 
 - **The daemon is watched, not polled** _(decided 2026-09-04)_. The service
   list is re-read when `docker events` says something changed, not on a
-  five-second timer: an idle deployment costs nothing to keep on screen, and
-  a container that dies appears as soon as it dies rather than within the
-  next interval. Three things make this a policy rather than an optimisation:
+  five-second timer: an idle deployment costs nothing to keep on screen, and a
+  container that dies appears as soon as it dies. The stream is filtered on
+  the server, the timer steps back to a sixty-second safety net rather than
+  away, and watching is an optimisation rather than a capability — a daemon
+  that refuses the stream leaves the screen on its timer and says nothing.
+  Written up in [monitoring.md](monitoring.md).
 
-  - The stream is **filtered on the server**, by project label and by an
-    explicit list of actions. Health checks emit `exec_create`, `exec_start`
-    and `exec_die` for every probe of every container — measured at thirty of
-    thirty-seven events in ten seconds against a single container probing
-    every two seconds — so an unfiltered stream would cost more bandwidth on
-    an idle project than the polling it replaces. The project label is what
-    keeps another tenant's containers on a shared host out of this session.
-  - The timer **steps back rather than away**: while the stream is up the
-    service list still refreshes every sixty seconds, for what no event
-    describes and for a stream that stopped delivering without saying so.
-    Losing the stream restores the short interval.
-  - Watching is an **optimisation, not a capability**. A daemon that refuses
-    the stream leaves the screen on its timer and says nothing: there is
-    nothing an operator could do about it.
+- **Agentless, and root is not needed** _(reconsidered and kept, September
+  2026)_. Linqode monitors when the operator wants to monitor and helps them
+  investigate the host; it is not a monitoring system. The alternatives — a
+  tool installed on the server, an agent, a tunnelled daemon API — were
+  weighed explicitly and are compared in [monitoring.md](monitoring.md), along
+  with why almost nothing worth reading requires privilege.
+
+- **The mutation surface stays narrow** _(decided 2026-09-05)_. Linqode drives
+  the **compose lifecycle** and runs the **shell scripts the operator
+  configured in the TOML**. That is the whole of what it does to a host, plus
+  the `!` prompt, which is an explicitly human capability and is never given
+  to the machine interface.
+
+  Signalling processes from the system view — `kill` from the process list —
+  was designed and **declined**. It would widen the surface from "this
+  project's containers and the operator's own scripts" to "operations on the
+  system", which is a different product. An operator who needs to kill
+  something has `!`, and an operator who needs it often should put it in a
+  configured script where it gets a name and a confirmation. The system view
+  is an investigation surface, and investigation is a read.
 
 ## Roadmap
 
@@ -293,25 +231,50 @@ its ad-hoc capability. Strict local catalog selection, fail-closed SSH auth,
 streamed errors, exact remote mutation exit codes, and compiled-binary Docker
 coverage establish the boundary described in the decided policy above.
 
+### The dashboard _(done, September 2026)_
+
+The screen became a set of focusable panels with detail views behind them, and
+the sampling behind it became a single owner of the cadence with three tiers.
+In order: the panel model and the focus ring; the sampler, the daemon's event
+stream, and container counters read off the kernel instead of asked of the
+daemon; nine host readings where there were four, plus trend strips; the
+events feed; the process table and `docker system df` on the on-demand tier;
+temperatures; graphics cards.
+
+The reasoning that survived is in [monitoring.md](monitoring.md) and
+[interface.md](interface.md); the numbers are in the cost budget there. What
+each phase cost and what it caught is in the git history — the commits are
+written to be read.
+
 ### Next
 
 - **Hardening against real deployments**: the fixture is a controlled
   Alpine/dind environment. Real hosts bring compose version skew, larger
   projects, slower links, daemons behind `sudo`, and hosts reached through
-  `~/.ssh/config` rather than an inline spec.
+  `~/.ssh/config` rather than an inline spec. It is also the only place the
+  temperature and GPU readings can be validated at all: there is no sensor and
+  no card on the fixture, in the VM under it, or anywhere the suite can reach.
 - **Generic remote operations** (the broadened vision): additional typed
   integrations, PTY support for interactive human commands (`sudo`, prompts),
-  and monitoring plain files via `tail -F`. To be scoped
-  into milestones now that parity and e2e validation have landed. _(Host
-  and per-container monitoring landed August 2026: see the dashboard cost
-  budget above.)_
-- **Release engineering** _(deferred to the first release)_: CI currently
-  only vets the e2e package (`go vet -tags e2e`), never runs it — the
-  fixture stays a local step. Running it on CI is feasible whenever it is
-  wanted: `ubuntu-latest` ships Docker and allows privileged containers, at
-  the cost of a couple of minutes per run and some flakiness risk. Decide
-  when cutting the first release, along with whatever else that needs
-  (build matrix, artifacts, versioning).
+  and monitoring plain files via `tail -F`. To be scoped into milestones.
+- **Release engineering** _(deferred to the first release)_: CI currently only
+  vets the e2e package (`go vet -tags e2e`), never runs it — the fixture stays
+  a local step. Running it on CI is feasible whenever it is wanted:
+  `ubuntu-latest` ships Docker and allows privileged containers, at the cost
+  of a couple of minutes per run and some flakiness risk. Decide when cutting
+  the first release, along with whatever else that needs (build matrix,
+  artifacts, versioning).
+
+### Open, and deliberately not decided
+
+- **The Engine API over `docker system dial-stdio`** instead of the compose
+  CLI. It would remove the CLI's startup from every `ps` and give native event
+  and stats streams. It is less compelling than it was — the two costs that
+  justified it are gone by other routes, leaving 65 ms once a minute — and it
+  is a policy change, since the principle today is to drive standard CLIs
+  remotely and interpret their output locally. Decide before building on it;
+  it need not be all-or-nothing, as reads could move while mutations stay on
+  `docker compose`. Written up in [monitoring.md](monitoring.md).
 
 ## Prior art / references
 

@@ -23,7 +23,7 @@ the roadmap as what real hosts bring.
 The mechanism already exists in `internal/host/host.go`: one round-trip,
 marked sections, a missing section degrading to unknown rather than failing
 the sample. Reuse it. The cost is noise beside the `compose ps` already
-being paid — see the dashboard cost budget in PROJECT.md.
+being paid — see the cost budget in [monitoring.md](docs/monitoring.md).
 
 omnyssh's `ssh/probe.rs` prompted the idea and is a counter-example twice
 over. Its script is `cat << 'EOF' | bash`, assuming bash, while its own
@@ -33,26 +33,25 @@ host where Docker runs but the user is not in the `docker` group is reported
 as a host without Docker. That is precisely the case this probe exists to
 tell apart.
 
-## Top processes in the system panel
+## ~~Top processes in the system panel~~ _(done, September 2026)_
 
-Add the top processes by CPU beside the load, memory and disk that
-`internal/host` already reports.
+Landed as the on-demand tier's first reading — see
+[monitoring.md](docs/monitoring.md), "The process table". Two notes for
+whoever reads the idea below and wonders what happened to it:
 
-The part worth copying is one `awk` filter (omnyssh, `ssh/metrics.rs`,
-`top_processes_command`). The pipeline runs inside an SSH-spawned shell, so
-on an idle host our own `sshd`, shell and `ps` would dominate the snapshot.
-The filter drops them **strictly by PID** — `$$` for the shell and what it
-forked, `$PPID` for the connection's `sshd`, and the grandparent `sshd`
-resolved beforehand with `ps -o ppid= -p $PPID`. Never by process name, so a
-genuinely busy SSH session belonging to somebody else still shows up.
-POSIX-sh throughout: a non-Bourne login shell yields nothing and the panel
-degrades to unavailable.
+**The `awk` filter was not taken.** omnyssh's `top_processes_command`
+(`ssh/metrics.rs`) drops the connection's own shell and `sshd` strictly by
+PID, which is a genuinely good trick and worth remembering. It was not needed
+here because the list is ranked on the client from `/proc/<pid>/stat`, and an
+idle `sshd` ranks nowhere near the top by either memory or CPU. Filtering on
+the server would also have meant a program on the server, which the process
+reading deliberately avoids: `sort -k24` counts space-separated fields and
+field two is a process name that may contain spaces.
 
-Their unit test asserts on the generated command string and needs no server;
-the same trick fits the offline tests in `internal/host`.
-
-Calibration, so the effort is not overstated: this only matters on idle
-hosts. On a loaded server our own chain never reaches the top three anyway.
+**Their calibration note was right**, and it is why this reads the whole table
+rather than a top-N: on a loaded server our own chain never reaches the top
+anyway, so there was nothing to filter and a client-side ranking cost nothing
+extra.
 
 ## PTY — analysis not finished
 
@@ -113,8 +112,8 @@ Recorded so it is not re-examined from scratch:
   procps-ng / BusyBox / macOS, `free` in 4- and 7-column shapes, `vm_stat`
   plus `sysctl`, then `/proc/stat` — each fallback a further SSH round-trip,
   up to eight or ten per poll. `internal/host` reads `/proc` and POSIX
-  `df -Pk` in one command, measured at 2 ms, and the targets are Docker
-  hosts, meaning Linux. No macOS or BSD support.
+  `df -Pk` in one command, measured at 6 ms for nine readings, and the
+  targets are Docker hosts, meaning Linux. No macOS or BSD support.
 - **Their trust-on-first-use.** An unknown host key is recorded silently
   with a log warning and no question asked. Linqode shows the fingerprint
   and asks; that policy is settled in PROJECT.md. (Both fail closed on an

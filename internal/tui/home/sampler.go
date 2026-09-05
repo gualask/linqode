@@ -11,8 +11,9 @@ package home
 //
 // One heartbeat drives everything. Each source carries its own interval and
 // is asked, once a beat, whether it is due; a source nobody can see is never
-// due at all. This is the shape the roadmap's phase B wants: one owner of the
-// cadence, so a reading added later costs a line rather than a timer.
+// due at all. One owner of the cadence, so a reading added later costs a line
+// rather than a timer. The tiers and what sits on each are written up in
+// docs/monitoring.md.
 
 import (
 	"time"

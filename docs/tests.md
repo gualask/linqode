@@ -93,9 +93,9 @@ nothing, esc cancels, and it reopens on the last command). Views receive
 hand-built `operations.Feed` channels — no SSH involved.
 
 One test pins a design rule rather than a behavior: the keys Linqode
-invents must not differ only by case, so `R`, `S`, `C`, `X` and a bare `s`
-are asserted to do nothing. The vim pairs (`g`/`G`, `n`/`N`) are exempt by
-decision — see [architecture.md](architecture.md).
+invents must not differ only by case, so `R`, `S`, `C` and `X` are asserted
+to do nothing on the services table. The vim pairs (`g`/`G`, `n`/`N`) are
+exempt by decision — see [operations.md](operations.md), "Service actions".
 
 Assertions about color compare styles, not rendered strings: tests run
 without a TTY, where lipgloss drops the very colors under test. That leaves

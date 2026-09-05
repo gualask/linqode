@@ -93,12 +93,14 @@ modify the operator-controlled config or SSH files.
 | Key | Action |
 | --- | ------ |
 | `j`/`k` | select service |
-| `Enter` | follow the service's logs |
+| `Tab` | move between the host band, the table, and the events feed |
+| `Enter` | open what has focus: logs, the system view, an event's container |
+| `Esc` | back out of a detail view |
 | `c` | act on the service: restart / stop / start |
 | `x` | run a predefined script |
 | `!` | type a command to run on the host |
 | `a` | live panel: per-second CPU sparkline per container |
-| `r` | refresh now (auto-refreshes every 5 s) |
+| `r` | refresh everything now |
 | `q` | quit |
 
 `c` and `x` open a menu — `j`/`k` to choose, `Enter` to run, `Esc` to back
@@ -115,26 +117,40 @@ finishes.
 The RESTARTS column shows how many times docker has restarted each
 container — a count that climbs is a service crash-looping rather than
 recovering. It comes from a `docker inspect` alongside the refresh, and
-reads `-` on a host where that command did not answer.
+reads `-` on a host where that command did not answer. The table itself is
+re-read when the docker daemon says something changed rather than on a
+timer, so a container that dies is on screen as soon as it dies.
 
-The machine's load, memory, disk and uptime go in a band of meters under
-the header, labelled `host` because CPU and memory appear twice on this
-screen — once for the machine, once per container in the table. One gauge
-per resource: the bar is the percentage and the numbers inside it are the
-absolute amounts. They are sampled every 5 seconds, which costs about 2 ms.
-Beside the target on the title line, a count of services by state says
-whether the project is in trouble without reading every row.
+**The host band** is the row of meters under the header, labelled `host`
+because CPU and memory appear twice on this screen — once for the machine,
+once per container in the table. The bar is the percentage and the numbers
+inside it are the absolute amounts. It shows the CPU, memory, the *fullest*
+filesystem (not always `/`: a comfortable root says nothing about the
+`/var/lib/docker` that is about to fill), swap once a meaningful share of it
+is in use, and a temperature where the hardware reports one. The whole
+sample costs about 6 ms every 5 seconds.
 
-The table's per-container columns are refreshed every 20 seconds instead:
-CPU and memory, plus the network and block-device totals docker accumulates
-since each container started (NET RX/TX and IO R/W, each keeping both
-halves of the pair; below 120 columns those two are dropped rather than
-ellipsized, since half a pair is not a reading). A `docker stats` sample
-takes the daemon ~2 seconds to produce, whatever the project's size,
-because it reads the cgroups twice to derive a percentage. When you want to
-watch resources move rather than glance at them, `a` opens the live panel,
-which streams a sample per second for as long as it is open and stops the
-remote command when you close it.
+`Tab` to the band and `Enter` opens the **system view**: per-core CPU, both
+other load figures, swap, every filesystem with its device, network
+throughput, kernel pressure, temperatures, graphics cards, what docker is
+holding in images and volumes, and the top processes — `s` switches those
+between ranking by memory and by CPU. The readings only that view shows are
+read only while it is open.
+
+**The events feed** under the table is what the daemon reported happening,
+newest first: restarts, health changes, OOM kills, with the exit code read
+rather than printed — 137 is a container that was killed. `Enter` on one
+opens that container's logs. It answers what a table cannot: not what is
+running now, but when something happened and in what order.
+
+The table's per-container columns — CPU, MEM, and the network and
+block-device totals docker accumulates since each container started (NET
+RX/TX and IO R/W, each keeping both halves of the pair; below 120 columns
+those two are dropped rather than ellipsized, since half a pair is not a
+reading) — are read from the kernel every 5 seconds. When you want to watch
+resources move rather than glance at them, `a` opens the live panel, which
+streams a sample per second for as long as it is open and stops the remote
+command when you close it.
 
 **Log view** — follow mode with scrollback:
 
@@ -153,8 +169,14 @@ remote command when you close it.
 
 - [docs/PROJECT.md](docs/PROJECT.md) — vision, MVP scope, settled policies,
   roadmap
-- [docs/architecture.md](docs/architecture.md) — how it works: components
-  and flows
+- [docs/architecture.md](docs/architecture.md) — the shape of the codebase:
+  packages, dependency direction, how a session starts
+- [docs/monitoring.md](docs/monitoring.md) — what is read off the host, on
+  which cadence, and what each reading cost when it was measured
+- [docs/interface.md](docs/interface.md) — the screen: panels, focus, the
+  band, the system view, the feed
+- [docs/operations.md](docs/operations.md) — compose lifecycle, scripts,
+  ad-hoc commands, log following, the machine interface
 - [docs/tests.md](docs/tests.md) — testing strategy, layers, conventions
 - [docs/porting.md](docs/porting.md) — how the Go codebase was ported from
   the Rust reference implementation (tag `rust-mvp`)

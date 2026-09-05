@@ -11,8 +11,18 @@ intro (install, configuration, keys):
 - **`docs/PROJECT.md`** — read first: vision, MVP scope, settled policy
   decisions, roadmap, prior art. Do not re-litigate the "Decided policies"
   section.
-- **`docs/architecture.md`** — components, package layout, and the main
-  flows (connect, status, log follow, structured logs, actions).
+- **`docs/architecture.md`** — the shape of the codebase: packages,
+  dependency direction, and how a session starts. Short by design; the
+  behaviour is documented by capability:
+  - **`docs/monitoring.md`** — what is read off the host, on which of the
+    three cadence tiers, and what each reading cost when it was measured.
+    Read before adding a reading: nothing joins the always-on tier without a
+    measurement.
+  - **`docs/interface.md`** — the screen: panels, focus, the band, the
+    system view, the events feed, and what gives way when the terminal runs
+    short.
+  - **`docs/operations.md`** — compose lifecycle, configured scripts,
+    ad-hoc commands, log following, and the machine interface.
 - **`docs/tests.md`** — testing strategy, layers, conventions for new tests,
   known gaps. Includes "Looking at the UI": a change to how the interface
   looks is not finished until a frame has been rendered in color and
@@ -56,8 +66,18 @@ The MVP feature set is fully ported to Go (July 2026), the offline suite is
 green, and the `tests/fixture/` sshd + docker-in-docker fixture validates
 connect → ps → logs → actions against a live Docker daemon (August 2026,
 behind the `e2e` build tag). The two MVP gaps the port left open — restart
-counts in the status view, ad-hoc commands from the TUI (`!`) — closed in
-August 2026. The fixture is still a controlled Alpine environment: **no
-real deployment has been touched yet**. Next per the roadmap in
-`docs/PROJECT.md`: hardening against real hosts, then the broadened
-remote-operations scope (PTY, `.sh` upload, `tail -F`).
+counts, ad-hoc commands from the TUI (`!`) — closed in August 2026.
+
+The dashboard landed in September 2026: focusable panels with detail views,
+one sampler owning three cadence tiers, the daemon watched rather than
+polled, container counters read off the kernel instead of asked of the
+daemon, and the host readings that follow from a batch where a reading costs
+bytes rather than a round trip. See `docs/monitoring.md` and
+`docs/interface.md`.
+
+The fixture is still a controlled Alpine environment: **no real deployment
+has been touched yet**, and it has no temperature sensor and no GPU, so those
+two readings are unit-tested against documented interfaces and e2e-tested
+only for behaving correctly when absent. Next per `docs/PROJECT.md`:
+hardening against real hosts, then the broadened remote-operations scope
+(PTY, `.sh` upload, `tail -F`).
