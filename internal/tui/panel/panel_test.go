@@ -39,7 +39,7 @@ func TestBoxOccupiesExactlyItsSize(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			for _, focused := range []bool{false, true} {
-				got := lines(Box(test.title, test.content, focused, test.width, test.height))
+				got := lines(Box(test.title, "", test.content, focused, test.width, test.height))
 				if len(got) != test.height {
 					t.Fatalf("focused=%v: %d lines, want %d", focused, len(got), test.height)
 				}
@@ -55,7 +55,7 @@ func TestBoxOccupiesExactlyItsSize(t *testing.T) {
 }
 
 func TestBoxCarriesItsTitle(t *testing.T) {
-	top := lines(Box("services", "row", false, 40, 5))[0]
+	top := lines(Box("services", "", "row", false, 40, 5))[0]
 	if !strings.Contains(top, "services") {
 		t.Fatalf("title missing from the top rule: %q", top)
 	}
@@ -66,7 +66,7 @@ func TestBoxCarriesItsTitle(t *testing.T) {
 
 func TestBoxTruncatesATitleItCannotFit(t *testing.T) {
 	const width = 16
-	top := lines(Box("a very long panel title", "row", false, width, 5))[0]
+	top := lines(Box("a very long panel title", "", "row", false, width, 5))[0]
 	if got := lipgloss.Width(top); got != width {
 		t.Fatalf("top rule is %d cells, want %d: %q", got, width, top)
 	}
@@ -81,7 +81,7 @@ func TestBoxTruncatesATitleItCannotFit(t *testing.T) {
 // A box too narrow to hold "┌─ x ─┐" keeps the border and drops the name: the
 // alternative is a rule that is all title and no box.
 func TestBoxDropsATitleWithNoRoomAtAll(t *testing.T) {
-	top := lines(Box("services", "row", false, 6, 4))[0]
+	top := lines(Box("services", "", "row", false, 6, 4))[0]
 	if strings.ContainsAny(top, "servi") {
 		t.Fatalf("title survived a box too narrow for it: %q", top)
 	}
@@ -93,7 +93,7 @@ func TestBoxDropsATitleWithNoRoomAtAll(t *testing.T) {
 // Below three cells on either axis a border would be the whole box, so the
 // content gets the space instead.
 func TestBoxTooSmallForABorderDrawsNone(t *testing.T) {
-	got := Box("services", "ab", false, 2, 2)
+	got := Box("services", "", "ab", false, 2, 2)
 	for _, line := range lines(got) {
 		if strings.ContainsAny(line, "┌┐└┘│─") {
 			t.Fatalf("border drawn in a 2x2 box: %q", got)
@@ -105,7 +105,7 @@ func TestBoxTooSmallForABorderDrawsNone(t *testing.T) {
 }
 
 func TestBoxLeavesContentAloneAtUnknownSize(t *testing.T) {
-	if got := Box("services", "row", false, 0, 0); got != "row" {
+	if got := Box("services", "", "row", false, 0, 0); got != "row" {
 		t.Fatalf("Box at unknown size = %q, want the content unchanged", got)
 	}
 }
@@ -171,5 +171,57 @@ func TestJoinHintsLeavesItsInputAlone(t *testing.T) {
 	JoinHints(hints, 10)
 	if len(hints) != 3 {
 		t.Fatalf("JoinHints shortened its caller's slice to %d", len(hints))
+	}
+}
+
+// The status is set into the right end of the same rule, and keeps whatever
+// colours the caller gave it: the service counts are read by colour, and a
+// style laid over them would end at the first reset.
+func TestStatusRidesOnTheRightOfTheRule(t *testing.T) {
+	rule := strings.Split(Box("services", "4 running · 1 exited", "rows", false, 60, 4), "\n")[0]
+	if !strings.Contains(rule, "services") {
+		t.Errorf("the title is gone: %q", rule)
+	}
+	if !strings.Contains(rule, "4 running · 1 exited") {
+		t.Errorf("the status is not on the rule: %q", rule)
+	}
+	if lipgloss.Width(rule) != 60 {
+		t.Errorf("the rule is %d wide, want 60: %q", lipgloss.Width(rule), rule)
+	}
+	// It sits after the title, not before it.
+	if strings.Index(rule, "4 running") < strings.Index(rule, "services") {
+		t.Errorf("the status precedes the title: %q", rule)
+	}
+}
+
+// Dropped whole rather than cut: half of "1 unhealthy" is a number beside a
+// word that no longer says which state it counts. The title outlives it,
+// because a box with no name reads as an unnamed box and a box with a cut one
+// reads as a different box.
+func TestANarrowRuleDropsTheStatusAndKeepsTheTitle(t *testing.T) {
+	for _, width := range []int{12, 16, 20, 24, 28} {
+		rule := strings.Split(Box("services", "4 running · 1 exited", "rows", false, width, 4), "\n")[0]
+		if strings.Contains(rule, "running") && !strings.Contains(rule, "4 running · 1 exited") {
+			t.Errorf("at %d cells the status was cut: %q", width, rule)
+		}
+		if lipgloss.Width(rule) != width {
+			t.Errorf("at %d cells the rule is %d wide: %q", width, lipgloss.Width(rule), rule)
+		}
+	}
+	// Wide enough for the title, not for both.
+	rule := strings.Split(Box("services", "4 running · 1 exited", "rows", false, 20, 4), "\n")[0]
+	if !strings.Contains(rule, "services") {
+		t.Errorf("the title was dropped before the status: %q", rule)
+	}
+}
+
+// A box with no status is exactly the box it was before there could be one.
+func TestNoStatusIsTheRuleItAlwaysWas(t *testing.T) {
+	with := Box("services", "", "rows", false, 40, 4)
+	if lipgloss.Width(strings.Split(with, "\n")[0]) != 40 {
+		t.Errorf("rule width changed: %q", strings.Split(with, "\n")[0])
+	}
+	if strings.Contains(with, "  ─") {
+		t.Errorf("an empty status left a gap in the rule: %q", strings.Split(with, "\n")[0])
 	}
 }

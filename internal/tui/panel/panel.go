@@ -4,9 +4,10 @@
 //
 // The border is not decoration, and it is not free: two columns and two rows
 // per box is the same cost that got the right-hand sidebar removed (September
-// 2026, see internal/tui/status/hostband.go). It earns them by naming which
-// region the keys are talking to, so only a region that can take focus draws
-// one — a purely informative reading stays a bare band, as the host meters do.
+// 2026). It earns them by naming which region the keys are talking to, so
+// every region that takes focus draws one — the header included, where the box
+// costs nothing because the title line and the rule below it were paying for
+// those two rows already.
 //
 // Focus is carried by color rather than by reverse video, which already marks
 // the selected row inside a panel; the tokens live in the theme package, where
@@ -36,15 +37,26 @@ const (
 // after it, and the closing corner.
 const titleOverhead = 6
 
+// statusOverhead is what a right-hand status costs beyond its own text: the
+// space before it, the space after it, and one dash between it and the corner.
+const statusOverhead = 3
+
 // Box renders content inside a titled border, exactly width by height cells.
 // Content is given width-2 by height-2: lines longer than that are truncated
 // and lines past the last row are dropped, so a panel can never push its
 // neighbours out of place by rendering more than it was allotted.
 //
+// status is an optional second label, set into the right end of the same rule,
+// for what the region is currently showing — the project's service counts, on
+// the panel that holds them. It is rendered exactly as given: unlike the
+// title, which takes the focus accent, a status carries its own colours,
+// because what it says is read by colour and a style laid over it would end at
+// its first reset. It is dropped before the title is when the rule is short.
+//
 // A non-positive size means the caller does not know the terminal's yet; the
 // content is returned as it is, the way the status view leaves its lines
 // unclipped until the first WindowSizeMsg.
-func Box(title, content string, focused bool, width, height int) string {
+func Box(title, status, content string, focused bool, width, height int) string {
 	if width <= 0 || height <= 0 {
 		return content
 	}
@@ -58,7 +70,7 @@ func Box(title, content string, focused bool, width, height int) string {
 	}
 
 	lines := make([]string, 0, height)
-	lines = append(lines, topRule(title, focused, width))
+	lines = append(lines, topRule(title, status, focused, width))
 	side := edge.Render(border.Left)
 	for _, line := range blockLines(content, width-2, height-2) {
 		lines = append(lines, side+line+side)
@@ -68,10 +80,11 @@ func Box(title, content string, focused bool, width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-// topRule is the border's top line with the title set into it. A title that
-// does not fit is truncated, and one that cannot fit at all leaves a plain
-// rule: a box with no name still reads as a box.
-func topRule(title string, focused bool, width int) string {
+// topRule is the border's top line with the title set into it, and the status
+// set into its right end when there is room for both. A title that does not
+// fit is truncated, and one that cannot fit at all leaves a plain rule: a box
+// with no name still reads as a box.
+func topRule(title, status string, focused bool, width int) string {
 	border := lipgloss.NormalBorder()
 	edge, label := theme.BorderIdle, theme.TitleIdle
 	if focused {
@@ -84,8 +97,21 @@ func topRule(title string, focused bool, width int) string {
 	}
 	title = lipgloss.NewStyle().MaxWidth(room).Render(title)
 	fill := width - titleOverhead - lipgloss.Width(title) + 1
+
+	// The status goes only where the rule can hold it whole. Truncating it
+	// would be worse than dropping it: half of "1 unhealthy" is a number
+	// beside a word that no longer says which state it counts.
+	tail := ""
+	if status != "" {
+		cost := lipgloss.Width(status) + statusOverhead
+		if fill-cost >= 1 {
+			tail = " " + status + edge.Render(" "+border.Top)
+			fill -= cost
+		}
+	}
 	return edge.Render(border.TopLeft+border.Top+" ") + label.Render(title) +
-		edge.Render(" "+strings.Repeat(border.Top, fill)+border.TopRight)
+		edge.Render(" "+strings.Repeat(border.Top, fill)) + tail +
+		edge.Render(border.TopRight)
 }
 
 // blockLines cuts content to exactly height lines of exactly width cells,

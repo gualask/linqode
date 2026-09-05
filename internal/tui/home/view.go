@@ -14,14 +14,34 @@ func (m *Model) View() string {
 	frame := m.frame()
 
 	var b strings.Builder
-	b.WriteString(m.clip(m.title()) + "\n")
-	if frame.band {
-		b.WriteString(m.clip(m.system.Band(m.width)) + "\n")
-	}
-	b.WriteString("\n")
+	b.WriteString(m.header(frame) + "\n")
 	b.WriteString(m.body(frame) + "\n")
 	b.WriteString(m.footer())
 	return b.String()
+}
+
+// header is the session and the machine it is on: which host this is, and the
+// row of meters saying how it is doing.
+//
+// It is a box, like every other region that takes focus, and it is the one box
+// on this screen that costs nothing. The two rows a border needs were already
+// being spent — one on the title line, one on the blank rule that kept the
+// bare band off the panel below it — so the border replaces them rather than
+// adding to them. That is what took the header out of a visual language of its
+// own: before this, the only sign that the band held focus was its four-letter
+// label changing colour, against a border and a title lighting up everywhere
+// else.
+//
+// Without a sample there is no band to put in a box, and the session falls
+// back to the plain line it always was, with the blank rule under it. Two rows
+// either way, which is what the layout arithmetic already assumes.
+func (m *Model) header(frame frame) string {
+	if !frame.band {
+		return m.clip(m.title()) + "\n"
+	}
+	return panel.Box(m.session(), "", m.system.Band(m.width-2),
+		m.focused() == panel.Panel(m.system) && m.detail == nil,
+		m.width, headerHeight)
 }
 
 // clip cuts a header line to the terminal rather than trusting it to fit: a
@@ -34,6 +54,9 @@ func (m *Model) clip(line string) string {
 	return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
 }
 
+// title is the session as a bare line, for the header with no band in it. It
+// keeps its own styling, which the boxed form cannot: a border title is
+// rendered as one span.
 func (m *Model) title() string {
 	var b strings.Builder
 	b.WriteString(theme.Bold.Render(" linqode "))
@@ -42,10 +65,17 @@ func (m *Model) title() string {
 		b.WriteString("  ")
 		b.WriteString(theme.Cyan.Render(m.info.ComposeDir))
 	}
-	if summary := m.services.Summary(); summary != "" {
-		b.WriteString("  " + summary)
-	}
 	return b.String()
+}
+
+// session is the same thing in plain text, for the header box's rule, which
+// takes the focus accent across the whole label.
+func (m *Model) session() string {
+	text := "linqode  " + m.info.Target
+	if m.info.ComposeDir != "" {
+		text += "  " + m.info.ComposeDir
+	}
+	return text
 }
 
 // body is the anchor panel with its satellite under it, or the detail or the
@@ -76,10 +106,20 @@ func (m *Model) body(frame frame) string {
 // panelBox sizes a panel to the space it was given and draws its chrome
 // around it. The panel is told its content area, borders already subtracted,
 // so no feature package has to know what a border costs.
+// The project's service counts ride on the services panel's own rule rather
+// than on the header, where they used to sit. They are about the project, the
+// header is about the session and the machine, and a region that says one
+// thing is read faster than one that says two. On the rule rather than in the
+// footer because the footer shows only the focused panel, and what a project
+// is doing is worth seeing while looking at something else.
 func (m *Model) panelBox(shown panel.Panel, at box, focused bool) string {
 	content := at.content()
 	shown.SetSize(content.width, content.height)
-	return panel.Box(shown.Title(), shown.View(), focused, at.width, at.height)
+	status := ""
+	if shown == panel.Panel(m.services) {
+		status = m.services.Summary()
+	}
+	return panel.Box(shown.Title(), status, shown.View(), focused, at.width, at.height)
 }
 
 func (m *Model) footer() string {

@@ -5,14 +5,22 @@ package home
 // that decides whether a panel fits is exactly the arithmetic that, when it is
 // wrong by one, wraps a line and shifts everything below it down a row.
 
-// The header is the title line, the host band when there is a sample, and a
-// blank line before the body — a blank line rather than a rule, because the
-// panels below draw their own borders and a rule here would be a second
-// separator stacked on the first.
+// The header is two rows without a host sample — the session on a line of its
+// own, and a blank one before the body — and three with one, where those two
+// rows and the band become a single box.
+//
+// The box is the reason the arithmetic did not change when it arrived: a
+// border costs two rows, and the title line and the blank rule under it were
+// two rows already. What was a bare row of meters under a heading is now a
+// panel like the others, for nothing.
 const (
 	titleLines = 1
 	blankLines = 1
 	footerLine = 1
+
+	// headerHeight is the boxed header: two border rows and the band between
+	// them.
+	headerHeight = 3
 )
 
 type box struct {

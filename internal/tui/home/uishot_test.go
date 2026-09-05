@@ -526,6 +526,13 @@ func TestUIShot(t *testing.T) {
 	wide := shotScreen(150, 20, true, nil)
 	wide.Update(key("j"))
 
+	// The header holding focus. It is a box like every other region now, so
+	// this frame is here to confirm that it reads as one — that the accent
+	// lands on a border and a title, the way it does everywhere else.
+	onHeader := shotScreen(150, 20, true, nil)
+	onHeader.Update(key("j"))
+	onHeader.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+
 	// Focus on the band: its label lights up and the table's box goes quiet,
 	// which is the whole point of the ring having two stops.
 	onBand := shotScreen(150, 20, true, nil)
@@ -568,8 +575,8 @@ func TestUIShot(t *testing.T) {
 
 	frames := []shotFrame{
 		{Name: "150 columns — every state, second row selected", Text: wide.View()},
-		{Name: "150 columns — focus on the band, the table's box goes quiet",
-			Text: onBand.View()},
+		{Name: "150 columns — focus on the header, the table's box goes quiet",
+			Text: onHeader.View()},
 		{Name: "150 columns — the system view, opened with enter on the band",
 			Text: systemView.View()},
 		{Name: "150 columns — the same view, ranked by CPU", Text: byCPUView.View()},

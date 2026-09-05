@@ -10,22 +10,29 @@ gives way when the terminal runs short. What is *read* to fill it is
 ## The shape of the screen
 
 ```
-┌ linqode ─ user@host ─ /srv/app ── 4 running · 1 exited ──────────────────┐
- host  cpu[▇▇▃░░ 28%]  mem[▇▇▇▇░ 3.1G/7.8G]  /var[▇▇░░ 24G/98G]  52°C  up 12d
-┌─ services ──────────────────────────────────────────────────────────────┐
+┌─ linqode  user@host  /srv/app ──────────────────────────────────────────┐
+│ host  cpu[▇▇▃░░ 28%]  mem[▇▇▇▇░ 3.1G/7.8G]  /var[▇▇░ 24G/98G]  52°C  up │
+└─────────────────────────────────────────────────────────────────────────┘
+┌─ services ──────────────────────── 4 running · 1 exited · 1 unhealthy ──┐
 │ SERVICE  STATE    HEALTH   RESTARTS  CPU    MEM    NET RX/TX   IO R/W    │
 │ api      running  healthy  0         2.1%   410M   1.2M/3M     0B/12M    │
 └─────────────────────────────────────────────────────────────────────────┘
 ┌─ events ────────────────────────────────────────────────────────────────┐
 │ 12:04:31  worker   killed (137)                                         │
 └─────────────────────────────────────────────────────────────────────────┘
- 6 services  ·  enter logs · a live · r refresh · c actions · x scripts · q
+ 6 services · enter logs · a live · tab panels · r refresh · c actions · q
 ```
 
-A **title line**, a **band**, a body of **panels**, and a **footer**. A blank
-line separates the header from the body rather than a rule, because the panels
-draw their own borders and a rule would be a second separator stacked on the
-first.
+Three boxes and a **footer**. The first is the session and the machine it runs
+on, the second the project, the third what happened to it — and each says one
+thing, which is read faster than one that says two. The service counts used to
+ride on the header's title line, which made the header about the session, the
+machine *and* the project at once; they belong on the panel that holds the
+services, and that is where they are.
+
+Boxes touch. There is no blank row between them, because a border already
+separates what it encloses from what is under it, and a blank row on top of
+that would be a second separator stacked on the first.
 
 ### Anchor and satellites
 
@@ -41,12 +48,20 @@ grid because it reads a local `/proc` for free and all its panels are graphs;
 this cannot.
 
 **A border must earn its cells.** Two columns and two rows per box is the same
-cost that got an earlier right-hand sidebar removed. Taking focus is not on its
-own enough to earn them: the band takes focus and draws no border, because it
-is *one row*, and a box around it would be three — two of them taken from the
-body of every screen, the detail views included, for as long as the session
-lasts. It carries focus in the colour of its `host` label instead. See
-[The band](#the-band).
+cost that got an earlier right-hand sidebar removed, and every region that
+takes focus earns them by naming which one the keys are talking to.
+
+The header earns them for nothing, which is why it has them. It was a title
+line and a bare row of meters, with a blank row under the pair to keep them
+off the panel below — two rows spent on separating and labelling, which is
+exactly what a border does. Turning them into one costs no height and buys the
+header the same focus language as everything else: before it, the only sign
+that the meters held focus was a four-letter label changing colour, against a
+border and a title lighting up everywhere else.
+
+Without a host sample there is nothing to put in the box, and the session falls
+back to a bare line with a blank row under it. Still two rows, so nothing below
+it moves.
 
 ### When the anchor has nothing to anchor
 
@@ -133,22 +148,22 @@ avoid.
 
 ## The band
 
-One row, always drawn, on every screen of the home including the detail views.
-It is the first thing an operator reads and the only reading on screen that is
-about the host rather than about a container.
+One row of meters inside the header box, always drawn, on every screen of the
+home including the detail views. It is the first thing an operator reads and
+the only reading on screen that is about the host rather than about a
+container.
 
-**It is a panel in every respect but the border.** It is the first stop in the
-focus ring, `enter` on it opens [the system view](#the-system-view), and it
-owns its own rendering in `internal/tui/system` — the same package, and the
-same sample, as the view behind it. What it does not have is a box, and the
-reason is arithmetic rather than category: a border costs two rows, this
-region is one row, so a box would triple its height and take those two rows
-out of the body of every screen for the life of the session. Focus is carried
-by the colour of the `host` label instead, which costs nothing.
+**It is a panel like the others.** It is the first stop in the focus ring,
+`enter` on it opens [the system view](#the-system-view), its border and title
+take the focus accent, and it owns its own rendering in `internal/tui/system`
+— the same package, and the same sample, as the view behind it. The box's
+title is the session rather than the word `system`, because that is what the
+header is: which host this is, and how it is doing.
 
-Being always visible is what turns that cost from occasional into permanent,
-but it is not on its own the reason — a one-row region could not afford a
-border wherever it sat.
+The `host` label stays inside, on the row with the meters, and still earns its
+place: CPU and memory appear twice on this screen, once for the machine and
+once per container below, and without the word the row reads as an aggregate
+of the rows under it.
 
 The layout follows htop's meters — the bar carries the percentage, the text
 inside it carries the absolute amounts, so the percentage is never printed
@@ -266,6 +281,17 @@ Container readings arrive as columns — CPU, MEM, NET RX/TX, IO R/W — and
 their sizes are printed as docker prints them. This is the daemon's own
 accounting, and one screen showing two roundings of the same number is worse
 than either.
+
+**The service counts ride on its own rule**, set into the right end:
+`4 running · 1 restarting · 1 exited · 1 unhealthy`, in lifecycle order rather
+than alphabetical, because that is how an operator reads a project. On the rule
+rather than in the footer because the footer shows only the panel that has
+focus, and what a project is doing is worth seeing while looking at something
+else. They are rendered with their own per-state colours and are therefore the
+one label on a border that does not take the focus accent — a style laid over
+text that already carries colours ends at its first reset. A rule too narrow to
+hold them whole drops them rather than truncating: half of `1 unhealthy` is a
+number beside a word that no longer says which state it counts.
 
 ## The events panel
 

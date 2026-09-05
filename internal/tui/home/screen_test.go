@@ -223,7 +223,7 @@ func TestBandFlagsStaleSample(t *testing.T) {
 // The summary is what says whether the project is in trouble without reading
 // every row. It rides on the title line: the footer's hints already compete
 // for every column they get.
-func TestSummaryRidesOnTheTitleLine(t *testing.T) {
+func TestSummaryRidesOnTheServicesRule(t *testing.T) {
 	screen, _ := buildScreen(screenOptions{width: 120, height: 24,
 		host: &hostFeed{metrics: sampleMetrics()},
 		services: []compose.Service{
@@ -234,15 +234,37 @@ func TestSummaryRidesOnTheTitleLine(t *testing.T) {
 		}})
 	sampleAll(screen)
 
-	title := strings.Split(screen.View(), "\n")[0]
+	lines := strings.Split(screen.View(), "\n")
+	rule := lines[headerHeight] // the services panel's own top rule
 	for _, want := range []string{"3 running", "1 exited", "1 unhealthy"} {
-		if !strings.Contains(title, want) {
-			t.Errorf("summary missing %q from the title line: %q", want, title)
+		if !strings.Contains(rule, want) {
+			t.Errorf("summary missing %q from the services rule: %q", want, rule)
 		}
+	}
+	// It is about the project, so it must not have stayed on the header,
+	// which is about the session and the machine.
+	if header := strings.Join(lines[:headerHeight], " "); strings.Contains(header, "running") {
+		t.Errorf("the project summary is still on the header: %q", header)
 	}
 	// The hints must not have been squeezed out to make room for it.
 	if !strings.Contains(screen.View(), "q quit") {
 		t.Errorf("summary cost the footer its hints:\n%s", screen.View())
+	}
+}
+
+// A status is dropped whole or not at all: half of "1 unhealthy" is a number
+// beside a word that no longer says which state it counts.
+func TestTheSummaryIsDroppedRatherThanCut(t *testing.T) {
+	for _, width := range []int{40, 50, 60, 70, 90, 120} {
+		screen, _ := buildScreen(screenOptions{width: width, height: 24,
+			host:     &hostFeed{metrics: sampleMetrics()},
+			services: serviceList("web", "db", "cache")})
+		sampleAll(screen)
+
+		rule := strings.Split(screen.View(), "\n")[headerHeight]
+		if strings.Contains(rule, "running") && !strings.Contains(rule, "3 running") {
+			t.Errorf("at %d columns the summary was cut: %q", width, rule)
+		}
 	}
 }
 
@@ -269,16 +291,46 @@ func TestViewNeverExceedsTheTerminalWidth(t *testing.T) {
 	}
 }
 
-// The header block gets a blank line between it and the body, so the two do
-// not read as one wall of text.
-func TestHeaderBlockIsSeparatedFromTheBody(t *testing.T) {
+// The header is a box, and a box is its own separator: the blank line that
+// used to keep a bare band off the panel below it is now that panel's border.
+// Both cost one row, which is why the arithmetic did not move.
+func TestTheHeaderIsABoxWhenThereIsASampleForIt(t *testing.T) {
 	screen, _ := buildScreen(screenOptions{width: 100, height: 24,
 		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
 	sampleAll(screen)
 
 	lines := strings.Split(screen.View(), "\n")
-	if strings.TrimSpace(lines[2]) != "" {
-		t.Errorf("no blank line between the meter band and the body: %q", lines[2])
+	if !strings.Contains(lines[0], "┌") || !strings.Contains(lines[0], "linqode") {
+		t.Errorf("the header does not open a titled box: %q", lines[0])
+	}
+	if !strings.Contains(lines[headerHeight-1], "└") {
+		t.Errorf("the header box does not close on row %d: %q",
+			headerHeight-1, lines[headerHeight-1])
+	}
+	// And the body starts immediately under it, with no blank row: two
+	// borders touching is what every other pair of panels here already does.
+	if !strings.Contains(lines[headerHeight], "┌") {
+		t.Errorf("the body does not begin under the header: %q", lines[headerHeight])
+	}
+}
+
+// Without a sample there is nothing to put in a box, and the session falls
+// back to the bare line it always was — still two rows, so nothing below it
+// moves.
+func TestWithoutASampleTheHeaderIsAPlainLine(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 100, height: 24,
+		services: serviceList("web")})
+	sampleAll(screen)
+
+	lines := strings.Split(screen.View(), "\n")
+	if strings.Contains(lines[0], "┌") {
+		t.Errorf("a header with no band drew a box: %q", lines[0])
+	}
+	if !strings.Contains(lines[0], "linqode") {
+		t.Errorf("the session is not on the first line: %q", lines[0])
+	}
+	if strings.TrimSpace(lines[1]) != "" {
+		t.Errorf("no blank line under the bare session line: %q", lines[1])
 	}
 }
 

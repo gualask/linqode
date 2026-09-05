@@ -131,10 +131,11 @@ reads `-` on a host where that command did not answer. The table itself is
 re-read when the docker daemon says something changed rather than on a
 timer, so a container that dies is on screen as soon as it dies.
 
-**The host band** is the row of meters under the header, labelled `host`
-because CPU and memory appear twice on this screen — once for the machine,
-once per container in the table. The bar is the percentage and the numbers
-inside it are the absolute amounts. It shows the CPU, memory, the *fullest*
+**The host band** is the row of meters in the header box, whose title is the
+session — which host you are on and where its project lives. The row is
+labelled `host` because CPU and memory appear twice on this screen: once for
+the machine, once per container in the table. The bar is the percentage and
+the numbers inside it are the absolute amounts. It shows the CPU, memory, the *fullest*
 filesystem (not always `/`: a comfortable root says nothing about the
 `/var/lib/docker` that is about to fill), swap once a meaningful share of it
 is in use, and a temperature where the hardware reports one. The whole
