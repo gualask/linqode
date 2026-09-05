@@ -199,8 +199,10 @@ func TestLivePanelLeavesTheTableOnScreen(t *testing.T) {
 	if !strings.Contains(view, "SERVICE") {
 		t.Errorf("table heading missing from constrained view:\n%s", view)
 	}
-	if !strings.Contains(m.Status(), "3 services") {
-		t.Errorf("panel status = %q, want the service count", m.Status())
+	// Nothing is wrong, so the panel's half of the footer says nothing: the
+	// service counts live on its own rule now.
+	if status := m.Status(); status != "" {
+		t.Errorf("panel status = %q, want nothing while all is well", status)
 	}
 }
 

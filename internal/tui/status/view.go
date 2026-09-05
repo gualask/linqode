@@ -1,7 +1,6 @@
 package status
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -86,8 +85,14 @@ func (m *Model) Hints() []panel.Hint {
 	return hints
 }
 
-// Status is the panel's half of the footer: how many services it is showing,
-// or the failure that kept it from showing them.
+// Status is the panel's half of the footer, and it is empty while nothing is
+// wrong.
+//
+// It used to count the services, which the panel's own rule now says better:
+// `4 running · 1 exited · 1 unhealthy` is the same total and the breakdown
+// besides. Saying it twice on one screen left the footer repeating what was
+// two rows above it, so what is left here is what has no other place — the
+// reasons this panel is not showing what it should.
 func (m *Model) Status() string {
 	if m.unavailable != "" {
 		// Yellow, not red: nothing failed here. The host is what it is, and
@@ -97,11 +102,10 @@ func (m *Model) Status() string {
 	if m.errText != "" {
 		return theme.Red.Render(" " + strings.ReplaceAll(m.errText, "\n", " · "))
 	}
-	text := fmt.Sprintf(" %d services", len(m.services))
 	if m.statsErr != "" {
-		text += theme.Red.Render("  ·  stats: " + m.statsErr)
+		return theme.Red.Render(" stats: " + m.statsErr)
 	}
-	return text
+	return ""
 }
 
 // View is the panel's content, drawn to the size the screen last gave it. The

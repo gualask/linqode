@@ -221,3 +221,28 @@ func TestNavigationIsArrowsOnly(t *testing.T) {
 		t.Errorf("pgup left the cursor on %q", name)
 	}
 }
+
+// The footer used to count the services, which the panel's own rule says
+// better — the same total plus the breakdown. It carries only what has no
+// other place now: the reasons the panel is not showing what it should.
+func TestTheFooterCarriesOnlyWhatWentWrong(t *testing.T) {
+	m := New(Config{})
+	m.SetServices(services("web", "db", "cache"), nil)
+	if status := m.Status(); status != "" {
+		t.Errorf("Status() = %q, want nothing while all is well", status)
+	}
+	// And the count is still on the rule, where it belongs.
+	if summary := m.Summary(); !strings.Contains(summary, "3 running") {
+		t.Errorf("Summary() = %q, which no longer counts the services", summary)
+	}
+
+	m.SetServices(nil, errors.New("dial tcp: i/o timeout"))
+	if status := m.Status(); !strings.Contains(status, "i/o timeout") {
+		t.Errorf("Status() = %q, which does not report the failure", status)
+	}
+
+	unavailable := New(Config{Unavailable: "docker is not installed on this host"})
+	if status := unavailable.Status(); !strings.Contains(status, "compose unavailable") {
+		t.Errorf("Status() = %q on a host without compose", status)
+	}
+}

@@ -264,9 +264,16 @@ func TestSummaryRidesOnTheServicesRule(t *testing.T) {
 	if header := strings.Join(lines[:headerHeight], " "); strings.Contains(header, "running") {
 		t.Errorf("the project summary is still on the header: %q", header)
 	}
-	// The hints must not have been squeezed out to make room for it.
-	if !strings.Contains(screen.View(), "q quit") {
-		t.Errorf("summary cost the footer its hints:\n%s", screen.View())
+	// The hints must not have been squeezed out to make room for it, and the
+	// footer must not repeat it: the rule is where this now lives, and the
+	// footer said the same total two rows below it.
+	view := screen.View()
+	if !strings.Contains(view, "q quit") {
+		t.Errorf("summary cost the footer its hints:\n%s", view)
+	}
+	if footer := strings.Split(strings.TrimRight(view, "\n"), "\n"); strings.Contains(
+		footer[len(footer)-1], "services") {
+		t.Errorf("the footer still counts the services: %q", footer[len(footer)-1])
 	}
 }
 

@@ -383,7 +383,7 @@ Two halves, divided by a rule: **what works wherever you are** on the left,
 **what the region with focus is showing and answers to** on the right.
 
 ```
- tab panels · r refresh · c actions · x scripts · ! run · q quit  │  6 services  ·  enter logs · a live
+ tab panels · r refresh · c actions · x scripts · ! run · q quit  │  enter logs · a live
 ```
 
 Before the split there were ten keys in one row and nothing to say which of
@@ -394,14 +394,19 @@ of thing and a dot would read as one list of ten.
 
 Keys are dim on both sides; the region's own status is not. It is the one
 thing on the line that is a reading rather than a way to press something, and
-on a failed refresh it is the error.
+**it is empty while nothing is wrong**. The services panel used to count its
+rows there, which its own rule says better — `4 running · 1 exited` is the
+same total and the breakdown besides — so the footer was repeating what was
+two rows above it. What is left is what has no other place: a refresh that
+failed, a stats sample that did, a host with no compose.
 
 **What is given up when the line is short** is ordered by a `Drop` value on
 each hint, highest first, and the two halves compete on that rather than on
 which side they sit. `tab panels` goes first: it is learned once and then the
-least useful thing there. `q quit` goes last. The status is never dropped —
-it survives every hint, and only then is the line cut to the terminal rather
-than allowed to wrap, which would push every row above it up by one.
+least useful thing there. `q quit` goes last. A status is never dropped — it
+survives every hint, because a key can be rediscovered and an error cannot —
+and only then is the line cut to the terminal rather than allowed to wrap,
+which would push every row above it up by one.
 
 A modal takes every key while it is open, so its footer says so: `q quit` is
 the only thing left on the global side, with the menu's own keys on the other.
