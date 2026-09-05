@@ -50,9 +50,14 @@ const logTail = 200
 // Action and Script are constrained operations; AdHoc is the explicitly
 // human-only `!` path.
 type Backend struct {
-	Services  Fetch
-	Host      FetchHost
-	Stats     FetchCgroups
+	Services Fetch
+	Host     FetchHost
+	Stats    FetchCgroups
+	// Processes reads the machine's process table. It is the on-demand tier:
+	// nothing reads it until the system view is opened, because it costs
+	// about 220 bytes per process and answers a question nobody has asked
+	// until they are looking at it.
+	Processes func() (host.ProcessSample, error)
 	Logs      func(service string, tail int) (operations.Feed, error)
 	LiveStats func() (operations.Feed, error)
 	// Watch streams the daemon's changes to the project's containers, which
@@ -97,6 +102,7 @@ func Run(info Info, backend Backend) error {
 		Services:      backend.Services,
 		Host:          backend.Host,
 		Stats:         backend.Stats,
+		Processes:     backend.Processes,
 		Watch:         backend.Watch,
 	}, services)
 	app := appModel{info: info, backend: backend, home: screen}

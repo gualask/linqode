@@ -41,6 +41,7 @@ const (
 	sourceServices sourceID = iota
 	sourceHost
 	sourceStats
+	sourceProcesses
 )
 
 // source is one remote reading: how often it is wanted, how to start it, and

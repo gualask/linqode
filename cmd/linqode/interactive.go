@@ -79,6 +79,9 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 			}
 			return operator.ContainerCgroups(ctx, pids)
 		}
+		backend.Processes = func() (host.ProcessSample, error) {
+			return operator.HostProcesses(ctx)
+		}
 		backend.LiveStats = func() (operations.Feed, error) {
 			return operator.FollowStats(ctx)
 		}

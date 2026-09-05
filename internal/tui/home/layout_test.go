@@ -7,6 +7,7 @@ package home
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -244,5 +245,71 @@ func TestNoHostFetchNoBand(t *testing.T) {
 	}
 	if layoutFor(100, 24, screen.system.HasBand(), false).band {
 		t.Error("the header reserved a row for a band that cannot exist")
+	}
+}
+
+// The on-demand tier: a reading that is never taken until the view that
+// shows it is open, and is taken the moment it opens rather than at the next
+// beat. It is the point of the panel model — a panel nobody is looking at
+// costs nothing on the wire.
+func TestTheProcessTableIsReadOnlyWhileItsViewIsOpen(t *testing.T) {
+	reads := 0
+	screen := New(Config{
+		Target:   "deploy@prod",
+		Services: func() ([]compose.Service, error) { return serviceList("web"), nil },
+		Host:     func() (host.Metrics, error) { return host.Metrics{CPUs: 4}, nil },
+		Processes: func() (host.ProcessSample, error) {
+			reads++
+			return host.ProcessSample{UptimeSeconds: float64(reads)}, nil
+		},
+	}, status.New(status.Config{}))
+	screen.SetSize(120, 30)
+
+	sampleAll(screen)
+	sampleAll(screen)
+	if reads != 0 {
+		t.Fatalf("the process table was read %d times with the view closed", reads)
+	}
+
+	// Opening the view asks for it: waiting for the next beat would be
+	// waiting for a source that was not due a moment ago.
+	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	if reads != 1 {
+		t.Fatalf("opening the view read the process table %d times", reads)
+	}
+
+	// And closing it stops the source again.
+	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEsc}))
+	screen.sampler.sources[sourceProcesses].started = time.Time{}
+	sampleAll(screen)
+	if reads != 1 {
+		t.Errorf("the process table was still read after the view closed: %d", reads)
+	}
+}
+
+// The footer inside a detail says the way out *and* what the detail itself
+// answers to. Its header form offers `enter`, which is the key just pressed.
+func TestTheDetailsOwnKeysReachTheFooter(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 140, height: 30,
+		services: serviceList("web"), host: &hostFeed{metrics: sampleMetrics()}})
+	sampleAll(screen)
+	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	screen.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	footer := screen.footer()
+	if !strings.Contains(footer, "esc back") {
+		t.Errorf("the way out is missing from the detail's footer: %q", footer)
+	}
+	if !strings.Contains(footer, "s by cpu") {
+		t.Errorf("the detail's own key is missing from its footer: %q", footer)
+	}
+	if strings.Contains(footer, "enter system") {
+		t.Errorf("the footer still offers the way in: %q", footer)
+	}
+	// Back on the home the band offers the way in again.
+	screen.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if footer := screen.footer(); !strings.Contains(footer, "enter system") {
+		t.Errorf("the band lost its hint after a detail closed: %q", footer)
 	}
 }

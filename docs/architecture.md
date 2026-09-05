@@ -57,7 +57,7 @@ Four principles shape the design:
 | `internal/config` | `config.toml` loading and host selection |
 | `internal/remote` | SSH: target resolution, connect, host-key policy, auth, one-shot and streaming exec with cancellation |
 | `internal/compose` | `docker compose` command builders (with shell quoting), `ps` output parsing into typed models, and both `docker stats` forms — one-shot sample and live stream |
-| `internal/host` | machine resource metrics for the header band and the system view: one marker-sectioned command over `/proc` and `df -Pk`, parsed into a typed sample, plus the client-side deltas that turn its counters into percentages and rates |
+| `internal/host` | machine resource metrics for the header band and the system view: one marker-sectioned command over `/proc` and `df -Pk`, parsed into a typed sample, plus the client-side deltas that turn its counters into percentages and rates; and the process table, read on demand out of `/proc/<pid>/stat` |
 | `internal/logs` | log engine: line assembly, tail buffer, JSONL records, field filters, stats, search |
 | `internal/tui` | Bubble Tea application: the app model routing between the home screen and the follow view, and the backend adapting operations to background commands |
 | `internal/tui/home` | the home screen: header, layout, focus, footer, the modal menus, the `!` prompt, and the sampler that decides what is read off the host and how often. It owns the screen; a feature package owns only what is inside its own panel |
@@ -236,6 +236,28 @@ two load figures, memory and swap, one row per filesystem with its device,
 network throughput and the interface carrying most of it, and PSI pressure.
 Rows are ordered by how much they answer "what is wrong with this machine",
 because a short terminal truncates the box from the bottom.
+
+Under those readings, and only while the view is open, is the **process
+list** — the first reading in the plan that is never taken for the home. It
+is cheap in time and expensive in bytes (200 per process, so ~20 KB on an
+ordinary host), which is exactly the shape the sampler's gate exists for: the
+source is not due while the view is closed, and is read the moment it opens
+rather than at the next beat. `s` switches its ranking between memory and
+CPU, because neither order answers the other's question — memory is who is
+holding the machine's RAM, CPU is who is burning it right now. The list takes
+whatever rows are left under the readings and shows nothing at all when there
+is room for fewer than two, since what it is read for is the top of it.
+
+`ps` is deliberately not the source. Measured against the fixture's busybox:
+no `--sort`, no `pcpu` column at all, `ps aux` silently ignoring its flags and
+printing four columns that share neither order nor content with procps', and
+`-o rss` printing `93m` rather than a number. `/proc/<pid>/stat` has the name,
+the memory, the CPU time and the thread count in one line, in one format, on
+every Linux. Nothing narrows the list on the server either: `sort -k24` counts
+space-separated fields, and field two is a process name that may contain
+spaces — so on a host running anything so named, every column after it shifts
+and the sort ranks by the wrong number. The name is found here by looking for
+its closing parenthesis, and the ranking is done here too.
 
 Beside the CPU, memory and network rows runs a column of **trend strips**,
 drawn from samples already fetched — the one reading on the screen that

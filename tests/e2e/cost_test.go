@@ -47,6 +47,7 @@ func TestRemoteCommandCost(t *testing.T) {
 		{"compose ps (current refresh)", compose.PsCommand(composeDir)},
 		{"docker stats --no-stream", "docker stats --no-stream --format '{{json .}}'"},
 		{"container cgroups", compose.StatsCgroupCommand(runningPids(t, session))},
+		{"process table (on demand)", host.ProcessCommand()},
 	}
 	// The event stream is deliberately absent: a stream has no round-trip to
 	// measure, and what it costs is the traffic it carries, which the watch

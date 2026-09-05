@@ -343,7 +343,7 @@ const shotRounds = 18
 // reached — through the panel's own path rather than by writing its fields.
 func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 	panel := status.New(status.Config{Stats: true, LiveStats: true})
-	round, hostRound := 0, 0
+	round, hostRound, processRound := 0, 0, 0
 	failing := false
 	stream := make(chan operations.Event, 32)
 	config := Config{
@@ -352,6 +352,10 @@ func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 		Services:   func() ([]compose.Service, error) { return shotServices(), nil },
 		Watch: func(string) (operations.Feed, error) {
 			return operations.Feed{Events: stream, Stop: func() {}}, nil
+		},
+		Processes: func() (host.ProcessSample, error) {
+			processRound++
+			return busyProcesses(processRound), nil
 		},
 		Stats: func([]compose.Service) (compose.CgroupSample, error) {
 			round++
@@ -386,6 +390,51 @@ func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 	}
 	applyScreen(screen, screen.handleWatchTick())
 	return screen
+}
+
+// openSystem walks into the system view the way an operator does, and takes
+// the second process reading a CPU share needs to exist. Opening it is what
+// asks for the first: the source is gated on being there.
+func openSystem(screen *Model) {
+	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	applyScreen(screen, screen.sampler.read(sourceProcesses))
+}
+
+// busyProcesses is the process table of the same machine, advancing with the
+// round so the second reading has CPU shares on it. The shape is the one
+// worth opening the view for: a database holding most of the memory while
+// something else is burning a core and a half.
+func busyProcesses(round int) host.ProcessSample {
+	const secondsPerRound = 5
+	sample := host.ProcessSample{
+		UptimeSeconds: 3654000 + float64(round*secondsPerRound),
+		ClockTck:      100,
+	}
+	// name, RSS in KB, and ticks of CPU per round — 500 is one full core.
+	table := []struct {
+		pid   int
+		name  string
+		rssKB uint64
+		ticks uint64
+	}{
+		{9821, "postgres", 11_534_336, 40},
+		{1204, "dockerd", 1_048_576, 60},
+		{9902, "ffmpeg", 262_144, 750},
+		{2033, "node", 1_887_437, 120},
+		{9877, "redis-server", 98_304, 15},
+		{411, "containerd", 45_875, 25},
+		{9955, "nginx", 12_288, 3},
+		{25, "sshd", 3_120, 1},
+		{1, "systemd", 384, 0},
+	}
+	for _, entry := range table {
+		sample.Processes = append(sample.Processes, host.Process{
+			PID: entry.pid, Name: entry.name, State: "S", Threads: 4,
+			RSSKB: entry.rssKB, CPUTicks: entry.ticks * uint64(round),
+		})
+	}
+	return sample
 }
 
 // shotEvents is a minute in the life of a deployment going wrong, oldest
@@ -423,9 +472,8 @@ func TestUIShot(t *testing.T) {
 	onBand.Update(key("j"))
 	onBand.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 
-	systemView := shotScreen(150, 20, true, nil)
-	systemView.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	systemView.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	systemView := shotScreen(150, 24, true, nil)
+	openSystem(systemView)
 
 	onFeed := shotScreen(150, 24, true, nil)
 	onFeed.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -433,9 +481,12 @@ func TestUIShot(t *testing.T) {
 
 	short := shotScreen(150, 14, true, nil)
 
+	byCPUView := shotScreen(150, 24, true, nil)
+	openSystem(byCPUView)
+	byCPUView.Update(key("s"))
+
 	narrowSystem := shotScreen(100, 20, true, nil)
-	narrowSystem.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	narrowSystem.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	openSystem(narrowSystem)
 
 	narrow := shotScreen(100, 20, true, nil)
 
@@ -449,6 +500,7 @@ func TestUIShot(t *testing.T) {
 			Text: onBand.View()},
 		{Name: "150 columns — the system view, opened with enter on the band",
 			Text: systemView.View()},
+		{Name: "150 columns — the same view, ranked by CPU", Text: byCPUView.View()},
 		{Name: "150x24 — focus on the feed, second event selected", Text: onFeed.View()},
 		{Name: "150x14 — too short for both: the satellite gives its rows back",
 			Text: short.View()},

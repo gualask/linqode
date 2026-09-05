@@ -70,6 +70,21 @@ func (o *HostOperator) HostMetrics(ctx context.Context) (host.Metrics, error) {
 	return metrics, nil
 }
 
+// HostProcesses reads the machine's process table. It is an on-demand
+// reading, not a sampled one: it costs about 220 bytes per process, which is
+// worth paying while an operator is looking at the list and not otherwise.
+//
+// A process that exits between the directory listing and the read is one row
+// missing, never an error: the kernel's own view of what is running changes
+// while it is being read, and that is not a failure.
+func (o *HostOperator) HostProcesses(ctx context.Context) (host.ProcessSample, error) {
+	out, err := o.executor.Exec(ctx, host.ProcessCommand())
+	if err != nil {
+		return host.ProcessSample{}, err
+	}
+	return host.ParseProcessSample(out.Stdout), nil
+}
+
 // ContainerCgroups reads the project's container resources from the kernel:
 // the cgroup counters, and the network counters of the given processes. It is
 // what the TUI samples, because it costs a couple of milliseconds against the

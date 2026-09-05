@@ -6,10 +6,12 @@ package system
 // at all, whether it went stale — live with the screen, in internal/tui/home.
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/gualask/linqode/internal/host"
@@ -350,4 +352,13 @@ func TestFormatRate(t *testing.T) {
 			t.Errorf("formatRate(%v) = %q, want %q", c.rate, got, c.want)
 		}
 	}
+}
+
+// errNotNow stands in for a read that failed, which every panel here has to
+// survive without blanking what it had.
+var errNotNow = errors.New("connection lost")
+
+// key builds a keypress the way the screen delivers one.
+func key(text string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text)}
 }

@@ -54,6 +54,14 @@ const (
 	// Five seconds also means the first CPU percentage — which needs two
 	// readings to exist at all — arrives while they are still looking.
 	statsRefresh = 5 * time.Second
+	// processesRefresh is the process table's cadence *while the system view
+	// is open*, and never otherwise. One reading is about 220 bytes per
+	// process — 20 KB on an ordinary host — which is far too much to pay for
+	// a screen nobody is looking at, and reasonable to pay for one an
+	// operator is looking at on purpose. Three seconds rather than five
+	// because this is the tier that is asked for: the second reading is the
+	// first with a CPU share on it.
+	processesRefresh = 3 * time.Second
 )
 
 // The samples, delivered asynchronously so the UI never blocks on an SSH
@@ -69,6 +77,10 @@ type (
 	}
 	statsSampleMsg struct {
 		sample compose.CgroupSample
+		err    error
+	}
+	processSampleMsg struct {
+		sample host.ProcessSample
 		err    error
 	}
 )
@@ -96,6 +108,10 @@ type Config struct {
 	// screen keeps the previous reading, because a percentage is the
 	// difference between two of them.
 	Stats func(services []compose.Service) (compose.CgroupSample, error)
+	// Processes reads the machine's process table. It is the first reading
+	// that is never taken for the home: the sampler's gate keeps it to the
+	// system view, and opening that view is what asks for it.
+	Processes func() (host.ProcessSample, error)
 
 	// Watch streams the daemon's changes to this project's containers. Nil
 	// leaves the service list on its timer, which is what it falls back to
@@ -182,6 +198,15 @@ func New(config Config, services *status.Model) *Model {
 		// answer.
 		sourceStats: {every: statsRefresh, gate: func() bool { return !services.LiveActive() },
 			start: m.readCgroups},
+		// The on-demand tier: read while the view that shows it is open, and
+		// not otherwise. This is what phase A's panel model was for — a
+		// panel nobody is looking at costs nothing.
+		sourceProcesses: {every: processesRefresh,
+			gate: func() bool { return m.detail == m.system },
+			start: read(config.Processes,
+				func(sample host.ProcessSample, err error) tea.Msg {
+					return processSampleMsg{sample: sample, err: err}
+				})},
 	})
 	// Top to bottom, the way `tab` walks them. Focus starts on the table:
 	// the band is what an operator reads, the table is what they act on.
@@ -284,7 +309,7 @@ func (m *Model) UpdateBackground(msg tea.Msg) (tea.Cmd, bool) {
 		// The heartbeat stays alive so the cadence resumes on return, but
 		// nothing is read for a screen nobody is looking at.
 		return heartbeat(), true
-	case servicesSampleMsg, hostSampleMsg, statsSampleMsg:
+	case servicesSampleMsg, hostSampleMsg, statsSampleMsg, processSampleMsg:
 		// A read already in flight when the view opened still lands.
 		return m.applySample(msg), true
 	case watchTickMsg:
@@ -303,7 +328,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return m.handleKey(msg)
 	case beatMsg:
 		return tea.Batch(m.sampler.due(), heartbeat())
-	case servicesSampleMsg, hostSampleMsg, statsSampleMsg:
+	case servicesSampleMsg, hostSampleMsg, statsSampleMsg, processSampleMsg:
 		return m.applySample(msg)
 	case watchFeedMsg:
 		return m.applyWatchFeed(msg)
@@ -346,6 +371,9 @@ func (m *Model) applySample(msg tea.Msg) tea.Cmd {
 	case statsSampleMsg:
 		m.applyCgroups(msg)
 		m.sampler.finished(sourceStats)
+	case processSampleMsg:
+		m.system.SetProcesses(msg.sample, msg.err)
+		m.sampler.finished(sourceProcesses)
 	}
 	return nil
 }
@@ -363,7 +391,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		// Back out of a detail view first; from the home itself these quit,
 		// which is what they do in the follow view too.
 		if m.detail != nil {
-			m.detail = nil
+			m.closeDetail()
 			return nil
 		}
 		return tea.Quit
@@ -388,7 +416,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.services.SetError("")
 	default:
 		// Anything the screen does not claim belongs to the panel with
-		// focus: its own movement, its own refresh, its own modes.
+		// focus — or to the detail, when one has taken the screen from it.
+		if m.detail != nil {
+			return m.detail.Update(msg)
+		}
 		return m.focused().Update(msg)
 	}
 	return nil
@@ -414,9 +445,24 @@ func (m *Model) open() tea.Cmd {
 	default:
 		if m.system.HasBand() {
 			m.detail = m.system
+			m.system.SetOpen(true)
+			// Opening the view is what asks for the readings it alone
+			// shows: the source is gated on being here, so waiting for the
+			// next beat would be waiting for nothing.
+			return m.sampler.read(sourceProcesses)
 		}
 	}
 	return nil
+}
+
+// closeDetail returns to the home, and tells the panel it is a header again:
+// the keys it answers to and the hints in the footer are not the same in its
+// two forms.
+func (m *Model) closeDetail() {
+	if m.detail == panel.Panel(m.system) {
+		m.system.SetOpen(false)
+	}
+	m.detail = nil
 }
 
 func openLogs(service string) tea.Cmd {

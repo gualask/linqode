@@ -440,15 +440,39 @@ what showed it:
 The payoff of A + B: data too expensive for the home, fetched only when a
 panel is opened.
 
-- System view → **top processes** by RSS/CPU. Not a home panel: on a Docker
-  host most of the top processes *are* the containers already in the table.
-  Compatibility: `ps --sort` is procps and absent on busybox, and `-eo` there
-  depends on the build — verify against the fixture and fall back to sorting
-  client-side or parsing `ps aux` positionally. Same class of variability that
-  made `internal/host` read `/proc` instead of `free`.
-- Filesystem panel → **`docker system df`** (images, volumes, build cache).
-  Slow, because the daemon walks images and volumes; a real question
-  ("is Docker filling my disk?") that deserves an on-demand answer.
+**E1 — top processes in the system view** _(done, September 2026)_. Ranked by
+memory, `s` to rank by CPU, read only while the view is open and read the
+moment it opens. Measured at 3 ms and **200 bytes per process** — cheap in
+time, expensive in bytes, which is precisely the shape the sampler's gate was
+built for: 20 KB on an ordinary host is far too much to pay every few seconds
+for a screen nobody is looking at.
+
+The compatibility note above was right and understated. Measured against the
+fixture's busybox: no `--sort`, **no `pcpu` column at all** (its `-o` accepts
+sixteen names and none of them is a CPU share), `ps aux` silently ignoring its
+flags and printing four columns that share neither order nor content with
+procps', and `-o rss` printing `93m` rather than a number. Parsing that
+positionally would have produced confident nonsense on exactly the hosts this
+tool is for. So `/proc/<pid>/stat` it is — name, memory, CPU time and thread
+count, one line per process, one format, every Linux.
+
+Two things that fell out:
+
+- **Nothing is narrowed on the server.** `sort -k24` counts space-separated
+  fields and field two is a process name, which may contain spaces — so on a
+  host running a `Web Content` or a `foo (bar)`, every column after it shifts
+  and the sort silently ranks by the wrong number. The name is found here by
+  looking for its *last* closing parenthesis, and the ranking is done here.
+- **The page size and the clock tick are asked for**, not assumed. Both have
+  been 4096 and 100 on every mainstream Linux for twenty years, and neither
+  is guaranteed (64K pages on some arm64 kernels); `getconf` costs nothing in
+  a batch that already forks, and there is a default for the host that does
+  not answer.
+
+**E2 — `docker system df`** (images, volumes, build cache). Slow, because the
+daemon walks images and volumes; a real question ("is Docker filling my
+disk?") that deserves an on-demand answer, under the filesystem rows that
+raise it.
 
 ### F. Temperatures
 

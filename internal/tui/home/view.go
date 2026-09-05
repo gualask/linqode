@@ -110,12 +110,15 @@ func (m *Model) footer() string {
 // values order what is given up when the line does not fit, so the two sets
 // compete on urgency rather than on which was listed first.
 func (m *Model) hints() []panel.Hint {
-	// Inside a detail the way out replaces the way in — the panel's own hint
-	// says `enter`, which is what was just pressed. The screen's commands go
-	// on working there, so they stay on the line.
+	// Inside a detail the way out comes first — the panel's own way *in*
+	// says `enter`, which is what was just pressed — followed by whatever
+	// the detail itself answers to, which is not what its header form does.
+	// The screen's commands go on working there, so they stay on the line.
 	hints := []panel.Hint{{Text: "esc back", Drop: 1}}
 	if m.detail == nil {
 		hints = slices.Clone(m.focused().Hints())
+	} else {
+		hints = append(hints, m.detail.Hints()...)
 	}
 	return append(hints,
 		panel.Hint{Text: "r refresh", Drop: 2},

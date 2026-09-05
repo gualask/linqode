@@ -116,6 +116,7 @@ These decisions are settled — do not re-litigate them when implementing:
   | exec overhead (`true`) | 1 ms | 1 ms |
   | host metrics (`/proc` + `df -Pk`) | 6 ms, 2.8 KB | — |
   | container cgroups (`/sys/fs/cgroup` + `/proc/<pid>/net/dev`) | 6 ms | — |
+  | process table (`/proc/<pid>/stat`, on demand) | 3 ms, 200 B per process | — |
   | `compose ps --all --format json` | 64 ms | 60 ms |
   | `docker stats --no-stream` | 2.01 s | 2.07 s |
 
@@ -160,6 +161,15 @@ These decisions are settled — do not re-litigate them when implementing:
 
   The rule this encodes: **a server pays a small fixed rent for what is on
   screen, and pays by the second only while someone is watching**.
+
+  The process table is the first reading that takes that rule literally
+  _(2026-09-05)_. It is cheap in time and expensive in bytes — 200 per
+  process, so 20 KB on an ordinary host and 80 KB on a busy one — which is
+  far too much to pay every few seconds for a screen nobody is looking at.
+  So it is **never read on the home at all**: the sampler's gate keeps it to
+  the system view, it is read the moment that view opens, and it stops when
+  the view closes. That is the on-demand tier the panel model was built for,
+  and where every later reading of the same shape belongs.
 
 - **The daemon is watched, not polled** _(decided 2026-09-04)_. The service
   list is re-read when `docker events` says something changed, not on a

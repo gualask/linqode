@@ -198,3 +198,66 @@ func keys(m map[string]compose.ContainerStats) []string {
 	slices.Sort(names)
 	return names
 }
+
+// The process table against a real host.
+//
+// This is the reading that has no business being a unit test alone: `ps` is
+// unusable here precisely because of what a real busybox does with it — no
+// `pcpu` column at all, no `--sort`, `ps aux` printing four columns of its
+// own, `-o rss` printing `93m` — and the whole point of reading /proc
+// instead is that a fixture like this one can prove it works.
+func TestHostProcessesAgainstRealHost(t *testing.T) {
+	session := connect(t)
+	start := time.Now()
+	out := execOrFail(t, session, host.ProcessCommand())
+	first := host.ParseProcessSample(out.Stdout)
+	t.Logf("read %d processes in %v, %d bytes (%d per process)",
+		len(first.Processes), time.Since(start).Round(time.Millisecond),
+		len(out.Stdout), len(out.Stdout)/max(len(first.Processes), 1))
+
+	if len(first.Processes) < 5 {
+		t.Fatalf("read %d processes, want the daemon and its containers at least: %+v",
+			len(first.Processes), first.Processes)
+	}
+	if first.ClockTck == 0 || first.UptimeSeconds == 0 {
+		t.Errorf("the constants the shares are computed from are missing: %+v", first)
+	}
+	// The daemon is running and is not free, so it is the one process this
+	// fixture can be sure about.
+	var daemon *host.Process
+	for index, process := range first.Processes {
+		if process.Name == "dockerd" {
+			daemon = &first.Processes[index]
+		}
+		if process.PID <= 0 || process.Name == "" {
+			t.Errorf("unreadable process: %+v", process)
+		}
+	}
+	if daemon == nil {
+		t.Fatal("dockerd is not in the process table")
+	}
+	if daemon.RSSKB == 0 || daemon.CPUTicks == 0 {
+		t.Errorf("dockerd reports no memory or no cpu time: %+v", daemon)
+	}
+
+	// A share is the difference between two readings, and the interval is
+	// the host's own.
+	time.Sleep(2 * time.Second)
+	second := host.ParseProcessSample(
+		execOrFail(t, session, host.ProcessCommand()).Stdout)
+	usage := second.UsageSince(first)
+	measured := 0
+	for _, entry := range usage {
+		if !entry.Measured {
+			continue
+		}
+		measured++
+		if entry.CPUPercent < 0 || entry.CPUPercent > 100*100 {
+			t.Errorf("%s: implausible share %v%%", entry.Name, entry.CPUPercent)
+		}
+	}
+	if measured < len(first.Processes)/2 {
+		t.Errorf("only %d of %d processes were measured across two readings",
+			measured, len(first.Processes))
+	}
+}

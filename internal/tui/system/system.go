@@ -41,6 +41,17 @@ type Model struct {
 	// nothing: these samples have already been fetched.
 	history history
 
+	// The process table, read only while this view is open. previous is what
+	// the CPU shares are measured against.
+	processes         []host.ProcessUsage
+	previousProcesses host.ProcessSample
+	processesStale    bool
+	ranking           ranking
+
+	// open is whether this is the view on screen rather than the band in the
+	// header. The two answer to different keys.
+	open bool
+
 	focused       bool
 	width, height int
 }
@@ -90,8 +101,17 @@ func (m *Model) labelStyle() lipgloss.Style {
 	return theme.TitleIdle
 }
 
-// Hints are the keys the band and the view answer to.
+// Hints are the keys this panel answers to, which are not the same in its two
+// forms: the band offers the way in, the view offers what can be done once
+// inside it.
 func (m *Model) Hints() []panel.Hint {
+	if m.open {
+		next := byCPU
+		if m.ranking == byCPU {
+			next = byMemory
+		}
+		return []panel.Hint{{Text: "s " + next.String(), Drop: 5}}
+	}
 	return []panel.Hint{{Text: "enter system", Drop: 2}}
 }
 
@@ -117,7 +137,16 @@ func (m *Model) Status() string {
 	return text
 }
 
-func (m *Model) Update(tea.Msg) tea.Cmd { return nil }
+func (m *Model) Update(msg tea.Msg) tea.Cmd {
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return nil
+	}
+	if m.open && key.String() == "s" {
+		m.toggleRanking()
+	}
+	return nil
+}
 
 // detailBar is the width of the view's gauges. Wider than the band's, which
 // shares its row with two other meters, but not the whole line: past thirty
@@ -238,6 +267,15 @@ func (m *Model) View() string {
 	if m.stale {
 		rows = append(rows, row{}, row{text: theme.Dim.Render(
 			"  the last sample failed — these readings are the ones before it")})
+	}
+	// Whatever is left under the readings goes to the process list, which is
+	// the one thing here that can use any amount of room and is worth
+	// nothing at all in two lines.
+	if m.height > 0 {
+		if block := m.processBlock(m.height - len(rows) - 1); len(block) > 0 {
+			rows = append(rows, row{})
+			rows = append(rows, block...)
+		}
 	}
 	return m.assemble(rows)
 }
