@@ -387,3 +387,55 @@ func TestNothingLeftToPromoteKeepsTheExplainingPanel(t *testing.T) {
 		t.Error("the screen never says why there is no table")
 	}
 }
+
+// The focus ring is the one thing on this screen with no other way in: the
+// band and the feed cannot be reached without knowing that `tab` reaches
+// them, and the band is where the machine's readings live. It is advertised
+// exactly where it can be, and nowhere it would mislead.
+func TestTheRingIsAdvertisedOnTheScreenThatHasOne(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 150, height: 24,
+		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
+		host:     &hostFeed{metrics: sampleMetrics()}})
+	sampleAll(screen)
+	if !strings.Contains(screen.View(), "tab panels") {
+		t.Error("nothing on the screen says the band and the feed can be reached")
+	}
+
+	// Inside a detail `tab` moves a focus nobody can see.
+	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	if screen.detail == nil {
+		t.Fatal("the system view did not open")
+	}
+	if strings.Contains(screen.View(), "tab panels") {
+		t.Error("the ring is advertised inside a detail, where it moves nothing visible")
+	}
+
+	// And a host with one panel has no ring to move around.
+	alone, _ := noComposeScreen(150, 24, "docker is not installed on this host", true)
+	if strings.Contains(alone.View(), "tab panels") {
+		t.Error("the ring is advertised on a screen with a single panel")
+	}
+}
+
+// `shift+tab` from the table reaches the band, which is the path an operator
+// takes to the machine's readings. Pinned because the ring's order is what
+// makes the hint above true.
+func TestShiftTabFromTheTableReachesTheBand(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 150, height: 24,
+		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
+		host:     &hostFeed{metrics: sampleMetrics()}})
+	sampleAll(screen)
+	if title := screen.focused().Title(); title != "services" {
+		t.Fatalf("focus starts on %q, want the table", title)
+	}
+	screen.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if title := screen.focused().Title(); title != "system" {
+		t.Errorf("shift+tab from the table reaches %q, want the band", title)
+	}
+	// And `enter` there is what opens the readings behind it.
+	applyScreen(screen, screen.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	if screen.detail == nil {
+		t.Error("enter on the band did not open the system view")
+	}
+}

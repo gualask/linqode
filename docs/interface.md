@@ -41,8 +41,12 @@ grid because it reads a local `/proc` for free and all its panels are graphs;
 this cannot.
 
 **A border must earn its cells.** Two columns and two rows per box is the same
-cost that got an earlier right-hand sidebar removed, so only a region that can
-take focus draws one. A purely informative region stays a bare band.
+cost that got an earlier right-hand sidebar removed. Taking focus is not on its
+own enough to earn them: the band takes focus and draws no border, because it
+is *one row*, and a box around it would be three — two of them taken from the
+body of every screen, the detail views included, for as long as the session
+lasts. It carries focus in the colour of its `host` label instead. See
+[The band](#the-band).
 
 ### When the anchor has nothing to anchor
 
@@ -80,9 +84,18 @@ the size arithmetic live in `internal/tui/panel`; a feature package owns what
 is inside its own panel and nothing beyond it, so adding a panel is adding a
 panel rather than editing a screen.
 
-`tab` and `shift+tab` move focus around the ring — band, table, events. Focus
-skips a satellite that is not currently drawn, and leaves one if the terminal
-shrinks under it.
+`tab` and `shift+tab` move focus around the ring — band, table, events, in the
+order they sit on the screen, so `shift+tab` from the table reaches the band
+and `enter` there opens the machine's readings. Focus skips a satellite that is
+not currently drawn, and leaves one if the terminal shrinks under it.
+
+The ring is advertised in the footer as `tab panels`, and it is the one thing
+on this screen that has to be: every other key is either on the panel that
+answers it or already on that line, while the band and the feed cannot be
+reached at all without knowing the ring exists. It is the first hint dropped
+when the line is short — learned once, then the least useful thing there — and
+it is absent inside a detail view, where `tab` would move a focus nobody can
+see, and on a screen with a single panel, where it moves nothing.
 
 **Focus is carried by colour, never by reverse video.** Reverse already marks
 the selected row inside a panel, and two marks that both mean "here" cancel
@@ -122,8 +135,20 @@ avoid.
 
 One row, always drawn, on every screen of the home including the detail views.
 It is the first thing an operator reads and the only reading on screen that is
-about the host rather than about a container. It takes focus like a panel
-without a border it has no room for: its `host` label carries that instead.
+about the host rather than about a container.
+
+**It is a panel in every respect but the border.** It is the first stop in the
+focus ring, `enter` on it opens [the system view](#the-system-view), and it
+owns its own rendering in `internal/tui/system` — the same package, and the
+same sample, as the view behind it. What it does not have is a box, and the
+reason is arithmetic rather than category: a border costs two rows, this
+region is one row, so a box would triple its height and take those two rows
+out of the body of every screen for the life of the session. Focus is carried
+by the colour of the `host` label instead, which costs nothing.
+
+Being always visible is what turns that cost from occasional into permanent,
+but it is not on its own the reason — a one-row region could not afford a
+border wherever it sat.
 
 The layout follows htop's meters — the bar carries the percentage, the text
 inside it carries the absolute amounts, so the percentage is never printed

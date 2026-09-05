@@ -120,6 +120,18 @@ func (m *Model) hints() []panel.Hint {
 	} else {
 		hints = append(hints, m.detail.Hints()...)
 	}
+	// The ring is the one thing on this screen with no other way in. Every
+	// other key is either on the panel that answers it or on this line, but
+	// the band and the feed cannot be reached at all without knowing that
+	// `tab` reaches them — and the band is where the machine's readings live.
+	// First to be dropped when the line is short: it is learned once, and
+	// then it is the least useful thing here.
+	//
+	// Not inside a detail, where `tab` moves a focus nobody can see, and not
+	// on a screen with one panel, where it moves nothing at all.
+	if m.detail == nil && len(m.panels) > 1 {
+		hints = append(hints, panel.Hint{Text: "tab panels", Drop: 7})
+	}
 	hints = append(hints, panel.Hint{Text: "r refresh", Drop: 2})
 	// Service actions are the one screen-level command that needs compose. On
 	// a host without it the key is not advertised, because everything it could
