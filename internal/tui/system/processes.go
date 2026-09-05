@@ -23,6 +23,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/tui/theme"
 )
@@ -196,4 +197,63 @@ func right(text string, width int) string {
 		return strings.Repeat(" ", gap) + text
 	}
 	return text
+}
+
+// SetDiskUsage applies the daemon's own accounting of what it is holding.
+// A failed read leaves the last answer alone: it changes slowly, so one that
+// is a minute old is still worth reading.
+func (m *Model) SetDiskUsage(usage []compose.DiskUsage, err error) {
+	if err != nil || len(usage) == 0 {
+		return
+	}
+	m.diskUsage = usage
+}
+
+// dockerUsageKinds are the daemon's rows, in the order they are worth
+// reading: images fill a disk first and by the most, and build cache is the
+// one people forget exists.
+var dockerUsageKinds = []struct{ kind, label string }{
+	{"Images", "images"},
+	{"Containers", "containers"},
+	{"Local Volumes", "volumes"},
+	{"Build Cache", "cache"},
+}
+
+// dockerUsageRow is what the daemon is holding, in the grammar of every other
+// row here: a meter, the number it stands for, and the detail behind it.
+//
+// The meter is the share of what docker holds that it would give back. That
+// is the question the row exists to answer — a /var at 93% says nothing about
+// how much of it is images nobody is running — and it is a share of something
+// finite, which is the one thing a meter can honestly draw. The breakdown by
+// kind is the dim tail, where a narrow terminal cuts it: the headline number
+// is what decides whether to run a prune, and the breakdown is what you look
+// at once you have.
+//
+// The per-kind sizes are the daemon's own strings, unreformatted, the same
+// rule the container readings follow.
+func (m *Model) dockerUsageRow(column int) row {
+	held, reclaimable, ok := compose.Totals(m.diskUsage)
+	parts := make([]string, 0, len(dockerUsageKinds))
+	for _, wanted := range dockerUsageKinds {
+		entry, found := compose.Find(m.diskUsage, wanted.kind)
+		if !found {
+			continue
+		}
+		part := fmt.Sprintf("%s %s", wanted.label, entry.Size)
+		if idle := entry.Idle(); idle > 0 && entry.HasReclaimable() {
+			part += fmt.Sprintf(" (%d idle)", idle)
+		}
+		parts = append(parts, part)
+	}
+	detail := theme.Dim.Render("   " + strings.Join(parts, "   "))
+
+	if !ok || held == 0 {
+		return row{text: m.textRow(column, "docker", strings.TrimSpace(detail))}
+	}
+	percent := float64(reclaimable) / float64(held) * 100
+	text := fmt.Sprintf("%s of %s reclaimable",
+		compose.FormatBytes(reclaimable), compose.FormatBytes(held))
+	return row{text: m.meterRow(column, "docker", percent, theme.Usage(percent),
+		text+detail)}
 }

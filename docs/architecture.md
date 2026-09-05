@@ -248,6 +248,22 @@ holding the machine's RAM, CPU is who is burning it right now. The list takes
 whatever rows are left under the readings and shows nothing at all when there
 is room for fewer than two, since what it is read for is the top of it.
 
+Beside the filesystem rows, and on the same gate, sits what the **daemon**
+says it is holding: images, containers, volumes and build cache, from
+`docker system df`. It is there because it is the answer to the question
+those rows raise — a `/var` at 93% says nothing about how much of it is
+images nobody is running, and only the daemon knows which layers are shared
+and which are dangling. It wears the same grammar as every other row: the
+meter is the share of what docker holds that it would give back, which is
+what decides whether a prune is worth running, and the per-kind breakdown is
+the dim tail a narrow terminal cuts. The daemon prints no total of its own,
+so that one is summed here from its rounded strings and printed in its own
+units; the per-kind sizes are left exactly as it wrote them, the same rule
+the container readings follow. It runs on a thirty-second clock rather than
+the process list's three: it changes slowly, and it is the one reading here
+that is genuinely slow on a real host, since answering means walking the
+image store.
+
 `ps` is deliberately not the source. Measured against the fixture's busybox:
 no `--sort`, no `pcpu` column at all, `ps aux` silently ignoring its flags and
 printing four columns that share neither order nor content with procps', and

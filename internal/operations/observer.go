@@ -85,6 +85,24 @@ func (o *HostOperator) HostProcesses(ctx context.Context) (host.ProcessSample, e
 	return host.ParseProcessSample(out.Stdout), nil
 }
 
+// DiskUsage asks the daemon what it is holding: images, containers, volumes
+// and build cache. It is not scoped to the project and cannot be — those are
+// the daemon's, shared with everything else on the host, which is exactly
+// what makes the answer worth having.
+//
+// Slow by nature: the daemon walks the image store to answer. It is an
+// on-demand reading for that reason.
+func (o *HostOperator) DiskUsage(ctx context.Context) ([]compose.DiskUsage, error) {
+	out, err := o.executor.Exec(ctx, compose.SystemDFCommand())
+	if err != nil {
+		return nil, err
+	}
+	if out.ExitCode != 0 {
+		return nil, commandFailure(out)
+	}
+	return compose.ParseSystemDF(out.Stdout), nil
+}
+
 // ContainerCgroups reads the project's container resources from the kernel:
 // the cgroup counters, and the network counters of the given processes. It is
 // what the TUI samples, because it costs a couple of milliseconds against the

@@ -261,3 +261,40 @@ func TestHostProcessesAgainstRealHost(t *testing.T) {
 			measured, len(first.Processes))
 	}
 }
+
+// The daemon's own disk accounting against a real daemon. What a unit test
+// cannot say: that `--format` accepts these five fields, and that the row
+// labels are the ones the view looks them up by.
+func TestDiskUsageAgainstRealDaemon(t *testing.T) {
+	session := connect(t)
+	start := time.Now()
+	out := execOrFail(t, session, compose.SystemDFCommand())
+	if out.ExitCode != 0 {
+		t.Fatalf("docker system df exited %d: %s", out.ExitCode, out.Stderr)
+	}
+	t.Logf("answered in %v: %s", time.Since(start).Round(time.Millisecond),
+		strings.ReplaceAll(strings.TrimSpace(string(out.Stdout)), "\n", " / "))
+
+	usage := compose.ParseSystemDF(out.Stdout)
+	if len(usage) < 4 {
+		t.Fatalf("read %d rows, want one per kind: %+v", len(usage), usage)
+	}
+	// The labels the system view looks these up by are the daemon's, and a
+	// release that renamed one would leave the row silently empty.
+	for _, kind := range []string{"Images", "Containers", "Local Volumes", "Build Cache"} {
+		entry, ok := compose.Find(usage, kind)
+		if !ok {
+			t.Errorf("no %q row: %+v", kind, usage)
+			continue
+		}
+		if entry.Size == "" || entry.Reclaimable == "" {
+			t.Errorf("%s reported no sizes: %+v", kind, entry)
+		}
+	}
+	// The project is running, so the daemon is holding an image and a few
+	// containers, and the totals have to add up to something.
+	held, _, ok := compose.Totals(usage)
+	if !ok || held == 0 {
+		t.Errorf("nothing totalled from %+v", usage)
+	}
+}

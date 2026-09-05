@@ -469,10 +469,26 @@ Two things that fell out:
   a batch that already forks, and there is a default for the host that does
   not answer.
 
-**E2 — `docker system df`** (images, volumes, build cache). Slow, because the
-daemon walks images and volumes; a real question ("is Docker filling my
-disk?") that deserves an on-demand answer, under the filesystem rows that
-raise it.
+**E2 — `docker system df`** _(done, September 2026)_. Under the filesystem
+rows, because it is the answer to the question they raise: a `/var` at 93%
+says nothing about how much of it is images nobody is running. Same gate as
+the process list, thirty-second clock instead of three — it changes slowly,
+and it is the one reading here that is genuinely slow on a real host.
+
+- **It got a meter**, which was not the plan. Four unrelated sizes on one
+  line ran off the end of a 150-column terminal and were cut mid-word. What
+  the row is actually read for is one number — the share of what docker holds
+  that it would give back — and that is a share of something finite, which is
+  the one thing a meter can honestly draw. The breakdown became the dim tail
+  that a narrow terminal cuts, which is the right thing to lose.
+- **The total is summed here.** The daemon prints a row per kind and no
+  summary line. Summing its rounded strings can differ in the third
+  significant digit, which is a rounding this screen can afford and a round
+  trip it cannot.
+- Caught by its own test: the size parser dropped every `kB` row, because
+  docker writes kilobytes with a small k and the unit table had `KB`. A
+  dropped row is a total that is quietly too small — the worst shape of
+  wrong — so the suffix is now matched without regard to case.
 
 ### F. Temperatures
 

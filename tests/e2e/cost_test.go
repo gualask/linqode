@@ -48,6 +48,10 @@ func TestRemoteCommandCost(t *testing.T) {
 		{"docker stats --no-stream", "docker stats --no-stream --format '{{json .}}'"},
 		{"container cgroups", compose.StatsCgroupCommand(runningPids(t, session))},
 		{"process table (on demand)", host.ProcessCommand()},
+		// Cheap here and not on a real host: this fixture holds two images
+		// and no build cache, and what the daemon spends answering is the
+		// walk over the ones it does have.
+		{"docker system df (on demand)", compose.SystemDFCommand()},
 	}
 	// The event stream is deliberately absent: a stream has no round-trip to
 	// measure, and what it costs is the traffic it carries, which the watch

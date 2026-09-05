@@ -62,6 +62,12 @@ const (
 	// because this is the tier that is asked for: the second reading is the
 	// first with a CPU share on it.
 	processesRefresh = 3 * time.Second
+	// diskUsageRefresh is `docker system df`, on the same gate and a much
+	// slower clock. It is the one reading here that is genuinely slow on a
+	// real host — the daemon walks the image store, the volumes and the
+	// build cache to answer — and it is also the one that changes least, so
+	// asking twice a minute is asking often enough.
+	diskUsageRefresh = 30 * time.Second
 )
 
 // The samples, delivered asynchronously so the UI never blocks on an SSH
@@ -82,6 +88,10 @@ type (
 	processSampleMsg struct {
 		sample host.ProcessSample
 		err    error
+	}
+	diskUsageMsg struct {
+		usage []compose.DiskUsage
+		err   error
 	}
 )
 
@@ -112,6 +122,10 @@ type Config struct {
 	// that is never taken for the home: the sampler's gate keeps it to the
 	// system view, and opening that view is what asks for it.
 	Processes func() (host.ProcessSample, error)
+	// DiskUsage asks the daemon what it is holding — images, containers,
+	// volumes, build cache. Same gate, much slower clock: it is the one
+	// reading that is genuinely slow on a real host.
+	DiskUsage func() ([]compose.DiskUsage, error)
 
 	// Watch streams the daemon's changes to this project's containers. Nil
 	// leaves the service list on its timer, which is what it falls back to
@@ -206,6 +220,12 @@ func New(config Config, services *status.Model) *Model {
 			start: read(config.Processes,
 				func(sample host.ProcessSample, err error) tea.Msg {
 					return processSampleMsg{sample: sample, err: err}
+				})},
+		sourceDiskUsage: {every: diskUsageRefresh,
+			gate: func() bool { return m.detail == m.system },
+			start: read(config.DiskUsage,
+				func(usage []compose.DiskUsage, err error) tea.Msg {
+					return diskUsageMsg{usage: usage, err: err}
 				})},
 	})
 	// Top to bottom, the way `tab` walks them. Focus starts on the table:
@@ -309,7 +329,7 @@ func (m *Model) UpdateBackground(msg tea.Msg) (tea.Cmd, bool) {
 		// The heartbeat stays alive so the cadence resumes on return, but
 		// nothing is read for a screen nobody is looking at.
 		return heartbeat(), true
-	case servicesSampleMsg, hostSampleMsg, statsSampleMsg, processSampleMsg:
+	case servicesSampleMsg, hostSampleMsg, statsSampleMsg, processSampleMsg, diskUsageMsg:
 		// A read already in flight when the view opened still lands.
 		return m.applySample(msg), true
 	case watchTickMsg:
@@ -328,7 +348,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return m.handleKey(msg)
 	case beatMsg:
 		return tea.Batch(m.sampler.due(), heartbeat())
-	case servicesSampleMsg, hostSampleMsg, statsSampleMsg, processSampleMsg:
+	case servicesSampleMsg, hostSampleMsg, statsSampleMsg, processSampleMsg, diskUsageMsg:
 		return m.applySample(msg)
 	case watchFeedMsg:
 		return m.applyWatchFeed(msg)
@@ -374,6 +394,9 @@ func (m *Model) applySample(msg tea.Msg) tea.Cmd {
 	case processSampleMsg:
 		m.system.SetProcesses(msg.sample, msg.err)
 		m.sampler.finished(sourceProcesses)
+	case diskUsageMsg:
+		m.system.SetDiskUsage(msg.usage, msg.err)
+		m.sampler.finished(sourceDiskUsage)
 	}
 	return nil
 }
@@ -447,9 +470,10 @@ func (m *Model) open() tea.Cmd {
 			m.detail = m.system
 			m.system.SetOpen(true)
 			// Opening the view is what asks for the readings it alone
-			// shows: the source is gated on being here, so waiting for the
-			// next beat would be waiting for nothing.
-			return m.sampler.read(sourceProcesses)
+			// shows: they are gated on being here, so waiting for the next
+			// beat would be waiting for nothing.
+			return tea.Batch(m.sampler.read(sourceProcesses),
+				m.sampler.read(sourceDiskUsage))
 		}
 	}
 	return nil

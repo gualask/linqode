@@ -117,6 +117,7 @@ These decisions are settled — do not re-litigate them when implementing:
   | host metrics (`/proc` + `df -Pk`) | 6 ms, 2.8 KB | — |
   | container cgroups (`/sys/fs/cgroup` + `/proc/<pid>/net/dev`) | 6 ms | — |
   | process table (`/proc/<pid>/stat`, on demand) | 3 ms, 200 B per process | — |
+  | `docker system df` (on demand) | 65 ms | — |
   | `compose ps --all --format json` | 64 ms | 60 ms |
   | `docker stats --no-stream` | 2.01 s | 2.07 s |
 
@@ -170,6 +171,13 @@ These decisions are settled — do not re-litigate them when implementing:
   the system view, it is read the moment that view opens, and it stops when
   the view closes. That is the on-demand tier the panel model was built for,
   and where every later reading of the same shape belongs.
+
+  `docker system df` is on the same gate at a much slower cadence. Its 65 ms
+  here is not what it costs on a real host: the fixture holds two images and
+  no build cache, and what the daemon spends answering is the walk over the
+  ones it does have. It is the one reading in the plan whose cost the fixture
+  cannot demonstrate, which is why it is on the on-demand tier rather than
+  measured onto a faster one.
 
 - **The daemon is watched, not polled** _(decided 2026-09-04)_. The service
   list is re-read when `docker events` says something changed, not on a

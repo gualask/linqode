@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
 )
 
@@ -187,5 +188,67 @@ func TestAFailedProcessReadingKeepsTheLastOne(t *testing.T) {
 	}
 	if !strings.Contains(view, "failed") {
 		t.Errorf("a stale list is not flagged:\n%s", view)
+	}
+}
+
+// The daemon's accounting sits under the filesystem rows because it is the
+// answer to the question they raise: a /var at 93% says nothing about how
+// much of it is images nobody is running.
+func TestDockerUsageSitsUnderTheFilesystems(t *testing.T) {
+	m := measuredProcesses()
+	m.SetDiskUsage(compose.ParseSystemDF([]byte(
+		"Images|12|3|48.2GB|31.4GB (65%)\n"+
+			"Containers|9|4|1.2GB|400MB (33%)\n"+
+			"Local Volumes|4|4|8.9GB|0B\n"+
+			"Build Cache|31|0|6.1GB|6.1GB (100%)\n")), nil)
+
+	view := m.View()
+	docker := strings.Index(view, " docker ")
+	if docker < 0 {
+		t.Fatalf("no docker row:\n%s", view)
+	}
+	if last := strings.LastIndex(view[:docker], "/var"); last < 0 {
+		t.Errorf("the docker row is not under the filesystems:\n%s", view)
+	}
+	if net := strings.Index(view, " net "); net > 0 && net < docker {
+		t.Errorf("the docker row landed after the network row:\n%s", view)
+	}
+
+	// The headline is the share the daemon would give back, because that is
+	// what decides whether a prune is worth running; the breakdown by kind
+	// is the dim tail behind it.
+	for _, want := range []string{"of 64.4GB reclaimable", "images 48.2GB", "cache 6.1GB"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the docker row is missing %q:\n%s", want, view)
+		}
+	}
+	// The idle count belongs to the kinds with something to free; a volume
+	// store entirely in use must not be offered for cleanup.
+	if !strings.Contains(view, "images 48.2GB (9 idle)") {
+		t.Errorf("the idle count is missing:\n%s", view)
+	}
+	if strings.Contains(view, "volumes 8.9GB (") {
+		t.Errorf("a fully used volume store was offered for cleanup:\n%s", view)
+	}
+	// And it wears the same grammar as every other row: a meter, because a
+	// share of something finite is the one thing a meter can honestly draw.
+	if !strings.Contains(view, " docker   [") {
+		t.Errorf("the docker row has no meter:\n%s", view)
+	}
+}
+
+// Nothing is drawn before the daemon has answered, and a failed answer keeps
+// the last one: it changes slowly enough that a minute-old reading is still
+// worth reading.
+func TestDockerUsageBeforeAndAfterAFailure(t *testing.T) {
+	m := measuredProcesses()
+	if strings.Contains(m.View(), " docker ") {
+		t.Errorf("a docker row was drawn before the daemon answered:\n%s", m.View())
+	}
+
+	m.SetDiskUsage(compose.ParseSystemDF([]byte("Images|1|1|2.0GB|0B\n")), nil)
+	m.SetDiskUsage(nil, errNotNow)
+	if !strings.Contains(m.View(), "images 2.0GB") {
+		t.Errorf("a failed reading dropped the last good one:\n%s", m.View())
 	}
 }

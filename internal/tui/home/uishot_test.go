@@ -357,6 +357,15 @@ func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 			processRound++
 			return busyProcesses(processRound), nil
 		},
+		DiskUsage: func() ([]compose.DiskUsage, error) {
+			// A daemon holding rather more than anyone meant it to, which
+			// is the state this row exists to make visible.
+			return compose.ParseSystemDF([]byte(
+				"Images|31|6|48.21GB|31.42GB (65%)\n" +
+					"Containers|12|4|1.204GB|402.7MB (33%)\n" +
+					"Local Volumes|4|4|8.914GB|0B\n" +
+					"Build Cache|118|0|6.117GB|6.117GB (100%)\n")), nil
+		},
 		Stats: func([]compose.Service) (compose.CgroupSample, error) {
 			round++
 			return shotCgroups(round), nil

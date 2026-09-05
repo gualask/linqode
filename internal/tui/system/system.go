@@ -16,6 +16,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/theme"
@@ -40,6 +41,11 @@ type Model struct {
 	// history remembers the readings worth a trend. It costs the server
 	// nothing: these samples have already been fetched.
 	history history
+
+	// diskUsage is what the daemon says it is holding, read only while this
+	// view is open and on a much slower clock than anything else: it is the
+	// one reading here that is genuinely slow on a real host.
+	diskUsage []compose.DiskUsage
 
 	// The process table, read only while this view is open. previous is what
 	// the CPU shares are measured against.
@@ -245,6 +251,13 @@ func (m *Model) View() string {
 			fmt.Sprintf("%s used", formatKB(filesystem.UsedKB))+
 				theme.Dim.Render(fmt.Sprintf("   %s free of %s   %s",
 					formatKB(free), formatKB(filesystem.TotalKB), filesystem.Device)))})
+	}
+
+	// Under the filesystems, because it is the answer to the question they
+	// raise: a /var at 93% says nothing about how much of it is images
+	// nobody is running, and only the daemon knows that.
+	if len(m.diskUsage) > 0 {
+		rows = append(rows, m.dockerUsageRow(column))
 	}
 
 	if m.hasUsage && len(m.usage.Interfaces) > 0 {

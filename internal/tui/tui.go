@@ -58,6 +58,9 @@ type Backend struct {
 	// about 220 bytes per process and answers a question nobody has asked
 	// until they are looking at it.
 	Processes func() (host.ProcessSample, error)
+	// DiskUsage asks the daemon what it is holding. Same tier as Processes,
+	// and the one reading here that is genuinely slow on a real host.
+	DiskUsage func() ([]compose.DiskUsage, error)
 	Logs      func(service string, tail int) (operations.Feed, error)
 	LiveStats func() (operations.Feed, error)
 	// Watch streams the daemon's changes to the project's containers, which
@@ -103,6 +106,7 @@ func Run(info Info, backend Backend) error {
 		Host:          backend.Host,
 		Stats:         backend.Stats,
 		Processes:     backend.Processes,
+		DiskUsage:     backend.DiskUsage,
 		Watch:         backend.Watch,
 	}, services)
 	app := appModel{info: info, backend: backend, home: screen}
