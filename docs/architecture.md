@@ -208,7 +208,23 @@ machine with a problem and an average that says twelve percent), the other
 two load figures, memory and swap, one row per filesystem with its device,
 network throughput and the interface carrying most of it, and PSI pressure.
 Rows are ordered by how much they answer "what is wrong with this machine",
-because a short terminal truncates the box from the bottom. That view is
+because a short terminal truncates the box from the bottom.
+
+Beside the CPU, memory and network rows runs a column of **trend strips**,
+drawn from samples already fetched — the one reading on the screen that
+costs the server nothing. Each is scaled against its own window rather than
+against 0–100, because the meter beside it already says the level: memory
+sitting between 78% and 88% on a fixed scale draws as eight solid blocks and
+the climb inside it disappears, which is the whole thing the strip is there
+for. The window is widened to a floor so a reading that never moves is not
+drawn as if it had swung end to end, and colour still comes from the raw
+value, so height means "how it moved" and colour means "how bad". Throughput
+has no natural full and is scaled against the busiest moment in its window
+instead. The strips appear as a column or not at all: one showing up on a
+single row would read as data about that row rather than as the terminal
+running out of width, so they are what a narrow screen gives up. Nothing is
+retained across sessions — history while nobody is connected is what an
+agent would buy, and it is a non-goal. That view is
 where every later measurement belongs — temperatures, GPU, the processes
 behind these numbers — rather than in another box on the home, which is what
 keeps the home cheap to draw and cheap to sample. `esc` comes back.

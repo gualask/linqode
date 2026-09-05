@@ -233,26 +233,48 @@ func busyHost(round int) host.Metrics {
 			Present: true,
 		},
 	}
+	// Memory climbing towards trouble rather than sitting there, which is
+	// the difference the trend beside it exists to show.
+	m.MemAvailableKB = 12_000_000 - uint64(round)*260_000
+
 	// One core pinned, one busy, the rest idling — which is the case a load
 	// average of 7.21 over eight cores cannot distinguish from six cores at
 	// nine tenths.
 	busy := []float64{0.98, 0.61, 0.12, 0.09, 0.31, 0.04, 0.07, 0.02}
 	machine := host.CPUTime{Name: "cpu"}
+	var traffic uint64
 	for core, fraction := range busy {
-		total := uint64(jiffies * round)
-		idle := uint64(float64(total) * (1 - fraction))
-		m.CPUTimes = append(m.CPUTimes,
-			host.CPUTime{Name: fmt.Sprintf("cpu%d", core), Total: total, Idle: idle})
-		machine.Total += total
-		machine.Idle += idle
+		var counter host.CPUTime
+		// The counters are cumulative, so each round is added rather than
+		// multiplied in: that is what gives the strip a shape instead of a
+		// flat line at one value.
+		for r := 1; r <= round; r++ {
+			counter.Total += jiffies
+			counter.Idle += uint64(float64(jiffies) * (1 - fraction*shotWave(r)))
+		}
+		counter.Name = fmt.Sprintf("cpu%d", core)
+		m.CPUTimes = append(m.CPUTimes, counter)
+		machine.Total += counter.Total
+		machine.Idle += counter.Idle
 	}
 	m.CPUTimes = append([]host.CPUTime{machine}, m.CPUTimes...)
+	for r := 1; r <= round; r++ {
+		traffic += uint64(1_450_000 * shotWave(r))
+	}
 	m.Interfaces = []host.Interface{
 		{Name: "lo", RxBytes: uint64(round) * 12_000, TxBytes: uint64(round) * 12_000},
-		{Name: "eth0", RxBytes: uint64(round) * 1_450_000, TxBytes: uint64(round) * 340_000},
+		{Name: "eth0", RxBytes: traffic, TxBytes: traffic / 4},
 		{Name: "veth3f1a", RxBytes: uint64(round) * 980_000, TxBytes: uint64(round) * 210_000},
 	}
 	return m
+}
+
+// shotWave is a deterministic stand-in for a machine doing something: the
+// per-round multiplier that gives the sparklines a shape to be read.
+func shotWave(round int) float64 {
+	pattern := []float64{0.22, 0.35, 0.50, 0.78, 1.00, 0.92, 0.61, 0.40,
+		0.28, 0.44, 0.70, 0.96, 0.52, 0.30}
+	return pattern[(round-1)%len(pattern)]
 }
 
 // Every state the table has a color for, in one project.
@@ -310,6 +332,11 @@ func shotCgroups(round int) compose.CgroupSample {
 	return sample
 }
 
+// shotRounds is how many samples the frames are built from: enough for the
+// sparklines to have something to draw, since a strip of two cells is not a
+// trend.
+const shotRounds = 18
+
 // shotScreen assembles a home over a services panel filled with the fixtures
 // above. hostErr makes the host fetch fail, which is how the stale flag is
 // reached — through the panel's own path rather than by writing its fields.
@@ -340,9 +367,11 @@ func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 	sampleAll(screen)
 	// The container counters have nothing to address until the first service
 	// list has landed, and a percentage is the difference between two
-	// readings — so the frames take three passes to show a full table.
-	resample(screen)
-	resample(screen)
+	// readings — so the frames take three passes to show a full table, and
+	// as many again to fill the sparklines beside the host readings.
+	for range shotRounds {
+		resample(screen)
+	}
 	if hostErr != nil {
 		failing = true
 		resample(screen)

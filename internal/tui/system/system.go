@@ -37,6 +37,10 @@ type Model struct {
 	usage    host.Usage
 	hasUsage bool
 
+	// history remembers the readings worth a trend. It costs the server
+	// nothing: these samples have already been fetched.
+	history history
+
 	focused       bool
 	width, height int
 }
@@ -54,6 +58,12 @@ func (m *Model) SetSample(metrics host.Metrics, err error) {
 	if m.loaded {
 		if usage, ok := metrics.Since(m.metrics); ok {
 			m.usage, m.hasUsage = usage, true
+			m.history.push(trend{
+				uptime: metrics.UptimeSeconds,
+				cpu:    usage.CPUPercent,
+				memory: metrics.MemUsedPercent(),
+				net:    usage.RxRate + usage.TxRate,
+			})
 		}
 	}
 	m.metrics, m.loaded, m.stale = metrics, true, false
@@ -123,6 +133,13 @@ const labelWidth = 8
 // instead of eating the width the gauges are drawn in.
 const labelMax = 16
 
+// row is one line of the view: its text, and the trend strip that belongs to
+// the right of it when there is room for a column of them.
+type row struct {
+	text  string
+	strip string
+}
+
 // View is the system view: everything the batch reads, with the room to
 // print what the band has to leave out — the other load averages, the cores
 // behind the average, what is available rather than only what is used, and
@@ -140,7 +157,7 @@ func (m *Model) View() string {
 	}
 	metrics := m.metrics
 	column := m.labelColumn()
-	var rows []string
+	var rows []row
 
 	load := ""
 	if metrics.HasLoad() {
@@ -149,62 +166,128 @@ func (m *Model) View() string {
 	}
 	if m.hasUsage {
 		percent := m.usage.CPUPercent
-		rows = append(rows, m.meterRow(column, "cpu", percent, theme.Usage(percent),
-			fmt.Sprintf("%.0f%% busy", percent)+load))
+		rows = append(rows, row{
+			text: m.meterRow(column, "cpu", percent, theme.Usage(percent),
+				fmt.Sprintf("%.0f%% busy", percent)+load),
+			strip: m.trendOf(func(t trend) float64 { return t.cpu }, percentScale, theme.Usage),
+		})
 		if strip := m.coreRow(column); strip != "" {
-			rows = append(rows, strip)
+			rows = append(rows, row{text: strip})
 		}
 	} else if metrics.HasLoad() {
 		// The first sample after connecting cannot say what the CPU is
 		// doing — a percentage is a difference — so the load average
 		// stands in until the second one arrives.
 		perCPU := metrics.LoadPerCPU()
-		rows = append(rows, m.meterRow(column, "load", perCPU*100, loadStyle(perCPU),
+		rows = append(rows, row{text: m.meterRow(column, "load", perCPU*100, loadStyle(perCPU),
 			fmt.Sprintf("%.2f  %.2f  %.2f", metrics.Load1, metrics.Load5, metrics.Load15)+
-				theme.Dim.Render(fmt.Sprintf("   over %d cores", metrics.CPUs))))
+				theme.Dim.Render(fmt.Sprintf("   over %d cores", metrics.CPUs)))})
 	}
 
 	if metrics.MemTotalKB > 0 {
 		percent := metrics.MemUsedPercent()
-		rows = append(rows, m.meterRow(column, "memory", percent, theme.Usage(percent),
-			fmt.Sprintf("%s used", formatKB(metrics.MemUsedKB()))+
-				theme.Dim.Render(fmt.Sprintf("   %s available of %s",
-					formatKB(metrics.MemAvailableKB), formatKB(metrics.MemTotalKB)))))
+		// Memory is the reading a trend changes most: 88% in use says
+		// nothing about whether it has been there for a week or arrived in
+		// the last two minutes, and those are different problems.
+		rows = append(rows, row{
+			text: m.meterRow(column, "memory", percent, theme.Usage(percent),
+				fmt.Sprintf("%s used", formatKB(metrics.MemUsedKB()))+
+					theme.Dim.Render(fmt.Sprintf("   %s available of %s",
+						formatKB(metrics.MemAvailableKB), formatKB(metrics.MemTotalKB)))),
+			strip: m.trendOf(func(t trend) float64 { return t.memory }, percentScale, theme.Usage),
+		})
 	}
 	// A machine with no swap configured is not a machine with empty swap,
 	// and drawing an empty meter for it would say the opposite.
 	if metrics.SwapTotalKB > 0 {
 		percent := metrics.SwapUsedPercent()
-		rows = append(rows, m.meterRow(column, "swap", percent, theme.Usage(percent),
+		rows = append(rows, row{text: m.meterRow(column, "swap", percent, theme.Usage(percent),
 			fmt.Sprintf("%s used", formatKB(metrics.SwapUsedKB()))+
 				theme.Dim.Render(fmt.Sprintf("   %s free of %s",
 					formatKB(metrics.SwapTotalKB-metrics.SwapUsedKB()),
-					formatKB(metrics.SwapTotalKB)))))
+					formatKB(metrics.SwapTotalKB))))})
 	}
 
 	for _, filesystem := range m.filesystems() {
 		percent := filesystem.UsedPercent()
 		free := filesystem.TotalKB - min(filesystem.UsedKB, filesystem.TotalKB)
-		rows = append(rows, m.meterRow(column, filesystem.Mount, percent, theme.Usage(percent),
+		rows = append(rows, row{text: m.meterRow(column, filesystem.Mount, percent,
+			theme.Usage(percent),
 			fmt.Sprintf("%s used", formatKB(filesystem.UsedKB))+
 				theme.Dim.Render(fmt.Sprintf("   %s free of %s   %s",
-					formatKB(free), formatKB(filesystem.TotalKB), filesystem.Device))))
+					formatKB(free), formatKB(filesystem.TotalKB), filesystem.Device)))})
 	}
 
 	if m.hasUsage && len(m.usage.Interfaces) > 0 {
-		rows = append(rows, m.textRow(column, "net", m.networkText()))
+		// A throughput is not a share of anything, so its strip is scaled
+		// against the busiest moment in the window and drawn in one color:
+		// coloring it by height would read as "this is bad" where it only
+		// means "this is the top of what happened".
+		rows = append(rows, row{
+			text: m.textRow(column, "net", m.networkText()),
+			strip: m.trendOf(func(t trend) float64 { return t.net }, rateScale,
+				func(float64) lipgloss.Style { return theme.Cyan }),
+		})
 	}
 	if metrics.HasPressure() {
-		rows = append(rows, m.textRow(column, "pressure", m.pressureText()))
+		rows = append(rows, row{text: m.textRow(column, "pressure", m.pressureText())})
 	}
 	if metrics.Uptime > 0 {
-		rows = append(rows, m.textRow(column, "uptime", formatUptime(metrics.Uptime)))
+		rows = append(rows, row{text: m.textRow(column, "uptime", formatUptime(metrics.Uptime))})
 	}
 	if m.stale {
-		rows = append(rows, "", theme.Dim.Render(
-			"  the last sample failed — these readings are the ones before it"))
+		rows = append(rows, row{}, row{text: theme.Dim.Render(
+			"  the last sample failed — these readings are the ones before it")})
 	}
-	return strings.Join(rows, "\n")
+	return m.assemble(rows)
+}
+
+// assemble lays the rows out, putting the trend strips in a column at the
+// right edge when every one of them fits.
+//
+// All or none, deliberately: a strip that appears on one row and not the
+// next reads as data about that row rather than as the width running out.
+// The strips are also the part that can be inferred from the next sample,
+// so they are what a narrow terminal gives up rather than the numbers.
+func (m *Model) assemble(rows []row) string {
+	widest, strips := 0, false
+	for _, entry := range rows {
+		widest = max(widest, lipgloss.Width(entry.text))
+		strips = strips || entry.strip != ""
+	}
+	stripWidth := 0
+	for _, entry := range rows {
+		stripWidth = max(stripWidth, lipgloss.Width(entry.strip))
+	}
+	room := m.width > 0 && widest+2+stripWidth <= m.width
+	lines := make([]string, len(rows))
+	for index, entry := range rows {
+		lines[index] = entry.text
+		if !strips || !room || entry.strip == "" {
+			continue
+		}
+		gap := m.width - lipgloss.Width(entry.text) - lipgloss.Width(entry.strip)
+		lines[index] = entry.text + strings.Repeat(" ", gap) + entry.strip
+	}
+	return strings.Join(lines, "\n")
+}
+
+// trendOf draws one reading's history as a strip, prefixed with the stretch
+// of host time it covers. Every strip covers the same window, so the label
+// is padded onto all of them rather than printed once: the strips have to
+// start at the same column to read as a column.
+func (m *Model) trendOf(of func(trend) float64, scale func([]float64) (float64, float64),
+	style func(float64) lipgloss.Style) string {
+	samples, seconds := m.history.window(sparkWidth)
+	if len(samples) == 0 {
+		return ""
+	}
+	values := make([]float64, len(samples))
+	for index, sample := range samples {
+		values[index] = of(sample)
+	}
+	floor, ceiling := scale(values)
+	return theme.Dim.Render(sparkSpan(seconds)+" ") + sparkline(values, floor, ceiling, style)
 }
 
 // filesystems is the mount list, falling back to the root reading alone on a

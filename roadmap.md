@@ -382,8 +382,29 @@ Two things came out of looking at the frames rather than out of the design:
   cut mid-word. The bar width now reserves what the widest text needs, which
   costs a wide terminal nothing (the cap is reached either way).
 
-**C3 — client-side history ring buffer** feeding sparklines. Free by
-construction: the samples have already been fetched.
+**C3 — client-side history ring buffer** feeding sparklines _(done,
+September 2026)_. Free by construction: the samples have already been
+fetched. A ring of the last 120 of them feeds a strip beside the CPU, memory
+and network rows.
+
+The scaling turned out to be the whole of it, and looking at the frames is
+what showed it:
+
+- **Against its own window, not 0–100.** The meter beside the strip already
+  says the level. On a fixed scale, memory between 78% and 88% draws as eight
+  solid blocks and the climb — the thing the strip exists for — disappears.
+  Height is now the shape, colour is still the raw value, so the two say
+  different things instead of the same one twice.
+- **With a floor under the window**, or a reading that never moves more than
+  a point would be drawn as if it had swung end to end: the failure mode on
+  the other side.
+- **A column or nothing.** A strip on one row and not the next reads as data
+  about that row rather than as the width running out, so a narrow terminal
+  drops all of them — they are the part the next sample can reconstruct, and
+  the numbers are not.
+- The label says how much host time the strip covers, measured from the
+  samples that arrived rather than from the cadence that was asked for — so
+  a stretched interval on a slow link reports what it got.
 
 ### D. Events
 
