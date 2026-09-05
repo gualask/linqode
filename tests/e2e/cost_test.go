@@ -52,6 +52,11 @@ func TestRemoteCommandCost(t *testing.T) {
 		// and no build cache, and what the daemon spends answering is the
 		// walk over the ones it does have.
 		{"docker system df (on demand)", compose.SystemDFCommand()},
+		// What this measures on a host with no GPU is the guard doing its
+		// job: no glob matches and nvidia-smi is never reached. A host that
+		// has one pays the driver context nvidia-smi initialises, which is
+		// what the guard exists to keep off every other host.
+		{"gpu (on demand, no card here)", host.GPUCommand()},
 	}
 	// The event stream is deliberately absent: a stream has no round-trip to
 	// measure, and what it costs is the traffic it carries, which the watch

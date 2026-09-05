@@ -257,3 +257,53 @@ func (m *Model) dockerUsageRow(column int) row {
 	return row{text: m.meterRow(column, "docker", percent, theme.Usage(percent),
 		text+detail)}
 }
+
+// SetGPUs applies one reading of the graphics cards. Like the process table
+// it is read only while this view is open, and a failed read leaves the last
+// answer where it is.
+func (m *Model) SetGPUs(gpus []host.GPU, err error) {
+	if err != nil {
+		return
+	}
+	m.gpus = gpus
+}
+
+// gpuRows is one row per card, in the same grammar as everything else here.
+//
+// The meter is utilisation, because that is what the row is glanced at for;
+// memory is spelled out beside it, because on a card that is what actually
+// stops work starting. Where the driver reports no utilisation — some older
+// amdgpu kernels — the meter falls back to memory and the text says which
+// number it is drawing.
+func (m *Model) gpuRows(column int) []row {
+	rows := make([]row, 0, len(m.gpus))
+	for index, gpu := range m.gpus {
+		label := "gpu"
+		if len(m.gpus) > 1 {
+			label = fmt.Sprintf("gpu%d", index)
+		}
+		percent, text := gpu.MemUsedPercent(), ""
+		if gpu.BusyReported {
+			percent = gpu.BusyPercent
+			text = fmt.Sprintf("%.0f%% busy", percent)
+		} else {
+			text = fmt.Sprintf("%.0f%% of memory", percent)
+		}
+		if gpu.MemTotalKB > 0 {
+			text += fmt.Sprintf("   %s/%s",
+				formatKB(gpu.MemUsedKB), formatKB(gpu.MemTotalKB))
+		}
+		var tail []string
+		if gpu.TempMilliC > 0 {
+			tail = append(tail, fmt.Sprintf("%.0f°C", float64(gpu.TempMilliC)/1000))
+		}
+		if gpu.PowerWatts > 0 {
+			tail = append(tail, fmt.Sprintf("%.0fW", gpu.PowerWatts))
+		}
+		tail = append(tail, gpu.Name)
+		text += theme.Dim.Render("   " + strings.Join(tail, "   "))
+		rows = append(rows, row{
+			text: m.meterRow(column, label, percent, theme.Usage(percent), text)})
+	}
+	return rows
+}

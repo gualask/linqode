@@ -519,30 +519,44 @@ and the one the e2e suite asserts.
   validated in the hardening phase, which is the only place it honestly can
   be.
 
-### G. GPU
+### G. GPU _(done, September 2026)_
 
-Detection belongs to phase B's static tier; sampling gets its own cadence.
+A row per card in the system view, on the same gate as the process table.
+The asymmetry between the two vendors is what decided everything else:
 
-- **NVIDIA**: `nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader,nounits`.
-  Present wherever the driver is, already tabular, one row per GPU. **Not
-  free**: driver context initialisation typically costs hundreds of ms (worse
-  with persistence mode off and the GPU in a low-power state), so it never
-  shares the sysfs tick. Measure it with the cost harness.
-- **AMD**: `/sys/class/drm/card*/device/` exposes `gpu_busy_percent`,
-  `mem_info_vram_used`, `mem_info_vram_total`, with temperature and power in
-  its own `hwmon` — i.e. sysfs cost, so it *can* ride the batch. `rocm-smi`
-  requires ROCm installed.
-- **Intel**: little without installing anything. `intel_gpu_top -J` needs the
-  package and privileges; sysfs gives frequencies, plus an i915 hwmon on dGPUs
-  and recent kernels.
-- **Probe once at connect** (`command -v nvidia-smi`, or the `vendor` under
-  `/sys/class/drm/card*/device/`) so a GPU-less host never pays `nvidia-smi`
-  startup.
-- Open: one meter per card or an aggregate; whether the GPU gets its own panel
-  or one row in the system view.
-- Out of scope here: **per-container** GPU attribution, which would mean
-  crossing `nvidia-smi --query-compute-apps=pid,used_memory` with container
-  PIDs. `docker stats` reports nothing about GPUs.
+- **AMD is sysfs and NVIDIA is a program.** `gpu_busy_percent`,
+  `mem_info_vram_*` and the driver's own hwmon cost what any `/sys` read
+  costs; `nvidia-smi` initialises a driver context. One slow vendor is enough
+  to keep the whole reading off the tier that runs every five seconds whether
+  or not anyone is looking.
+- **The connect-time probe was not needed.** Both vendors are asked in one
+  exec with the NVIDIA half behind `command -v nvidia-smi`, which buys what
+  the probe would have bought without the state it would have cost. Measured
+  on a host with no card: **2 ms and 16 bytes** — two marker lines and
+  nothing else. What a host *with* a card pays is not measurable from here
+  and is not claimed.
+- **The open questions settled themselves.** One row per card rather than an
+  aggregate, because two cards are two answers; in the system view rather
+  than a panel of its own, because the home is vital signs and a GPU is
+  something you investigate. The meter is utilisation with memory beside it
+  — on a card it is memory that stops work starting — and where a driver
+  reports no utilisation, the meter falls back to memory and says so.
+- **A DRM connector is not a card.** `/sys/class/drm` holds a directory per
+  connector as well as per card, and a connector's `device` symlink points
+  back at the card, so `card0-DP-1` would have been read as a second card
+  and doubled every number. The card name is now matched exactly.
+- An AMD card's temperature arrives twice, and that is correct: the driver
+  registers its hwmon like any other chip, so it is in phase F's temperature
+  row as well as in its own.
+- Same honesty as F: there is no GPU on the fixture, in the VM under it, or
+  anywhere this suite can reach, so `internal/host/gpu_test.go` is written to
+  the documented interfaces and says so. The e2e test asserts the case that
+  *is* reachable, which is also the common one — no card, no tool started,
+  nothing on stdout, no row.
+
+Out of scope here and still is: **per-container** GPU attribution, which
+would mean crossing `nvidia-smi --query-compute-apps=pid,used_memory` with
+container PIDs. `docker stats` reports nothing about GPUs.
 
 ### H. Context actions in detail views _(gated on decision 3.2)_
 

@@ -252,3 +252,67 @@ func TestDockerUsageBeforeAndAfterAFailure(t *testing.T) {
 		t.Errorf("a failed reading dropped the last good one:\n%s", m.View())
 	}
 }
+
+// A card gets the same grammar as everything else: a meter for what it is
+// doing, and the numbers the meter cannot carry beside it.
+func TestGPURows(t *testing.T) {
+	m := measuredProcesses()
+	m.SetGPUs(host.ParseGPUs([]byte(`#amdgpu
+/sys/class/drm/card0/device/gpu_busy_percent:62
+/sys/class/drm/card0/device/mem_info_vram_used:5368709120
+/sys/class/drm/card0/device/mem_info_vram_total:17179869184
+/sys/class/drm/card0/device/hwmon/hwmon4/temp1_input:68000
+/sys/class/drm/card0/device/hwmon/hwmon4/power1_average:184000000
+#nvidia
+0, NVIDIA A10, 34, 4123, 23028, 61, 120.45
+`)), nil)
+
+	view := m.View()
+	// Two cards, so each row says which one it is.
+	for _, want := range []string{"gpu0", "gpu1", "62% busy", "34% busy",
+		"5.0G/16.0G", "68°C", "184W", "amdgpu card0", "NVIDIA A10"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the gpu rows are missing %q:\n%s", want, view)
+		}
+	}
+
+	// One card needs no number in its label.
+	single := measuredProcesses()
+	single.SetGPUs(host.ParseGPUs([]byte("#nvidia\n0, NVIDIA A10, 34, 4123, 23028, 61, 120.45\n")), nil)
+	got := single.View()
+	if strings.Contains(got, "gpu0") {
+		t.Errorf("a single card was numbered:\n%s", got)
+	}
+	if !strings.Contains(got, "gpu ") {
+		t.Errorf("the single card lost its row:\n%s", got)
+	}
+}
+
+// The common case, and the one the fixture proves: no card, no row.
+func TestNoGPURowWithoutACard(t *testing.T) {
+	m := measuredProcesses()
+	if strings.Contains(m.View(), "gpu") {
+		t.Errorf("a gpu row was drawn on a host with no card:\n%s", m.View())
+	}
+	m.SetGPUs(nil, errNotNow)
+	if strings.Contains(m.View(), "gpu") {
+		t.Errorf("a failed reading drew a row:\n%s", m.View())
+	}
+}
+
+// An older amdgpu kernel reports memory and no utilisation. The row still
+// draws, against the number it does have, and says which one that is.
+func TestACardThatReportsNoUtilisation(t *testing.T) {
+	m := measuredProcesses()
+	m.SetGPUs(host.ParseGPUs([]byte(`#amdgpu
+/sys/class/drm/card0/device/mem_info_vram_used:8589934592
+/sys/class/drm/card0/device/mem_info_vram_total:17179869184
+`)), nil)
+	view := m.View()
+	if !strings.Contains(view, "50% of memory") {
+		t.Errorf("the row does not say which number it is drawing:\n%s", view)
+	}
+	if strings.Contains(view, "busy") {
+		t.Errorf("a utilisation nobody reported was drawn:\n%s", view)
+	}
+}

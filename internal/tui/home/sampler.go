@@ -43,6 +43,7 @@ const (
 	sourceStats
 	sourceProcesses
 	sourceDiskUsage
+	sourceGPU
 )
 
 // source is one remote reading: how often it is wanted, how to start it, and

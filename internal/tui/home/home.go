@@ -68,6 +68,12 @@ const (
 	// build cache to answer — and it is also the one that changes least, so
 	// asking twice a minute is asking often enough.
 	diskUsageRefresh = 30 * time.Second
+	// gpuRefresh is the graphics cards', on the same gate as the process
+	// table. Five seconds rather than three because one of the two vendors
+	// answers only through a tool that initialises a driver context, and
+	// what that costs is measured in hundreds of milliseconds rather than
+	// in the milliseconds every other reading here costs.
+	gpuRefresh = 5 * time.Second
 )
 
 // The samples, delivered asynchronously so the UI never blocks on an SSH
@@ -92,6 +98,10 @@ type (
 	diskUsageMsg struct {
 		usage []compose.DiskUsage
 		err   error
+	}
+	gpuSampleMsg struct {
+		gpus []host.GPU
+		err  error
 	}
 )
 
@@ -126,6 +136,10 @@ type Config struct {
 	// volumes, build cache. Same gate, much slower clock: it is the one
 	// reading that is genuinely slow on a real host.
 	DiskUsage func() ([]compose.DiskUsage, error)
+	// GPUs reads the graphics cards. Same gate again, and for the same
+	// reason the process table is on it: one vendor answers only through a
+	// tool that costs hundreds of milliseconds to start.
+	GPUs func() ([]host.GPU, error)
 
 	// Watch streams the daemon's changes to this project's containers. Nil
 	// leaves the service list on its timer, which is what it falls back to
@@ -226,6 +240,12 @@ func New(config Config, services *status.Model) *Model {
 			start: read(config.DiskUsage,
 				func(usage []compose.DiskUsage, err error) tea.Msg {
 					return diskUsageMsg{usage: usage, err: err}
+				})},
+		sourceGPU: {every: gpuRefresh,
+			gate: func() bool { return m.detail == m.system },
+			start: read(config.GPUs,
+				func(gpus []host.GPU, err error) tea.Msg {
+					return gpuSampleMsg{gpus: gpus, err: err}
 				})},
 	})
 	// Top to bottom, the way `tab` walks them. Focus starts on the table:
@@ -329,7 +349,8 @@ func (m *Model) UpdateBackground(msg tea.Msg) (tea.Cmd, bool) {
 		// The heartbeat stays alive so the cadence resumes on return, but
 		// nothing is read for a screen nobody is looking at.
 		return heartbeat(), true
-	case servicesSampleMsg, hostSampleMsg, statsSampleMsg, processSampleMsg, diskUsageMsg:
+	case servicesSampleMsg, hostSampleMsg, statsSampleMsg, processSampleMsg,
+		diskUsageMsg, gpuSampleMsg:
 		// A read already in flight when the view opened still lands.
 		return m.applySample(msg), true
 	case watchTickMsg:
@@ -348,7 +369,8 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return m.handleKey(msg)
 	case beatMsg:
 		return tea.Batch(m.sampler.due(), heartbeat())
-	case servicesSampleMsg, hostSampleMsg, statsSampleMsg, processSampleMsg, diskUsageMsg:
+	case servicesSampleMsg, hostSampleMsg, statsSampleMsg, processSampleMsg,
+		diskUsageMsg, gpuSampleMsg:
 		return m.applySample(msg)
 	case watchFeedMsg:
 		return m.applyWatchFeed(msg)
@@ -397,6 +419,9 @@ func (m *Model) applySample(msg tea.Msg) tea.Cmd {
 	case diskUsageMsg:
 		m.system.SetDiskUsage(msg.usage, msg.err)
 		m.sampler.finished(sourceDiskUsage)
+	case gpuSampleMsg:
+		m.system.SetGPUs(msg.gpus, msg.err)
+		m.sampler.finished(sourceGPU)
 	}
 	return nil
 }
@@ -473,7 +498,7 @@ func (m *Model) open() tea.Cmd {
 			// shows: they are gated on being here, so waiting for the next
 			// beat would be waiting for nothing.
 			return tea.Batch(m.sampler.read(sourceProcesses),
-				m.sampler.read(sourceDiskUsage))
+				m.sampler.read(sourceDiskUsage), m.sampler.read(sourceGPU))
 		}
 	}
 	return nil

@@ -319,3 +319,32 @@ func TestDiskUsageAgainstRealDaemon(t *testing.T) {
 		t.Errorf("nothing totalled from %+v", usage)
 	}
 }
+
+// The graphics reading against a host with no graphics, which is the case it
+// mostly has to survive — and the only one reachable from here.
+//
+// What has to hold: the sysfs globs match nothing, the guard keeps
+// nvidia-smi from ever being started, nothing lands on stdout that could be
+// read as a card, and the result is no cards rather than an error.
+func TestGPUsAgainstAHostWithNone(t *testing.T) {
+	session := connect(t)
+	start := time.Now()
+	out := execOrFail(t, session, host.GPUCommand())
+	t.Logf("answered in %v, %d bytes", time.Since(start).Round(time.Millisecond),
+		len(out.Stdout))
+
+	gpus := host.ParseGPUs(out.Stdout)
+	if len(gpus) != 0 {
+		t.Errorf("a host with no card reported %+v", gpus)
+	}
+	for _, unwanted := range []string{"No such file", "not found", "command not found"} {
+		if strings.Contains(string(out.Stdout), unwanted) {
+			t.Errorf("%q reached stdout:\n%s", unwanted, out.Stdout)
+		}
+	}
+	// The guard is the whole point: without it every GPU-less host would
+	// pay a driver context initialising for nothing.
+	if !strings.Contains(host.GPUCommand(), "command -v nvidia-smi") {
+		t.Error("nvidia-smi is reachable on a host that does not have it")
+	}
+}

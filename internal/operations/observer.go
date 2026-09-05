@@ -85,6 +85,21 @@ func (o *HostOperator) HostProcesses(ctx context.Context) (host.ProcessSample, e
 	return host.ParseProcessSample(out.Stdout), nil
 }
 
+// GPUs reads the machine's graphics cards. On-demand, because one of the two
+// vendors it asks answers only through nvidia-smi, which initialises a driver
+// context rather than reading a file — hundreds of milliseconds, and worse
+// with persistence mode off.
+//
+// A host with neither an AMD card nor the NVIDIA tool matches no glob and
+// runs no second command, so the reading costs a shell fork and nothing else.
+func (o *HostOperator) GPUs(ctx context.Context) ([]host.GPU, error) {
+	out, err := o.executor.Exec(ctx, host.GPUCommand())
+	if err != nil {
+		return nil, err
+	}
+	return host.ParseGPUs(out.Stdout), nil
+}
+
 // DiskUsage asks the daemon what it is holding: images, containers, volumes
 // and build cache. It is not scoped to the project and cannot be — those are
 // the daemon's, shared with everything else on the host, which is exactly

@@ -275,6 +275,24 @@ on stderr, and there is no reading and no meter. That absence is what the e2e
 suite can assert; a host that actually has sensors is validated in the
 hardening phase, because neither the fixture nor the VM under it has one.
 
+**Graphics cards** are the one reading with no single place to be read from,
+and the asymmetry decides where they sit. AMD exposes `gpu_busy_percent`,
+`mem_info_vram_used` and a hwmon of its own under `/sys/class/drm/card*`, so
+an AMD card costs what any other `/sys` read costs. NVIDIA exposes nothing
+usable in sysfs and everything behind `nvidia-smi`, which initialises a driver
+context rather than reading a file — hundreds of milliseconds, worse with
+persistence mode off. One slow vendor is enough to keep the whole reading off
+the always-on tier, so it joins the process table on the gate. Both vendors
+are asked in a single exec with the NVIDIA half behind `command -v`, which is
+what a connect-time probe would have bought without the state it would have
+cost: a host with neither matches no glob and starts no tool. Intel is left
+out — it offers little without something installed. A card gets a row per
+card, metered on utilisation with memory spelled out beside it, since on a
+card it is memory that stops work starting; where a driver reports no
+utilisation the meter falls back to memory and the row says which number it is
+drawing. An AMD card's temperature also appears in the temperature row above,
+because the driver registers its hwmon like any other chip.
+
 Beside the filesystem rows, and on the same gate, sits what the **daemon**
 says it is holding: images, containers, volumes and build cache, from
 `docker system df`. It is there because it is the answer to the question

@@ -85,6 +85,9 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 		backend.DiskUsage = func() ([]compose.DiskUsage, error) {
 			return operator.DiskUsage(ctx)
 		}
+		backend.GPUs = func() ([]host.GPU, error) {
+			return operator.GPUs(ctx)
+		}
 		backend.LiveStats = func() (operations.Feed, error) {
 			return operator.FollowStats(ctx)
 		}

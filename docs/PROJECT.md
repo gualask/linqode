@@ -118,6 +118,7 @@ These decisions are settled — do not re-litigate them when implementing:
   | container cgroups (`/sys/fs/cgroup` + `/proc/<pid>/net/dev`) | 6 ms | — |
   | process table (`/proc/<pid>/stat`, on demand) | 3 ms, 200 B per process | — |
   | `docker system df` (on demand) | 65 ms | — |
+  | graphics cards (on demand, no card here) | 2 ms | — |
   | `compose ps --all --format json` | 64 ms | 60 ms |
   | `docker stats --no-stream` | 2.01 s | 2.07 s |
 
@@ -177,6 +178,17 @@ These decisions are settled — do not re-litigate them when implementing:
   the system view, it is read the moment that view opens, and it stops when
   the view closes. That is the on-demand tier the panel model was built for,
   and where every later reading of the same shape belongs.
+
+  The graphics reading is on that gate too, and for a reason worth writing
+  down _(2026-09-05)_. AMD puts everything in sysfs and costs what any other
+  `/sys` read costs; NVIDIA puts nothing usable there and everything behind
+  `nvidia-smi`, which is not a file read — it initialises a driver context,
+  typically hundreds of milliseconds and worse with persistence mode off. One
+  slow vendor is enough to keep the whole reading off the tier that runs every
+  five seconds whether or not anyone is looking. Both are asked in one exec,
+  with the NVIDIA half behind `command -v`, so a host without the driver pays
+  a shell builtin: 2 ms and 16 bytes, measured. What a host *with* a card pays
+  is not measurable from here and is not claimed.
 
   `docker system df` is on the same gate at a much slower cadence. Its 65 ms
   here is not what it costs on a real host: the fixture holds two images and

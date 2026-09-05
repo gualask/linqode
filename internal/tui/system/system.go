@@ -47,6 +47,12 @@ type Model struct {
 	// one reading here that is genuinely slow on a real host.
 	diskUsage []compose.DiskUsage
 
+	// gpus is what the graphics cards report, on the same gate as the
+	// process table: one of the two vendors answers only through a tool that
+	// initialises a driver context, which is not a thing to run every five
+	// seconds for a screen nobody is looking at.
+	gpus []host.GPU
+
 	// The process table, read only while this view is open. previous is what
 	// the CPU shares are measured against.
 	processes         []host.ProcessUsage
@@ -282,6 +288,7 @@ func (m *Model) View() string {
 		rows = append(rows, row{text: m.meterRow(column, "temp", share,
 			theme.Usage(share), m.temperatureText(hottest))})
 	}
+	rows = append(rows, m.gpuRows(column)...)
 	if metrics.Uptime > 0 {
 		rows = append(rows, row{text: m.textRow(column, "uptime", formatUptime(metrics.Uptime))})
 	}

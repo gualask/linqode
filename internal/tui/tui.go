@@ -61,6 +61,8 @@ type Backend struct {
 	// DiskUsage asks the daemon what it is holding. Same tier as Processes,
 	// and the one reading here that is genuinely slow on a real host.
 	DiskUsage func() ([]compose.DiskUsage, error)
+	// GPUs reads the graphics cards, on the same tier for the same reason.
+	GPUs      func() ([]host.GPU, error)
 	Logs      func(service string, tail int) (operations.Feed, error)
 	LiveStats func() (operations.Feed, error)
 	// Watch streams the daemon's changes to the project's containers, which
@@ -107,6 +109,7 @@ func Run(info Info, backend Backend) error {
 		Stats:         backend.Stats,
 		Processes:     backend.Processes,
 		DiskUsage:     backend.DiskUsage,
+		GPUs:          backend.GPUs,
 		Watch:         backend.Watch,
 	}, services)
 	app := appModel{info: info, backend: backend, home: screen}

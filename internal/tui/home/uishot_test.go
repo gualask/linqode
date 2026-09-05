@@ -365,6 +365,17 @@ func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 			processRound++
 			return busyProcesses(processRound), nil
 		},
+		GPUs: func() ([]host.GPU, error) {
+			// One card of each vendor, which is not a machine anyone has —
+			// it is the frame that shows both shapes at once.
+			return host.ParseGPUs([]byte("#amdgpu\n" +
+				"/sys/class/drm/card0/device/gpu_busy_percent:62\n" +
+				"/sys/class/drm/card0/device/mem_info_vram_used:5368709120\n" +
+				"/sys/class/drm/card0/device/mem_info_vram_total:17179869184\n" +
+				"/sys/class/drm/card0/device/hwmon/hwmon4/temp1_input:68000\n" +
+				"/sys/class/drm/card0/device/hwmon/hwmon4/power1_average:184000000\n" +
+				"#nvidia\n0, NVIDIA A10, 91, 21402, 23028, 74, 148.6\n")), nil
+		},
 		DiskUsage: func() ([]compose.DiskUsage, error) {
 			// A daemon holding rather more than anyone meant it to, which
 			// is the state this row exists to make visible.
