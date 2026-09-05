@@ -225,3 +225,68 @@ func TestNoStatusIsTheRuleItAlwaysWas(t *testing.T) {
 		t.Errorf("an empty status left a gap in the rule: %q", strings.Split(with, "\n")[0])
 	}
 }
+
+// The footer is two halves: what works wherever you are, and what the region
+// with focus answers to. The split is the point — before it, ten keys ran
+// together in one row and nothing said which would survive a `tab`.
+func TestFooterSplitsGlobalFromFocused(t *testing.T) {
+	line := Footer(
+		[]Hint{{Text: "r refresh", Drop: 2}, {Text: "q quit"}},
+		" 6 services",
+		[]Hint{{Text: "enter logs", Drop: 2}, {Text: "a live", Drop: 5}},
+		120)
+
+	for _, want := range []string{"r refresh", "q quit", "6 services", "enter logs", "a live"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("%q is missing from the footer: %q", want, line)
+		}
+	}
+	if !strings.Contains(line, "│") {
+		t.Errorf("the two halves are not divided: %q", line)
+	}
+	if strings.Index(line, "q quit") > strings.Index(line, "enter logs") {
+		t.Errorf("the global half is not on the left: %q", line)
+	}
+}
+
+// Hints are dropped by Drop across both halves at once, so the two compete on
+// what they are worth rather than on which side they sit. The status is never
+// dropped: it is what the screen is showing rather than a key, and on a bad
+// refresh it is the error.
+func TestFooterDropsAcrossBothHalvesButKeepsTheStatus(t *testing.T) {
+	global := []Hint{{Text: "r refresh", Drop: 2}, {Text: "x scripts", Drop: 6},
+		{Text: "q quit"}}
+	focused := []Hint{{Text: "enter logs", Drop: 2}, {Text: "a live", Drop: 5}}
+
+	for _, width := range []int{20, 30, 40, 50, 70, 100} {
+		line := Footer(global, " 6 services", focused, width)
+		if lipgloss.Width(line) > width {
+			t.Errorf("at %d cells the footer is %d wide: %q", width, lipgloss.Width(line), line)
+		}
+		if !strings.Contains(line, "6 services") {
+			t.Errorf("at %d cells the status was dropped: %q", width, line)
+		}
+	}
+	// The most expendable goes first, wherever it sits.
+	wide := Footer(global, "", focused, 60)
+	if !strings.Contains(wide, "x scripts") {
+		t.Fatalf("nothing was dropped at 60 cells: %q", wide)
+	}
+	tight := Footer(global, "", focused, 45)
+	if strings.Contains(tight, "x scripts") {
+		t.Errorf("Drop 6 outlived Drop 5 and Drop 2: %q", tight)
+	}
+	if !strings.Contains(tight, "q quit") {
+		t.Errorf("the way out was dropped first: %q", tight)
+	}
+}
+
+// One half empty is one half of a line, not a stray divider.
+func TestFooterOmitsTheDividerWhenOneHalfIsEmpty(t *testing.T) {
+	if line := Footer([]Hint{{Text: "q quit"}}, "", nil, 80); strings.Contains(line, "│") {
+		t.Errorf("a divider was drawn with nothing after it: %q", line)
+	}
+	if line := Footer(nil, " 6 services", nil, 80); strings.Contains(line, "│") {
+		t.Errorf("a divider was drawn with nothing before it: %q", line)
+	}
+}

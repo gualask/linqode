@@ -1,7 +1,6 @@
 package home
 
 import (
-	"slices"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -127,17 +126,18 @@ func (m *Model) footer() string {
 	case m.commandPrompt:
 		text = " $ " + m.commandText + "▏" + theme.Dim.Render("  enter run · esc cancel")
 	case m.menu != nil:
-		text = theme.Dim.Render(" j/k select · enter run · esc cancel · q quit")
+		// A menu takes every key, so `q` is the only thing on the left that
+		// still works: the split says as much rather than listing four
+		// commands that would be swallowed.
+		text = panel.Footer([]panel.Hint{{Text: "q quit"}}, "",
+			[]panel.Hint{{Text: "↑↓ select", Drop: 2}, {Text: "enter run", Drop: 1},
+				{Text: "esc cancel"}}, m.width)
 	default:
 		status := m.focused().Status()
 		if m.detail != nil {
 			status = m.detail.Status()
 		}
-		budget := 0
-		if m.width > 0 {
-			budget = m.width - lipgloss.Width(status) - len("  ·  ")
-		}
-		text = status + theme.Dim.Render("  ·  "+panel.JoinHints(m.hints(), budget))
+		text = panel.Footer(m.globalHints(), status, m.focusedHints(), m.width)
 	}
 	if m.width > 0 {
 		return lipgloss.NewStyle().MaxWidth(m.width).Render(text)
@@ -145,37 +145,26 @@ func (m *Model) footer() string {
 	return text
 }
 
-// hints are the focused panel's keys followed by the screen's own. The Drop
-// values order what is given up when the line does not fit, so the two sets
-// compete on urgency rather than on which was listed first.
-func (m *Model) hints() []panel.Hint {
-	// Inside a detail the way out comes first — the panel's own way *in*
-	// says `enter`, which is what was just pressed — followed by whatever
-	// the detail itself answers to, which is not what its header form does.
-	// The screen's commands go on working there, so they stay on the line.
-	hints := []panel.Hint{{Text: "esc back", Drop: 1}}
-	if m.detail == nil {
-		hints = slices.Clone(m.focused().Hints())
-	} else {
-		hints = append(hints, m.detail.Hints()...)
-	}
-	// The ring is the one thing on this screen with no other way in. Every
-	// other key is either on the panel that answers it or on this line, but
-	// the band and the feed cannot be reached at all without knowing that
-	// `tab` reaches them — and the band is where the machine's readings live.
-	// First to be dropped when the line is short: it is learned once, and
-	// then it is the least useful thing here.
+// globalHints are the keys that work wherever you are: they sit on the left
+// of the footer, the same on every screen, and are worth learning once.
+func (m *Model) globalHints() []panel.Hint {
+	hints := make([]panel.Hint, 0, 6)
+	// The ring is the one thing here with no other way in. Every other key is
+	// either on the region that answers it or already on this line, but the
+	// header and the feed cannot be reached at all without knowing that `tab`
+	// reaches them — and the header is where the machine's readings live.
+	// First to be dropped when the line is short: learned once, and then the
+	// least useful thing on it.
 	//
 	// Not inside a detail, where `tab` moves a focus nobody can see, and not
-	// on a screen with one panel, where it moves nothing at all.
+	// where only one panel is drawn, where it moves nothing at all.
 	if m.detail == nil && m.drawnPanels() > 1 {
 		hints = append(hints, panel.Hint{Text: "tab panels", Drop: 7})
 	}
 	hints = append(hints, panel.Hint{Text: "r refresh", Drop: 2})
-	// Service actions are the one screen-level command that needs compose. On
-	// a host without it the key is not advertised, because everything it could
-	// open is a lifecycle action on a service that was never listed. The
-	// scripts and the `!` prompt stay: neither has ever needed a daemon.
+	// Service actions are the one global command that needs compose. On a
+	// host without it the key is not advertised, because everything it could
+	// open is a lifecycle action on a service that was never listed.
 	if m.services.Unavailable() == "" {
 		hints = append(hints, panel.Hint{Text: "c actions", Drop: 3})
 	}
@@ -183,4 +172,15 @@ func (m *Model) hints() []panel.Hint {
 		panel.Hint{Text: "x scripts", Drop: 6},
 		panel.Hint{Text: "! run", Drop: 4},
 		panel.Hint{Text: "q quit", Drop: 0})
+}
+
+// focusedHints are what the region with focus answers to — the half of the
+// line that changes as `tab` moves.
+func (m *Model) focusedHints() []panel.Hint {
+	if m.detail == nil {
+		return m.focused().Hints()
+	}
+	// Inside a detail the way out comes first: the panel's own way *in* says
+	// `enter`, which is what was just pressed.
+	return append([]panel.Hint{{Text: "esc back", Drop: 1}}, m.detail.Hints()...)
 }

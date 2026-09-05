@@ -379,15 +379,34 @@ the operator at the worst possible moment.
 
 ## The footer
 
-The focused panel's status on the left, then the keys. Inside a detail the way
-out comes first — the panel's way *in* says `enter`, which is the key just
-pressed — followed by whatever the detail itself answers to, then the screen's
-own commands, which go on working there.
+Two halves, divided by a rule: **what works wherever you are** on the left,
+**what the region with focus is showing and answers to** on the right.
 
-Hints carry a drop order and are shed until the line fits, so the two sets
-compete on urgency rather than on which was listed first. The last hint
-standing is kept whatever the width: a footer of one thing tells an operator
-more than a footer of nothing.
+```
+ tab panels · r refresh · c actions · x scripts · ! run · q quit  │  6 services  ·  enter logs · a live
+```
+
+Before the split there were ten keys in one row and nothing to say which of
+them would still work after pressing `tab`. Now the left half is the same on
+every screen — learn it once — and only the right half changes under you. A
+rule rather than another middle dot, because the two sides are different kinds
+of thing and a dot would read as one list of ten.
+
+Keys are dim on both sides; the region's own status is not. It is the one
+thing on the line that is a reading rather than a way to press something, and
+on a failed refresh it is the error.
+
+**What is given up when the line is short** is ordered by a `Drop` value on
+each hint, highest first, and the two halves compete on that rather than on
+which side they sit. `tab panels` goes first: it is learned once and then the
+least useful thing there. `q quit` goes last. The status is never dropped —
+it survives every hint, and only then is the line cut to the terminal rather
+than allowed to wrap, which would push every row above it up by one.
+
+A modal takes every key while it is open, so its footer says so: `q quit` is
+the only thing left on the global side, with the menu's own keys on the other.
+The `!` prompt has nothing global at all — every key types — so it has no
+divider.
 
 ## Looking at it
 

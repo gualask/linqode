@@ -763,3 +763,46 @@ func TestOnlyOneRegionWearsTheAccent(t *testing.T) {
 		t.Error("the header stays lit behind the view it opened")
 	}
 }
+
+// The footer is two halves: what works wherever you are on the left, what the
+// focused region answers to on the right. The left half must not change as
+// `tab` moves, or it is not worth learning once.
+func TestTheFooterSplitsWhatIsGlobalFromWhatIsNot(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 150, height: 24,
+		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
+		host:     &hostFeed{metrics: sampleMetrics()}})
+	sampleAll(screen)
+
+	global := []string{"tab panels", "r refresh", "c actions", "x scripts", "! run", "q quit"}
+	onHeader := screen.View()
+	for _, want := range append(global, "enter system") {
+		if !strings.Contains(onHeader, want) {
+			t.Errorf("%q is missing from the footer on the header", want)
+		}
+	}
+	if !strings.Contains(onHeader, "│") {
+		t.Error("the two halves are not divided")
+	}
+
+	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+	onTable := screen.View()
+	for _, want := range append(global, "enter logs") {
+		if !strings.Contains(onTable, want) {
+			t.Errorf("%q is missing from the footer on the table", want)
+		}
+	}
+	// The contextual half changed and the global half did not.
+	if strings.Contains(onTable, "enter system") {
+		t.Error("the header's own key survived focus moving off it")
+	}
+	if before, after := footerLeft(onHeader), footerLeft(onTable); before != after {
+		t.Errorf("the global half changed with focus:\n%q\n%q", before, after)
+	}
+}
+
+// footerLeft is everything before the divider on the footer line.
+func footerLeft(view string) string {
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	left, _, _ := strings.Cut(lines[len(lines)-1], "│")
+	return left
+}

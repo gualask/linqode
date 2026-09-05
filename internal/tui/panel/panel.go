@@ -156,6 +156,104 @@ type Hint struct {
 	Drop int
 }
 
+// divider separates what works anywhere from what the region with focus
+// answers to. A rule rather than another middle dot, because the two sides are
+// different kinds of thing and a dot would read as one list of ten.
+const divider = "  │  "
+
+// Footer renders the whole hint line: what works wherever you are, a divider,
+// then what the focused region is showing and the keys it answers to.
+//
+// The split is the point. Before it, ten keys ran together in one row and an
+// operator reading it had no way to tell which of them would still work after
+// pressing `tab`. Now the left half is the same on every screen — it is worth
+// learning once — and only the right half changes under you.
+//
+// status is the focused region's own line ("6 services", "host  8 cores"), and
+// is never dropped: it is what the screen is showing rather than a key, and a
+// footer that gave up its errors to fit another hint would be trading the
+// wrong thing. Hints are dropped by Drop across both sides at once, so the
+// two compete on how much they are worth rather than on which side they sit.
+func Footer(global []Hint, status string, focused []Hint, width int) string {
+	// How few hints the line may be reduced to. Zero where there is a status,
+	// because that is then the one thing worth keeping: a key can be
+	// rediscovered, and on a bad refresh the status is the error. One where
+	// there is not, since a footer of nothing says less than a footer of one
+	// thing.
+	minimum := 0
+	if status == "" {
+		minimum = 1
+	}
+	for {
+		// Keys are dim on both sides; the status is not. It is the one thing
+		// on this line that is a reading rather than a way to press
+		// something, and on a bad refresh it is an error.
+		left, right := joinHintText(global), joinHintText(focused)
+		if right != "" {
+			right = theme.Dim.Render(right)
+		}
+		if status != "" && right != "" {
+			right = status + theme.Dim.Render("  ·  ") + right
+		} else if status != "" {
+			right = status
+		}
+
+		var line string
+		switch {
+		case left != "" && right != "":
+			line = theme.Dim.Render(left+divider) + right
+		case left != "":
+			line = theme.Dim.Render(left)
+		default:
+			line = right
+		}
+		if width <= 0 || lipgloss.Width(line) <= width {
+			return line
+		}
+		// Nothing left to give up. What remains is cut to the terminal rather
+		// than allowed to wrap, which would push every row above it up by
+		// one — the same rule the header lines follow.
+		if len(global)+len(focused) <= minimum {
+			return lipgloss.NewStyle().MaxWidth(width).Render(line)
+		}
+		global, focused = dropWorst(global, focused)
+	}
+}
+
+// dropWorst removes the single most expendable hint from either side. The
+// highest Drop goes first, and a tie goes to the focused side, which changes
+// under the operator anyway and is therefore the half worth learning less.
+func dropWorst(global, focused []Hint) ([]Hint, []Hint) {
+	worstGlobal, worstFocused := -1, -1
+	for index, hint := range global {
+		if worstGlobal < 0 || hint.Drop > global[worstGlobal].Drop {
+			worstGlobal = index
+		}
+	}
+	for index, hint := range focused {
+		if worstFocused < 0 || hint.Drop >= focused[worstFocused].Drop {
+			worstFocused = index
+		}
+	}
+	switch {
+	case worstFocused >= 0 && (worstGlobal < 0 ||
+		focused[worstFocused].Drop >= global[worstGlobal].Drop):
+		return global, slices.Delete(slices.Clone(focused), worstFocused, worstFocused+1)
+	case worstGlobal >= 0:
+		return slices.Delete(slices.Clone(global), worstGlobal, worstGlobal+1), focused
+	default:
+		return global, focused
+	}
+}
+
+func joinHintText(hints []Hint) string {
+	texts := make([]string, len(hints))
+	for index, hint := range hints {
+		texts[index] = hint.Text
+	}
+	return strings.Join(texts, " · ")
+}
+
 // JoinHints renders hints separated by a middle dot, dropping the most
 // expendable ones until the line fits. A width of zero means unknown, and
 // nothing is dropped.
