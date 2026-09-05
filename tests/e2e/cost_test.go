@@ -14,6 +14,7 @@ import (
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
+	"github.com/gualask/linqode/internal/probe"
 	"github.com/gualask/linqode/internal/remote"
 )
 
@@ -43,6 +44,11 @@ func TestRemoteCommandCost(t *testing.T) {
 		command string
 	}{
 		{"baseline (exec overhead)", "true"},
+		// Once per session, before anything else runs. It is not on any tier,
+		// and it is measured because what it costs decides whether it can be
+		// paid at connect on a link slower than this one: a shell fork, one
+		// daemon round trip, and one compose CLI start.
+		{"capability probe (at connect)", probe.Command(composeDir)},
 		{"host metrics (the batch)", host.Command()},
 		{"compose ps (current refresh)", compose.PsCommand(composeDir)},
 		{"docker stats --no-stream", "docker stats --no-stream --format '{{json .}}'"},
