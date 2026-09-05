@@ -118,18 +118,30 @@ func (m *Model) Hints() []panel.Hint {
 
 // Status is this panel's half of the footer: how much it holds, and whether
 // what feeds it is running.
-func (m *Model) Status() string {
-	text := " events"
+// Status is this panel's half of the footer, and there is nothing for it to
+// say: the footer is the keymap, and what this panel is showing belongs on its
+// own rule, where it is legible without focus.
+func (m *Model) Status() string { return "" }
+
+// Summary rides on the panel's rule: how much it has caught, and whether the
+// daemon is being listened to at all.
+//
+// The watching flag is the half that matters. Without the stream the table
+// falls back to its timer, which is a slower screen rather than a broken one —
+// worth knowing, and nothing an operator can act on, so it is dim and it is
+// here rather than anywhere louder.
+func (m *Model) Summary() string {
+	parts := make([]string, 0, 2)
 	switch {
 	case len(m.entries) == 1:
-		text += "  1 event"
+		parts = append(parts, "1 event")
 	case len(m.entries) > 1:
-		text += fmt.Sprintf("  %d events", len(m.entries))
+		parts = append(parts, fmt.Sprintf("%d events", len(m.entries)))
 	}
 	if !m.watching {
-		text += theme.Dim.Render("  (not watching)")
+		parts = append(parts, theme.Dim.Render("not watching"))
 	}
-	return text
+	return strings.Join(parts, " · ")
 }
 
 func (m *Model) Update(msg tea.Msg) tea.Cmd {

@@ -140,27 +140,11 @@ func (m *Model) Hints() []panel.Hint {
 	return []panel.Hint{{Text: "enter system", Drop: 2}}
 }
 
-// Status is this panel's half of the footer.
-func (m *Model) Status() string {
-	if !m.loaded {
-		return theme.Dim.Render(" no host sample")
-	}
-	parts := []string{}
-	if m.metrics.CPUs > 0 {
-		parts = append(parts, fmt.Sprintf("%d cores", m.metrics.CPUs))
-	}
-	if m.metrics.Uptime > 0 {
-		parts = append(parts, "up "+formatUptime(m.metrics.Uptime))
-	}
-	text := " host"
-	if len(parts) > 0 {
-		text += "  " + strings.Join(parts, "  ·  ")
-	}
-	if m.stale {
-		text += theme.Dim.Render("  (stale)")
-	}
-	return text
-}
+// Status is this panel's half of the footer, and there is nothing for it to
+// say. The footer is the keymap; core count and uptime are readings, and both
+// are already on screen — uptime in the band's own tail, cores in the view
+// this panel opens. Staleness is in the band too, for the same reason.
+func (m *Model) Status() string { return "" }
 
 func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	key, ok := msg.(tea.KeyMsg)

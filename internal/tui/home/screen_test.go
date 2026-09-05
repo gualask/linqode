@@ -813,3 +813,34 @@ func footerLeft(view string) string {
 	left, _, _ := strings.Cut(lines[len(lines)-1], "│")
 	return left
 }
+
+// The footer is the keymap and nothing else. Counts, uptime, core counts and
+// the watching flag are monitoring, and monitoring belongs to the region it
+// is about — on its rule, where it is legible without focus and does not
+// compete for the one line every key shares.
+func TestTheFooterCarriesNoMonitoring(t *testing.T) {
+	screen, _ := buildScreen(screenOptions{width: 150, height: 30,
+		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
+		host:     &hostFeed{metrics: sampleMetrics()}})
+	sampleAll(screen)
+
+	// Walk every stop of the ring and read the footer at each.
+	for range len(screen.panels) + 1 {
+		view := screen.View()
+		lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+		footer := lines[len(lines)-1]
+		for _, reading := range []string{"services", "cores", "up ", "event", "watching"} {
+			if strings.Contains(footer, reading) {
+				t.Errorf("focus on %q: the footer reports %q — %q",
+					screen.focused().Title(), reading, footer)
+			}
+		}
+		screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+	}
+
+	// It is on the rules instead, where it was moved to.
+	view := screen.View()
+	if !strings.Contains(view, "1 running") {
+		t.Error("the services rule lost its counts")
+	}
+}

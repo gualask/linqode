@@ -113,9 +113,16 @@ func (m *Model) body(frame frame) string {
 func (m *Model) panelBox(shown panel.Panel, at box, focused bool) string {
 	content := at.content()
 	shown.SetSize(content.width, content.height)
+	// What a panel is showing goes on its own rule. The footer is the keymap
+	// and nothing else: a count of services or of events is monitoring, and
+	// monitoring belongs to the region it is about, where it is legible
+	// without focus and does not compete for the line where every key does.
 	status := ""
-	if shown == panel.Panel(m.services) {
+	switch shown {
+	case panel.Panel(m.services):
 		status = m.services.Summary()
+	case panel.Panel(m.events):
+		status = m.events.Summary()
 	}
 	return panel.Box(shown.Title(), status, shown.View(), focused, at.width, at.height)
 }

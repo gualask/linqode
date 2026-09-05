@@ -17,10 +17,10 @@ gives way when the terminal runs short. What is *read* to fill it is
 │ SERVICE  STATE    HEALTH   RESTARTS  CPU    MEM    NET RX/TX   IO R/W    │
 │ api      running  healthy  0         2.1%   410M   1.2M/3M     0B/12M    │
 └─────────────────────────────────────────────────────────────────────────┘
-┌─ events ────────────────────────────────────────────────────────────────┐
+┌─ events ──────────────────────────────────────────────────── 6 events ──┐
 │ 12:04:31  worker   killed (137)                                         │
 └─────────────────────────────────────────────────────────────────────────┘
- 6 services · enter logs · a live · tab panels · r refresh · c actions · q
+ tab panels · r refresh · c actions · x scripts · ! run · q quit │ enter logs
 ```
 
 Three boxes and a **footer**. The first is the session and the machine it runs
@@ -377,10 +377,17 @@ empty feed says the daemon is being watched, which is worth knowing, and a
 panel that appeared the first time a container died would move the table under
 the operator at the worst possible moment.
 
+**Its rule counts what it has caught, and says when nothing is listening.**
+Losing the stream is not a failure — the table falls back to its timer, which
+is a slower screen rather than a broken one — so `not watching` is dim, and it
+is on the rule rather than in the footer because it is worth seeing whether or
+not this panel has focus.
+
 ## The footer
 
-Two halves, divided by a rule: **what works wherever you are** on the left,
-**what the region with focus is showing and answers to** on the right.
+**The footer is the keymap.** Two halves divided by a rule: **what works
+wherever you are** on the left, **what the region with focus answers to** on
+the right.
 
 ```
  tab panels · r refresh · c actions · x scripts · ! run · q quit  │  enter logs · a live
@@ -392,13 +399,17 @@ every screen — learn it once — and only the right half changes under you. A
 rule rather than another middle dot, because the two sides are different kinds
 of thing and a dot would read as one list of ten.
 
-Keys are dim on both sides; the region's own status is not. It is the one
-thing on the line that is a reading rather than a way to press something, and
-**it is empty while nothing is wrong**. The services panel used to count its
-rows there, which its own rule says better — `4 running · 1 exited` is the
-same total and the breakdown besides — so the footer was repeating what was
-two rows above it. What is left is what has no other place: a refresh that
-failed, a stats sample that did, a host with no compose.
+**No reading appears here.** Service counts, event counts, uptime, core count,
+the watching flag — each of those is monitoring, and monitoring belongs to the
+region it is about, on that region's own rule, where it is legible without
+focus and does not compete for the one line every key shares. The footer used
+to carry all of them, and each was a weaker copy of something already two rows
+above it.
+
+What is left beside the keys is what has no other place: a refresh that
+failed, a stats sample that did, a host with no compose. Those are not dim, and
+they appear only when something is wrong — a status that is always there is
+read as furniture, one that appears is read as a warning.
 
 **What is given up when the line is short** is ordered by a `Drop` value on
 each hint, highest first, and the two halves compete on that rather than on

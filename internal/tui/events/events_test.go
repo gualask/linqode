@@ -156,8 +156,30 @@ func TestAnEmptyFeedSaysWhyItIsEmpty(t *testing.T) {
 	if !strings.Contains(m.View(), "not watching") {
 		t.Errorf("a feed with no stream says: %q", m.View())
 	}
-	if !strings.Contains(m.Status(), "not watching") {
-		t.Errorf("the footer does not say the stream is down: %q", m.Status())
+	// On the panel's own rule, not in the footer: the footer is the keymap,
+	// and this is legible there without the panel having focus.
+	if !strings.Contains(m.Summary(), "not watching") {
+		t.Errorf("the rule does not say the stream is down: %q", m.Summary())
+	}
+	if m.Status() != "" {
+		t.Errorf("the footer carries monitoring again: %q", m.Status())
+	}
+}
+
+// What the feed has caught rides on its rule beside the watching flag.
+func TestTheRuleCountsWhatTheFeedCaught(t *testing.T) {
+	m := feed()
+	m.SetWatching(true)
+	if got := m.Summary(); got != "" {
+		t.Errorf("an empty watching feed says %q, want nothing", got)
+	}
+	m.Add(compose.Event{At: at, Action: "start", Container: "app-web-1"}, at)
+	if got := m.Summary(); !strings.Contains(got, "1 event") {
+		t.Errorf("Summary() = %q after one event", got)
+	}
+	m.Add(compose.Event{At: at, Action: "die", Container: "app-web-1"}, at)
+	if got := m.Summary(); !strings.Contains(got, "2 events") {
+		t.Errorf("Summary() = %q after two", got)
 	}
 }
 
