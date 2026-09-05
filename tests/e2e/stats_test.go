@@ -45,6 +45,49 @@ func TestHostMetricsAgainstRealHost(t *testing.T) {
 	if percent := metrics.DiskUsedPercent(); percent <= 0 || percent > 100 {
 		t.Errorf("DiskUsedPercent = %v, outside 0–100", percent)
 	}
+
+	// What only a real host can answer about the readings phase C added:
+	// that the layouts are the ones the parser expects, and that the
+	// filters leave something behind. The fixture is a container, so its
+	// root is an overlay and its mount list is mostly the daemon's — the
+	// case the filtering has to survive.
+	if len(metrics.CPUTimes) < metrics.CPUs+1 {
+		t.Errorf("got %d /proc/stat readings for %d cores, want the machine and one each",
+			len(metrics.CPUTimes), metrics.CPUs)
+	}
+	if len(metrics.Filesystems) == 0 {
+		t.Errorf("every filesystem was filtered out\noutput was:\n%s", out.Stdout)
+	}
+	if fullest, ok := metrics.Fullest(); !ok || fullest.TotalKB == 0 {
+		t.Errorf("no filesystem to show in the band: %+v", metrics.Filesystems)
+	}
+	t.Logf("filesystems kept: %+v", metrics.Filesystems)
+	if len(metrics.Interfaces) == 0 {
+		t.Errorf("no interfaces read\noutput was:\n%s", out.Stdout)
+	}
+	// PSI is absent on plenty of kernels, so it is logged rather than
+	// asserted — but a host that answers must answer in the shape parsed.
+	t.Logf("pressure present: %v (%+v)", metrics.HasPressure(), metrics.Pressure)
+
+	// A percentage and a rate need two samples, and the interval comes from
+	// the host's own uptime rather than from this test's clock.
+	time.Sleep(2 * time.Second)
+	second, err := host.Parse(execOrFail(t, session, host.Command()).Stdout)
+	if err != nil {
+		t.Fatalf("parsing the second host sample: %v", err)
+	}
+	usage, ok := second.Since(metrics)
+	if !ok {
+		t.Fatal("two samples two seconds apart measured nothing")
+	}
+	if usage.CPUPercent < 0 || usage.CPUPercent > 100 {
+		t.Errorf("CPUPercent = %v, outside 0–100", usage.CPUPercent)
+	}
+	if len(usage.Cores) != metrics.CPUs {
+		t.Errorf("got %d per-core readings for %d cores", len(usage.Cores), metrics.CPUs)
+	}
+	t.Logf("cpu %.1f%% %v, net %.0f/%.0f B/s",
+		usage.CPUPercent, usage.Cores, usage.RxRate, usage.TxRate)
 }
 
 func TestStatsStreamAgainstRealProject(t *testing.T) {

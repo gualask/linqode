@@ -57,7 +57,7 @@ Four principles shape the design:
 | `internal/config` | `config.toml` loading and host selection |
 | `internal/remote` | SSH: target resolution, connect, host-key policy, auth, one-shot and streaming exec with cancellation |
 | `internal/compose` | `docker compose` command builders (with shell quoting), `ps` output parsing into typed models, and both `docker stats` forms — one-shot sample and live stream |
-| `internal/host` | machine resource metrics for the header band and the system view: one command over `/proc` and `df -Pk`, parsed into a typed sample |
+| `internal/host` | machine resource metrics for the header band and the system view: one marker-sectioned command over `/proc` and `df -Pk`, parsed into a typed sample, plus the client-side deltas that turn its counters into percentages and rates |
 | `internal/logs` | log engine: line assembly, tail buffer, JSONL records, field filters, stats, search |
 | `internal/tui` | Bubble Tea application: the app model routing between the home screen and the follow view, and the backend adapting operations to background commands |
 | `internal/tui/home` | the home screen: header, layout, focus, footer, the modal menus, the `!` prompt, and the sampler that decides what is read off the host and how often. It owns the screen; a feature package owns only what is inside its own panel |
@@ -163,9 +163,17 @@ that did not arrive render as `-`, distinct from a container that has
 genuinely never restarted; the RESTARTS column appears only once something
 can fill it.
 
-The screen samples the host's load, memory, disk and uptime on its own
-interval, as a second exec: independent so one failing cannot blank the
-other, and cheap enough (~2 ms) that the separation costs nothing. The
+The screen samples the machine on its own interval, as a second exec:
+independent so one failing cannot blank the other, and cheap enough (~6 ms)
+that the separation costs nothing. One command carries all of it — load,
+uptime, memory and swap, per-core CPU, every network interface, pressure,
+the root filesystem and the full mount list — because the batch's markers
+mean a reading added to it costs bytes and not a round trip. Two of those
+readings are counters rather than values: `/proc/stat` and `/proc/net/dev`
+count since boot, and the percentage and the rate are the difference between
+two samples, computed here rather than by asking the server to sleep between
+two of its own. The interval that difference is divided by is the host's own
+uptime, so a slow link cannot turn a quiet second into a spike. The
 sampling belongs to the screen rather than to either panel, because the same
 sample feeds the band and the system view behind it. A failed sample keeps
 the last one on screen, marked stale, mirroring how the table survives a

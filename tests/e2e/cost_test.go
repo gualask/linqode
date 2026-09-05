@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gualask/linqode/internal/compose"
+	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/remote"
 )
 
@@ -42,7 +43,7 @@ func TestRemoteCommandCost(t *testing.T) {
 		command string
 	}{
 		{"baseline (exec overhead)", "true"},
-		{"host metrics", "uptime && free -m && df -h /"},
+		{"host metrics (the batch)", host.Command()},
 		{"compose ps (current refresh)", compose.PsCommand(composeDir)},
 		{"docker stats --no-stream", "docker stats --no-stream --format '{{json .}}'"},
 		{"container cgroups", compose.StatsCgroupCommand(runningPids(t, session))},

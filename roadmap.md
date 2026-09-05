@@ -322,6 +322,9 @@ also changes how phase D gets its events).
 Free on top of B: same exec, more markers. The largest visible gain per
 millisecond in the whole plan.
 
+**C1 — the readings** _(done, September 2026)_. `internal/host` grew from
+four readings to nine, in the same one command:
+
 - **Per-core CPU** from `/proc/stat` deltas (computed client-side across
   samples). Load average alone hides the common case: one core pinned, seven
   idle.
@@ -335,7 +338,38 @@ millisecond in the whole plan.
   single "is this machine suffering" signal, and better than load average.
   Absent on kernels without PSI (on several Debian/Ubuntu builds it needs
   `psi=1` at boot), so it follows the existing rule: no reading, no meter.
-- **Client-side history ring buffer** feeding sparklines.
+
+Four things fell out of building it, all of them from the host rather than
+from the design:
+
+- **The clock is the host's own.** A rate is a difference divided by an
+  interval, and `/proc/uptime` already carries that interval to a
+  hundredth of a second. Using it instead of the client's clock means a slow
+  round trip or a stalled UI cannot turn a quiet second into a spike, and a
+  reboot between two samples is detected rather than divided by.
+- **`df` with no argument can block.** It calls statfs on every mount, and a
+  hung network mount holds it for as long as the kernel allows. So the root
+  filesystem keeps its own `df -Pk /` — the one reading always wanted never
+  waits on the mount list — and the list itself runs under `timeout 5` where
+  `timeout` exists.
+- **The mount list needs filtering, and `/` is the exception to it.** Pseudo
+  filesystems, everything under `/proc`, `/sys`, `/dev`, `/run`, `/snap`,
+  `/etc` and `/var/lib/docker`, and bind mounts reporting a second time. But
+  on a containerised host `/` is *itself* an overlay, so it is kept
+  unconditionally: the fixture would otherwise have shown no filesystem at
+  all. Measured on the fixture, that turns thirteen df lines into two.
+- **Cost: 6 ms and 2.8 KB** for the whole batch, against the 2 ms in the old
+  table that had measured a stand-in rather than the real command. Recorded
+  in PROJECT.md with that correction.
+
+**C2 — the system view shows them.** Per-core bars, swap under memory, one
+row per filesystem, throughput, pressure. The band gains the real CPU
+reading in place of load, and its disk meter follows the *fullest*
+filesystem rather than always the root — which is what puts a filling
+`/var/lib/docker` on the home screen.
+
+**C3 — client-side history ring buffer** feeding sparklines. Free by
+construction: the samples have already been fetched.
 
 ### D. Events
 

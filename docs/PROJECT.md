@@ -114,18 +114,25 @@ These decisions are settled — do not re-litigate them when implementing:
   | Command | 4 containers | 30 containers |
   | ------- | ------------ | ------------- |
   | exec overhead (`true`) | 1 ms | 1 ms |
-  | host metrics (`/proc` + `df -Pk`) | 2 ms | 2 ms |
+  | host metrics (`/proc` + `df -Pk`) | 6 ms, 2.8 KB | — |
   | container cgroups (`/sys/fs/cgroup` + `/proc/<pid>/net/dev`) | 6 ms | — |
   | `compose ps --all --format json` | 64 ms | 60 ms |
   | `docker stats --no-stream` | 2.01 s | 2.07 s |
 
-  _(cgroups measured 2026-09-04; the others 2026-08-01. All against the
-  loopback fixture, which is why they say what a command costs on the server
-  and nothing about what a real link adds — see the sampler's stretch rule.)_
+  _(host metrics re-measured 2026-09-05, cgroups 2026-09-04, the others
+  2026-08-01. All against the loopback fixture, which is why they say what a
+  command costs on the server and nothing about what a real link adds — see
+  the sampler's stretch rule.)_
 
   Host metrics therefore belong in the automatic refresh: their cost is
   noise beside the `ps` already being paid, so they are always on
   (`host_metrics = false` opts out for hosts where even that is unwelcome).
+  The 6 ms is the whole batch — load, uptime, memory and swap, per-core CPU,
+  every interface, pressure, and both `df`s — after phase C widened it from
+  four readings to nine _(2026-09-05; the earlier 2 ms in this table measured
+  a stand-in command, not the one the tool runs)_. That is the point of the
+  marker batch: a reading added to it costs no round trip, only bytes, which
+  is why the list is longer than a per-command budget would allow.
 
   `docker stats` is not on that path any more _(revised 2026-09-04)_. Its
   ~2 s is fixed sampling latency — the daemon reads each container's cgroups
