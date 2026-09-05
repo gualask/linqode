@@ -248,6 +248,33 @@ holding the machine's RAM, CPU is who is burning it right now. The list takes
 whatever rows are left under the readings and shows nothing at all when there
 is room for fewer than two, since what it is read for is the top of it.
 
+**Temperatures** come from `/sys/class/hwmon` — the files `lm-sensors` merely
+formats, and which are there whenever the hardware is, on hosts where
+`sensors` is not installed and cannot be. `name` says what the chip is,
+`temp1_input` the reading in thousandths of a degree, `temp1_label` what that
+sensor measures, and `temp1_crit` or `temp1_max` the manufacturer's limit.
+That limit is why hwmon is preferred to `/sys/class/thermal`, which is kept
+only as the fallback for the ARM boards that expose nothing else: a
+temperature is not a percentage of anything — 58 degrees is meaningless
+without knowing what the chip tolerates — but `input/crit` is, which yields a
+meter consistent with every other one on the screen. The sensor shown is the
+one closest to *its own* limit rather than the largest number, because the
+bare numbers get the comparison backwards: an NVMe at 71°C is nearer trouble
+than a CPU at 80°C. Where no limit is reported the reading is drawn against a
+flat 100°C and the row says so, since the denominator is then ours and not the
+chip's.
+
+Only `temp1` is read, which is by hwmon convention the chip's principal
+sensor — `Package id 0` on coretemp, `Tctl` on k10temp, `Composite` on an
+NVMe. The higher-numbered ones are per-core, and reading them would make this
+section's cost scale with the core count to produce sixteen numbers nobody
+acts on. As written the cost scales with the number of *chips*, which is a
+handful on any machine. On the many hosts with no sensors at all — most
+virtual machines, and the e2e fixture — the globs match nothing, grep says so
+on stderr, and there is no reading and no meter. That absence is what the e2e
+suite can assert; a host that actually has sensors is validated in the
+hardening phase, because neither the fixture nor the VM under it has one.
+
 Beside the filesystem rows, and on the same gate, sits what the **daemon**
 says it is holding: images, containers, volumes and build cache, from
 `docker system df`. It is there because it is the answer to the question

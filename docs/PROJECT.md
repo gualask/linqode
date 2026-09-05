@@ -129,6 +129,12 @@ These decisions are settled — do not re-litigate them when implementing:
   Host metrics therefore belong in the automatic refresh: their cost is
   noise beside the `ps` already being paid, so they are always on
   (`host_metrics = false` opts out for hosts where even that is unwelcome).
+  Temperatures joined that batch in September 2026 for no measurable cost:
+  neither the fixture nor the VM under it exposes a sensor, so the globs match
+  nothing there. On a host that does have them the cost scales with the number
+  of chips rather than the number of cores, by reading only each chip's
+  principal sensor — which is the difference between a handful of lines and
+  one per core.
   The 6 ms is the whole batch — load, uptime, memory and swap, per-core CPU,
   every interface, pressure, and both `df`s — after phase C widened it from
   four readings to nine _(2026-09-05; the earlier 2 ms in this table measured

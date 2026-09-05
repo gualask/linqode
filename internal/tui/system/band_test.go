@@ -362,3 +362,86 @@ var errNotNow = errors.New("connection lost")
 func key(text string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text)}
 }
+
+// warmMetrics adds the temperatures of a machine with real sensors: a CPU
+// well inside its limit and an NVMe that is not.
+func warmMetrics() host.Metrics {
+	m := richMetrics()
+	m.Sensors = []host.Sensor{
+		{Chip: "nvme", Label: "Composite", MilliC: 71_000, LimitMilliC: 84_850},
+		{Chip: "coretemp", Label: "Package id 0", MilliC: 58_000, LimitMilliC: 100_000},
+		{Chip: "acpitz", MilliC: 41_000},
+	}
+	return m
+}
+
+// The band gets a number rather than a fifth gauge: there is no width for
+// one, and the colour carries the judgement a bare temperature cannot make
+// for itself.
+func TestTheBandCarriesATemperature(t *testing.T) {
+	line := sampled(warmMetrics()).Band(160)
+	if !strings.Contains(line, "71°C") {
+		t.Errorf("the temperature is missing from the band: %q", line)
+	}
+	if strings.Contains(line, "temp[") {
+		t.Errorf("the band drew a fifth gauge: %q", line)
+	}
+	// It is the hottest by share of its own limit, not the largest number.
+	if strings.Contains(line, "58°C") {
+		t.Errorf("the band shows more than one sensor: %q", line)
+	}
+	// A host that reports none says nothing rather than zero degrees.
+	if line := sampled(richMetrics()).Band(160); strings.Contains(line, "°C") {
+		t.Errorf("a host with no sensors reported a temperature: %q", line)
+	}
+}
+
+// Uptime goes first when the line runs short, then the temperature, then the
+// meters from the bottom — and the band never wraps the header.
+func TestTheBandShedsUptimeBeforeTheTemperature(t *testing.T) {
+	m := sampled(warmMetrics())
+	for _, width := range []int{60, 70, 80, 100, 130, 200} {
+		if got := lipgloss.Width(m.Band(width)); got > width {
+			t.Errorf("band is %d wide at %d columns: %q", got, width, m.Band(width))
+		}
+	}
+	wide := m.Band(200)
+	if !strings.Contains(wide, "71°C") || !strings.Contains(wide, "up ") {
+		t.Fatalf("a wide band is missing part of its tail: %q", wide)
+	}
+	// Somewhere on the way down uptime goes and the temperature stays.
+	found := false
+	for width := 200; width >= 60; width-- {
+		line := m.Band(width)
+		if !strings.Contains(line, "up ") && strings.Contains(line, "71°C") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("the temperature was never kept in preference to uptime")
+	}
+}
+
+// The view behind the band draws the meter the band has no room for, against
+// the sensor's own limit — and says when that limit is one this tool made up.
+func TestTheSystemViewDrawsTheTemperature(t *testing.T) {
+	m := sampled(warmMetrics())
+	m.SetSize(150, 24)
+	view := m.View()
+
+	for _, want := range []string{" temp     [", "71°C Composite", "of 85°C",
+		"58°C Package id 0", "41°C acpitz"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the temperature row is missing %q:\n%s", want, view)
+		}
+	}
+
+	metrics := warmMetrics()
+	metrics.Sensors = []host.Sensor{{Chip: "cpu_thermal", MilliC: 47_500}}
+	bare := sampled(metrics)
+	bare.SetSize(150, 24)
+	if !strings.Contains(bare.View(), "no limit reported") {
+		t.Errorf("a made-up denominator was not declared:\n%s", bare.View())
+	}
+}

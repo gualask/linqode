@@ -274,6 +274,14 @@ func (m *Model) View() string {
 	if metrics.HasPressure() {
 		rows = append(rows, row{text: m.textRow(column, "pressure", m.pressureText())})
 	}
+	if hottest, ok := metrics.Hottest(); ok {
+		// The meter is the hottest sensor's share of its own limit, which is
+		// the only honest way to compare two of them: an NVMe at 71 degrees
+		// is closer to trouble than a CPU at 80.
+		share := hottest.Share()
+		rows = append(rows, row{text: m.meterRow(column, "temp", share,
+			theme.Usage(share), m.temperatureText(hottest))})
+	}
 	if metrics.Uptime > 0 {
 		rows = append(rows, row{text: m.textRow(column, "uptime", formatUptime(metrics.Uptime))})
 	}
@@ -474,6 +482,30 @@ func (m *Model) pressureText() string {
 	// at a hundred columns the three readings and their explanation are
 	// already most of a line.
 	return strings.Join(parts, "   ") + theme.Dim.Render("   stalled 10s")
+}
+
+// temperatureText is the hottest sensor spelled out, and the rest of them
+// behind it. What each is called comes from the chip when the chip says —
+// `Package id 0`, `Composite` — because "the nvme is at 71" is a sentence and
+// "hwmon2 is at 71" is not.
+func (m *Model) temperatureText(hottest host.Sensor) string {
+	text := fmt.Sprintf("%.0f°C %s", hottest.Celsius(), hottest.Name())
+	if hottest.HasLimit() {
+		text += theme.Dim.Render(fmt.Sprintf(" of %.0f°C",
+			float64(hottest.LimitMilliC)/1000))
+	} else {
+		// The scale is ours, not the chip's, and a number drawn against a
+		// made-up denominator should say so.
+		text += theme.Dim.Render(" (no limit reported)")
+	}
+	rest := make([]string, 0, len(m.metrics.Sensors))
+	for _, sensor := range m.metrics.Sensors[1:] {
+		rest = append(rest, fmt.Sprintf("%.0f°C %s", sensor.Celsius(), sensor.Name()))
+	}
+	if len(rest) > 0 {
+		text += theme.Dim.Render("   " + strings.Join(rest, "   "))
+	}
+	return text
 }
 
 // pressureStyle colors a stall share. Any sustained pressure at all is worth

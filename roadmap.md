@@ -490,33 +490,34 @@ and it is the one reading here that is genuinely slow on a real host.
   dropped row is a total that is quietly too small — the worst shape of
   wrong — so the suffix is now matched without regard to case.
 
-### F. Temperatures
+### F. Temperatures _(done, September 2026)_
 
-A marker section in phase B's batch, a reading in the band, a row in the
-system view.
+`/sys/class/hwmon` in the host batch, a number in the band, a metered row in
+the system view. It cost nothing measurable to add: neither the fixture nor
+the Linux VM under it exposes a single sensor, so the globs match nothing and
+the batch stayed at 2.8 KB — which is also the state most cloud hosts are in,
+and the one the e2e suite asserts.
 
-- **`/sys/class/hwmon/hwmon*/`** is the real source, the one `sensors` merely
-  formats: `name` gives the chip (`coretemp`, `k10temp`, `nvme`,
-  `cpu_thermal`), `temp*_input` the value in milli-degrees C, `temp*_label`
-  the label (`Package id 0`, `Tctl`), `temp*_crit` / `temp*_max` the
-  threshold.
-- **`/sys/class/thermal/thermal_zone*/{type,temp}`** is the poorer fallback:
-  meaningful on many ARM SoCs (on a Raspberry Pi `thermal_zone0` is the CPU),
-  often only `acpitz` on x86.
-- One command keeps the file→value association:
-
-  ```sh
-  grep -H '' /sys/class/hwmon/hwmon*/name /sys/class/hwmon/hwmon*/temp*_input \
-             /sys/class/hwmon/hwmon*/temp*_label /sys/class/hwmon/hwmon*/temp*_crit 2>/dev/null
-  ```
-
-- `hwmon` is preferred because `temp*_crit` supplies a denominator: a
-  temperature is not a percentage of anything, but `input/crit` is — which
-  yields a meter consistent with the others instead of a bare number.
-- Open: which sensor to show when several report (hottest with its label, or a
-  preference list `coretemp` / `k10temp` / `cpu_thermal` with max as
-  fallback); what to do when `crit` is missing (fixed 100 C scale, or a number
-  with no bar).
+- **Only `temp1` is read**, which settles the "which sensor" question from
+  the other end. By hwmon convention it is the chip's principal sensor —
+  `Package id 0` on coretemp, `Tctl` on k10temp, `Composite` on an NVMe, the
+  only one on a Pi's cpu_thermal — and the higher numbers are per-core.
+  Reading them all would make this section's cost scale with the *core*
+  count to produce sixteen numbers nobody acts on. As written it scales with
+  the number of chips, which is a handful on any machine.
+- **The hottest is the one closest to its own limit**, not the largest
+  number. The bare numbers get the comparison backwards: an NVMe at 71°C is
+  nearer trouble than a CPU at 80°C. `crit` is preferred to `max` where both
+  are reported; where neither is, the reading is drawn against a flat 100°C
+  and the row says the denominator is ours.
+- **The band gets a number, not a fifth gauge.** There is no width for one,
+  and colour carries the judgement a bare temperature cannot make for
+  itself. It sheds after uptime and before the meters.
+- The samples in `internal/host/thermal_test.go` are the one set in this
+  codebase that is **not** captured from a real host, and the file says so:
+  there is no reachable machine here with a sensor. Real hardware is
+  validated in the hardening phase, which is the only place it honestly can
+  be.
 
 ### G. GPU
 

@@ -69,6 +69,27 @@ func TestHostMetricsAgainstRealHost(t *testing.T) {
 	// asserted — but a host that answers must answer in the shape parsed.
 	t.Logf("pressure present: %v (%+v)", metrics.HasPressure(), metrics.Pressure)
 
+	// Temperatures are the one reading this fixture proves by *not* having
+	// them. It exposes no hwmon and no thermal zones, and neither does the
+	// Linux VM under it — which is also true of most cloud hosts. What has
+	// to hold is that the globs match nothing, grep says so on stderr and
+	// not on stdout, and the result is no sensors rather than an error or a
+	// reading of zero degrees.
+	if len(metrics.Sensors) > 0 {
+		// If a host ever does answer, it must answer in the shape parsed.
+		t.Logf("sensors: %+v", metrics.Sensors)
+		for _, sensor := range metrics.Sensors {
+			if sensor.Chip == "" || sensor.MilliC <= 0 {
+				t.Errorf("unreadable sensor: %+v", sensor)
+			}
+		}
+	} else if hottest, ok := metrics.Hottest(); ok {
+		t.Errorf("a host with no sensors produced one: %+v", hottest)
+	}
+	if strings.Contains(string(out.Stdout), "No such file") {
+		t.Errorf("a missing sensor path reached stdout:\n%s", out.Stdout)
+	}
+
 	// A percentage and a rate need two samples, and the interval comes from
 	// the host's own uptime rather than from this test's clock.
 	time.Sleep(2 * time.Second)

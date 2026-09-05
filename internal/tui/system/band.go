@@ -134,20 +134,37 @@ func (m *Model) renderBand(width int) string {
 		return ""
 	}
 
+	// The tail is what follows the meters: a temperature, how long the
+	// machine has been up, and whether any of it is still current. Each part
+	// is measured plain and rendered styled, because the width arithmetic
+	// below cannot see through an escape sequence.
+	temperature := ""
+	temperatureStyle := theme.Dim
+	if hottest, ok := m.metrics.Hottest(); ok {
+		// A number, not a meter: the band has no width for a fifth gauge,
+		// and the colour carries the judgement a bare temperature cannot
+		// make for itself. The meter is in the view behind it.
+		temperature = fmt.Sprintf("%.0f°C", hottest.Celsius())
+		temperatureStyle = theme.Usage(hottest.Share())
+	}
 	uptime := ""
 	if m.metrics.Uptime > 0 {
 		uptime = "up " + formatUptime(m.metrics.Uptime)
 	}
-	tail := func() string {
-		parts := make([]string, 0, 2)
+	tailParts := func() []string {
+		parts := make([]string, 0, 3)
+		if temperature != "" {
+			parts = append(parts, temperature)
+		}
 		if uptime != "" {
 			parts = append(parts, uptime)
 		}
 		if m.stale {
 			parts = append(parts, "(stale)")
 		}
-		return strings.Join(parts, "  ")
+		return parts
 	}
+	tail := func() string { return strings.Join(tailParts(), "  ") }
 
 	// fixed is everything the bars do not occupy: the leading marker,
 	// `label[` and ` value]` per meter, two spaces between meters, and the
@@ -163,16 +180,18 @@ func (m *Model) renderBand(width int) string {
 		return width
 	}
 	// Shed the least urgent parts until the bars can have their minimum,
-	// rather than letting the band overflow and wrap the header. Uptime
-	// goes first, then the meters from the bottom up — CPU is the headline
-	// reading and swap the one that is only there when it matters. The
-	// staleness flag stays while anything is drawn at all: a stale number
-	// that looks current is worse than a missing one.
+	// rather than letting the band overflow and wrap the header. Uptime goes
+	// first, then the temperature, then the meters from the bottom up — CPU
+	// is the headline reading and swap the one that is only there when it
+	// matters. The staleness flag stays while anything is drawn at all: a
+	// stale number that looks current is worse than a missing one.
 	available := width
 	for available > 0 && fixed()+meterMinBar*len(meters) > available {
 		switch {
 		case uptime != "":
 			uptime = ""
+		case temperature != "":
+			temperature = ""
 		case len(meters) > 1:
 			meters = meters[:len(meters)-1]
 		default:
@@ -192,8 +211,16 @@ func (m *Model) renderBand(width int) string {
 			styledBar(gauge.percent, barWidth, gauge.style), gauge.value)
 	}
 	line := " " + m.labelStyle().Render(bandLabel) + "  " + strings.Join(parts, "  ")
-	if text := tail(); text != "" {
-		line += "  " + theme.Dim.Render(text)
+	styled := make([]string, 0, 3)
+	for _, part := range tailParts() {
+		if part == temperature {
+			styled = append(styled, temperatureStyle.Render(part))
+			continue
+		}
+		styled = append(styled, theme.Dim.Render(part))
+	}
+	if len(styled) > 0 {
+		line += "  " + strings.Join(styled, theme.Dim.Render("  "))
 	}
 	return line
 }

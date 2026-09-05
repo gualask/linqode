@@ -233,6 +233,14 @@ func busyHost(round int) host.Metrics {
 			IO:      host.Pressure{Some10: 8.3, Full10: 2.1},
 			Present: true,
 		},
+		// A machine whose drive is closer to its own limit than its CPU is
+		// to that one — which is the case the share exists to get right,
+		// and which the bare numbers get backwards.
+		Sensors: []host.Sensor{
+			{Chip: "nvme", Label: "Composite", MilliC: 74_000, LimitMilliC: 84_850},
+			{Chip: "coretemp", Label: "Package id 0", MilliC: 71_000, LimitMilliC: 100_000},
+			{Chip: "acpitz", MilliC: 44_000},
+		},
 	}
 	// Memory climbing towards trouble rather than sitting there, which is
 	// the difference the trend beside it exists to show.

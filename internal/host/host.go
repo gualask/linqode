@@ -61,6 +61,7 @@ func Command() string {
 		"echo '" + statMarker + "'; grep '^cpu' /proc/stat; " +
 		"echo '" + netMarker + "'; cat /proc/net/dev; " +
 		"echo '" + pressureMarker + "'; grep -H '' /proc/pressure/cpu /proc/pressure/io /proc/pressure/memory 2>/dev/null; " +
+		"echo '" + thermalMarker + "'; " + thermalCommand + "; " +
 		"echo '" + diskMarker + "'; df -Pk /; " +
 		"echo '" + mountsMarker + "'; " + mountsCommand
 }
@@ -146,6 +147,10 @@ type Metrics struct {
 	Filesystems []Filesystem
 	Interfaces  []Interface
 	Pressure    PressureSet
+	// Sensors is one temperature per chip, closest to its own limit first.
+	// Empty on the many hosts that report none — most virtual machines, and
+	// the e2e fixture.
+	Sensors []Sensor
 }
 
 // Parse reads the output of Command. Missing or malformed sections leave
@@ -199,6 +204,7 @@ func Parse(raw []byte) (Metrics, error) {
 	m.CPUTimes = parseCPUTimes(sections[statMarker])
 	m.Interfaces = parseInterfaces(sections[netMarker])
 	m.Pressure = parsePressure(sections[pressureMarker])
+	m.Sensors = parseThermal(sections[thermalMarker])
 	if root, ok := parseDF(sections[diskMarker])["/"]; ok {
 		m.DiskTotalKB, m.DiskUsedKB = root.TotalKB, root.UsedKB
 	}
