@@ -165,3 +165,189 @@ func TestBarClamps(t *testing.T) {
 		t.Errorf("bar with no width = %q", got)
 	}
 }
+
+// richMetrics is a sample with everything phase C added: two filesystems,
+// swap in use, per-core counters and interface counters.
+func richMetrics() host.Metrics {
+	m := sampleMetrics()
+	m.UptimeSeconds = 5400
+	m.SwapTotalKB, m.SwapFreeKB = 2048000, 1024000
+	m.Filesystems = []host.Filesystem{
+		{Device: "/dev/vda1", Mount: "/", TotalKB: 20000000, UsedKB: 5000000},
+		{Device: "/dev/vdb1", Mount: "/var", TotalKB: 40000000, UsedKB: 36000000},
+	}
+	m.CPUTimes = []host.CPUTime{
+		{Name: "cpu", Total: 4000, Idle: 3600},
+		{Name: "cpu0", Total: 1000, Idle: 900},
+		{Name: "cpu1", Total: 1000, Idle: 900},
+		{Name: "cpu2", Total: 1000, Idle: 900},
+		{Name: "cpu3", Total: 1000, Idle: 900},
+	}
+	m.Interfaces = []host.Interface{
+		{Name: "lo", RxBytes: 1000, TxBytes: 1000},
+		{Name: "eth0", RxBytes: 100000, TxBytes: 50000},
+	}
+	m.Pressure = host.PressureSet{
+		CPU:     host.Pressure{Some10: 12.5},
+		IO:      host.Pressure{Some10: 30.0, Full10: 25.0},
+		Memory:  host.Pressure{},
+		Present: true,
+	}
+	return m
+}
+
+// measured is a model that has seen two samples, which is what it takes for
+// a percentage or a rate to exist at all. Ten seconds of host time pass
+// between them, and in them one core does all the work.
+func measured() *Model {
+	before := richMetrics()
+	m := New()
+	m.SetSample(before, nil)
+
+	after := richMetrics()
+	after.UptimeSeconds = before.UptimeSeconds + 10
+	// A thousand jiffies per core: cpu0 spends all of them busy and the
+	// other three spend all of them idle.
+	after.CPUTimes = []host.CPUTime{
+		{Name: "cpu", Total: 8000, Idle: 6600},
+		{Name: "cpu0", Total: 2000, Idle: 900},
+		{Name: "cpu1", Total: 2000, Idle: 1900},
+		{Name: "cpu2", Total: 2000, Idle: 1900},
+		{Name: "cpu3", Total: 2000, Idle: 1900},
+	}
+	after.Interfaces = []host.Interface{
+		{Name: "lo", RxBytes: 900000, TxBytes: 900000},
+		{Name: "eth0", RxBytes: 100000 + 20480, TxBytes: 50000 + 10240},
+	}
+	m.SetSample(after, nil)
+	return m
+}
+
+// The band's headline reading is the load average only until there is a
+// second sample to subtract the first from.
+func TestBandShowsLoadUntilItCanShowCPU(t *testing.T) {
+	first := sampled(richMetrics())
+	if line := first.Band(160); !strings.Contains(line, "load[") || strings.Contains(line, "cpu[") {
+		t.Errorf("first sample should fall back to load: %q", line)
+	}
+	line := measured().Band(160)
+	if !strings.Contains(line, "cpu[") || strings.Contains(line, "load[") {
+		t.Errorf("second sample should carry the real reading: %q", line)
+	}
+	// One core of four busy for ten seconds: 25% of the machine.
+	if !strings.Contains(line, "25%") {
+		t.Errorf("CPU percentage missing from %q", line)
+	}
+}
+
+// A comfortable root says nothing about the volume that is about to stop
+// the deployment, so the one disk meter follows the fullest filesystem and
+// says which one it is.
+func TestBandDiskMeterFollowsTheFullestFilesystem(t *testing.T) {
+	line := sampled(richMetrics()).Band(160)
+	if !strings.Contains(line, "/var[") {
+		t.Errorf("band did not follow the fullest filesystem: %q", line)
+	}
+	if strings.Contains(line, "disk[") {
+		t.Errorf("band still labels its disk meter generically: %q", line)
+	}
+}
+
+// Swap costs the other meters width, so it only appears once it means
+// something. Every healthy Linux machine has a little swapped out.
+func TestSwapMeterAppearsOnlyWhenSwapIsFilling(t *testing.T) {
+	quiet := richMetrics()
+	quiet.SwapFreeKB = quiet.SwapTotalKB - 1000
+	if line := sampled(quiet).Band(200); strings.Contains(line, "swap[") {
+		t.Errorf("a megabyte of swap drew a meter: %q", line)
+	}
+	if line := sampled(richMetrics()).Band(200); !strings.Contains(line, "swap[") {
+		t.Errorf("half the swap in use drew no meter: %q", line)
+	}
+}
+
+// Everything the batch reads has a row, and the ones that need two samples
+// wait for the second rather than showing a zero.
+func TestSystemViewShowsEveryReading(t *testing.T) {
+	m := measured()
+	m.SetSize(140, 24)
+	view := m.View()
+
+	for _, want := range []string{
+		"cpu", "25% busy", "load 0.50", // the machine, and the averages behind it
+		"cores", "busiest cpu0 at 100%", // the row that makes the average readable
+		"memory", "swap",
+		"/var", "/dev/vdb1", // one row per filesystem, named by its device
+		"net", "2.0K/s down", "1.0K/s up", "busiest eth0",
+		"pressure", "12.5%", "(full 25.0%)",
+		"uptime",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("system view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+// A kernel without PSI, a machine without swap, a host whose full df did not
+// answer: each leaves its row out rather than drawing an empty one.
+func TestSystemViewLeavesOutWhatWasNotReported(t *testing.T) {
+	metrics := sampleMetrics() // no swap, no pressure, no mount list
+	m := sampled(metrics)
+	m.SetSize(140, 24)
+	view := m.View()
+
+	for _, absent := range []string{"swap", "pressure", "net "} {
+		if strings.Contains(view, absent) {
+			t.Errorf("system view reports %q it never received:\n%s", absent, view)
+		}
+	}
+	// The root reading stands in for the mount list, so there is still a
+	// filesystem row.
+	if !strings.Contains(view, "4.8G used") {
+		t.Errorf("root filesystem missing from the view:\n%s", view)
+	}
+}
+
+// A mount point longer than the label column widens it for every row, so
+// the gauges stay in one line.
+func TestLongMountPointsKeepTheGaugesAligned(t *testing.T) {
+	metrics := richMetrics()
+	metrics.Filesystems = append(metrics.Filesystems,
+		host.Filesystem{Device: "/dev/vdc1", Mount: "/var/lib/postgresql",
+			TotalKB: 1000, UsedKB: 500})
+	m := sampled(metrics)
+	m.SetSize(160, 24)
+
+	var columns []int
+	for _, line := range strings.Split(m.View(), "\n") {
+		if index := strings.Index(line, "["); index >= 0 {
+			columns = append(columns, lipgloss.Width(line[:index]))
+		}
+	}
+	if len(columns) < 3 {
+		t.Fatalf("expected a gauge on every reading, got %d", len(columns))
+	}
+	for _, column := range columns {
+		if column != columns[0] {
+			t.Errorf("gauges start at different columns: %v", columns)
+			break
+		}
+	}
+}
+
+func TestFormatRate(t *testing.T) {
+	cases := []struct {
+		rate float64
+		want string
+	}{
+		{0, "0B/s"},
+		{802, "802B/s"},
+		{2048, "2.0K/s"},
+		{1500000, "1.4M/s"},
+	}
+	for _, c := range cases {
+		if got := formatRate(c.rate); got != c.want {
+			t.Errorf("formatRate(%v) = %q, want %q", c.rate, got, c.want)
+		}
+	}
+}

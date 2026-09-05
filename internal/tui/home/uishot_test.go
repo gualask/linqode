@@ -200,15 +200,59 @@ pre{margin:0;padding:14px;background:%s;color:%s;display:inline-block;
 	return b.String()
 }
 
-func busyHost() host.Metrics {
-	return host.Metrics{
+// busyHost is one host sample. round advances it: /proc/stat and
+// /proc/net/dev are counters, so the frames only show a CPU percentage or a
+// throughput once two rounds have gone by — the same wait a real session
+// has, and the reason the band draws load until then.
+//
+// The shape is a machine worth looking at: one core pinned while the average
+// says forty percent, a /var about to fill, and swap in use.
+func busyHost(round int) host.Metrics {
+	const secondsPerRound = 5
+	// Per core, per round: five seconds at a hundred jiffies a second.
+	const jiffies = secondsPerRound * 100
+
+	m := host.Metrics{
 		Load1: 7.21, Load5: 5.98, Load15: 4.55, CPUs: 8,
 		Uptime:         42*24*time.Hour + 7*time.Hour,
+		UptimeSeconds:  3654000 + float64(round*secondsPerRound),
 		MemTotalKB:     32833536,
 		MemAvailableKB: 3923456,
+		SwapTotalKB:    8388608,
+		SwapFreeKB:     5033165,
 		DiskTotalKB:    205520896,
 		DiskUsedKB:     93323264,
+		Filesystems: []host.Filesystem{
+			{Device: "/dev/nvme0n1p2", Mount: "/", TotalKB: 205520896, UsedKB: 93323264},
+			{Device: "/dev/nvme0n1p1", Mount: "/boot", TotalKB: 1046528, UsedKB: 314572},
+			{Device: "/dev/sdb1", Mount: "/var", TotalKB: 419430400, UsedKB: 390455296},
+		},
+		Pressure: host.PressureSet{
+			CPU:     host.Pressure{Some10: 24.5},
+			IO:      host.Pressure{Some10: 8.3, Full10: 2.1},
+			Present: true,
+		},
 	}
+	// One core pinned, one busy, the rest idling — which is the case a load
+	// average of 7.21 over eight cores cannot distinguish from six cores at
+	// nine tenths.
+	busy := []float64{0.98, 0.61, 0.12, 0.09, 0.31, 0.04, 0.07, 0.02}
+	machine := host.CPUTime{Name: "cpu"}
+	for core, fraction := range busy {
+		total := uint64(jiffies * round)
+		idle := uint64(float64(total) * (1 - fraction))
+		m.CPUTimes = append(m.CPUTimes,
+			host.CPUTime{Name: fmt.Sprintf("cpu%d", core), Total: total, Idle: idle})
+		machine.Total += total
+		machine.Idle += idle
+	}
+	m.CPUTimes = append([]host.CPUTime{machine}, m.CPUTimes...)
+	m.Interfaces = []host.Interface{
+		{Name: "lo", RxBytes: uint64(round) * 12_000, TxBytes: uint64(round) * 12_000},
+		{Name: "eth0", RxBytes: uint64(round) * 1_450_000, TxBytes: uint64(round) * 340_000},
+		{Name: "veth3f1a", RxBytes: uint64(round) * 980_000, TxBytes: uint64(round) * 210_000},
+	}
+	return m
 }
 
 // Every state the table has a color for, in one project.
@@ -271,8 +315,8 @@ func shotCgroups(round int) compose.CgroupSample {
 // reached — through the panel's own path rather than by writing its fields.
 func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 	panel := status.New(status.Config{Stats: true, LiveStats: true})
-	feed := &hostFeed{metrics: busyHost()}
-	round := 0
+	round, hostRound := 0, 0
+	failing := false
 	config := Config{
 		Target:     "deploy@app-prod-01",
 		ComposeDir: "/srv/myapp",
@@ -283,7 +327,13 @@ func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 		},
 	}
 	if hostMetrics {
-		config.Host = feed.sample
+		config.Host = func() (host.Metrics, error) {
+			if failing {
+				return host.Metrics{}, hostErr
+			}
+			hostRound++
+			return busyHost(hostRound), nil
+		}
 	}
 	screen := New(config, panel)
 	screen.SetSize(width, height)
@@ -294,7 +344,7 @@ func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 	resample(screen)
 	resample(screen)
 	if hostErr != nil {
-		feed.err = hostErr
+		failing = true
 		resample(screen)
 	}
 	return screen
@@ -323,6 +373,10 @@ func TestUIShot(t *testing.T) {
 	systemView.Update(tea.KeyMsg{Type: tea.KeyTab})
 	systemView.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
+	narrowSystem := shotScreen(100, 20, true, nil)
+	narrowSystem.Update(tea.KeyMsg{Type: tea.KeyTab})
+	narrowSystem.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
 	narrow := shotScreen(100, 20, true, nil)
 
 	noMetrics := shotScreen(150, 20, false, nil)
@@ -335,6 +389,8 @@ func TestUIShot(t *testing.T) {
 			Text: onBand.View()},
 		{Name: "150 columns — the system view, opened with enter on the band",
 			Text: systemView.View()},
+		{Name: "100 columns — the system view, where the rows have to give something up",
+			Text: narrowSystem.View()},
 		{Name: "100 columns — I/O columns dropped, gap narrowed", Text: narrow.View()},
 		{Name: "150 columns — before the first host sample", Text: noMetrics.View()},
 		{Name: "150 columns — host sample gone stale", Text: stale.View()},

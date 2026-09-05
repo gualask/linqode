@@ -140,8 +140,10 @@ func TestHostLineAppearsOnlyAfterFirstSample(t *testing.T) {
 
 	view := screen.View()
 	// Each meter prints its absolute amounts; the percentage is the bar, so
-	// it is deliberately not repeated as text.
-	for _, want := range []string{"load[", "0.50", "mem[", "1000M/2.0G", "disk[", "4.8G/19.1G", "up 1h30m"} {
+	// it is deliberately not repeated as text. The disk meter is labelled
+	// with the mount point it is showing, since it follows the fullest
+	// filesystem rather than always the root.
+	for _, want := range []string{"load[", "0.50", "mem[", "1000M/2.0G", "/[", "4.8G/19.1G", "up 1h30m"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("meter band missing %q:\n%s", want, view)
 		}

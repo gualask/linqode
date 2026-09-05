@@ -188,12 +188,29 @@ and memory appear twice on this screen, and without the word it reads as an
 aggregate of the rows below. The count of services by state rides on the
 title line beside the target.
 
+Which readings the band carries follows from what they cost the row. The
+headline is the real CPU percentage, and the load average until there is one
+— a percentage is a difference between two samples, so it does not exist
+until the second. There is one disk meter and it follows the **fullest**
+filesystem, labelled with its mount point: a comfortable `/` says nothing
+about the `/var/lib/docker` that is about to stop the deployment, which is
+among the most common ways one does. Swap appears only once a meaningful
+share of it is in use, because almost every healthy Linux machine has a
+little swapped out and a machine that is *filling* swap is in trouble
+`MemAvailable` does not show.
+
 The band is also the first stop in the focus ring, without a border it has no
 room for: its label carries the focus instead. `enter` on it opens the
-**system view**, the same readings with the room to print what one row has to
-leave out. That view is where every later measurement of the machine belongs
-— per-core CPU, swap, every filesystem, pressure, temperatures, GPU, the
-processes behind them — rather than in another box on the home, which is what
+**system view**, the same sample with the room to print what one row has to
+leave out: the CPU average over a strip of one cell per core (which is what
+makes the average readable — one pinned core among eight idle ones is a
+machine with a problem and an average that says twelve percent), the other
+two load figures, memory and swap, one row per filesystem with its device,
+network throughput and the interface carrying most of it, and PSI pressure.
+Rows are ordered by how much they answer "what is wrong with this machine",
+because a short terminal truncates the box from the bottom. That view is
+where every later measurement belongs — temperatures, GPU, the processes
+behind these numbers — rather than in another box on the home, which is what
 keeps the home cheap to draw and cheap to sample. `esc` comes back.
 
 The table is a panel: it sits in a titled box whose border says which region

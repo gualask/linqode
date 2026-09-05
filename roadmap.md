@@ -362,11 +362,25 @@ from the design:
   table that had measured a stand-in rather than the real command. Recorded
   in PROJECT.md with that correction.
 
-**C2 — the system view shows them.** Per-core bars, swap under memory, one
-row per filesystem, throughput, pressure. The band gains the real CPU
-reading in place of load, and its disk meter follows the *fullest*
-filesystem rather than always the root — which is what puts a filling
-`/var/lib/docker` on the home screen.
+**C2 — the system view shows them** _(done, September 2026)_. Per-core
+strip, swap under memory, one row per filesystem with its device,
+throughput, pressure. The band gained the real CPU reading in place of load
+— falling back to load until the second sample, since a percentage does not
+exist before it — and its disk meter now follows the *fullest* filesystem
+rather than always the root, which is what puts a filling `/var/lib/docker`
+on the home screen. Swap gets a meter only once a meaningful share of it is
+in use.
+
+Two things came out of looking at the frames rather than out of the design:
+
+- **The per-core row is one cell per core**, not a labelled bar each.
+  A labelled bar each stops fitting somewhere around sixteen cores, and the
+  shape of the strip is what the row is read for; the number that matters —
+  the busiest core — is called out beside it.
+- **The gauges shrink so the pressure row can fit.** It is the longest row
+  and the one with no gauge to give up, so at a hundred columns it was being
+  cut mid-word. The bar width now reserves what the widest text needs, which
+  costs a wide terminal nothing (the cap is reached either way).
 
 **C3 — client-side history ring buffer** feeding sparklines. Free by
 construction: the samples have already been fetched.

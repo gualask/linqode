@@ -60,15 +60,34 @@ type meter struct {
 	percent float64
 }
 
-// hostMeters is one meter per resource the host reported. A reading it did
-// not report is dropped entirely rather than drawn empty.
+// swapWorthAMeter is the share of swap in use below which the band says
+// nothing about it. Almost every Linux machine has a few megabytes swapped
+// out and is perfectly healthy; a machine that is *filling* swap is in
+// trouble that MemAvailable does not show. So the meter appears exactly
+// when it means something, and costs the other three no width until then.
+const swapWorthAMeter = 5
+
+// meters is one meter per resource the host reported, in the order they are
+// shed: the band drops from the bottom when it runs out of width, so the
+// least urgent reading is last.
+//
+// A reading the host did not report is dropped entirely rather than drawn
+// empty.
 func (m *Model) meters() []meter {
 	metrics := m.metrics
 	var meters []meter
-	if metrics.HasLoad() {
-		// Load is not a percentage of anything, but per-CPU load is: 1.0 is
-		// a full machine. That normalization is what the bar shows, which
-		// leaves the raw one-minute figure for the text.
+	switch {
+	case m.hasUsage:
+		// What the machine is doing right now, which is a difference
+		// between two samples and so cannot exist before the second one.
+		percent := m.usage.CPUPercent
+		meters = append(meters, meter{"cpu", fmt.Sprintf("%.0f%%", percent),
+			theme.Usage(percent), percent})
+	case metrics.HasLoad():
+		// Until then, the load average. It is not a percentage of anything,
+		// but per-CPU load is: 1.0 is a full machine. That normalization is
+		// what the bar shows, which leaves the raw one-minute figure for
+		// the text.
 		perCPU := metrics.LoadPerCPU()
 		meters = append(meters, meter{"load", fmt.Sprintf("%.2f", metrics.Load1),
 			loadStyle(perCPU), perCPU * 100})
@@ -79,10 +98,19 @@ func (m *Model) meters() []meter {
 			formatKB(metrics.MemUsedKB()) + "/" + formatKB(metrics.MemTotalKB),
 			theme.Usage(percent), percent})
 	}
-	if metrics.DiskTotalKB > 0 {
-		percent := metrics.DiskUsedPercent()
-		meters = append(meters, meter{"disk",
-			formatKB(metrics.DiskUsedKB) + "/" + formatKB(metrics.DiskTotalKB),
+	// The fullest filesystem, not always the root: a comfortable / says
+	// nothing about the /var/lib/docker that is about to stop the
+	// deployment, and the band has room for one disk meter. Its mount point
+	// is the label, so which one it is showing is never in doubt.
+	if fullest, ok := metrics.Fullest(); ok {
+		percent := fullest.UsedPercent()
+		meters = append(meters, meter{fullest.Mount,
+			formatKB(fullest.UsedKB) + "/" + formatKB(fullest.TotalKB),
+			theme.Usage(percent), percent})
+	}
+	if percent := metrics.SwapUsedPercent(); percent >= swapWorthAMeter {
+		meters = append(meters, meter{"swap",
+			formatKB(metrics.SwapUsedKB()) + "/" + formatKB(metrics.SwapTotalKB),
 			theme.Usage(percent), percent})
 	}
 	return meters
@@ -136,9 +164,10 @@ func (m *Model) renderBand(width int) string {
 	}
 	// Shed the least urgent parts until the bars can have their minimum,
 	// rather than letting the band overflow and wrap the header. Uptime
-	// goes first, then the meters from the bottom up — load is the headline
-	// reading. The staleness flag stays while anything is drawn at all: a
-	// stale number that looks current is worse than a missing one.
+	// goes first, then the meters from the bottom up — CPU is the headline
+	// reading and swap the one that is only there when it matters. The
+	// staleness flag stays while anything is drawn at all: a stale number
+	// that looks current is worse than a missing one.
 	available := width
 	for available > 0 && fixed()+meterMinBar*len(meters) > available {
 		switch {
