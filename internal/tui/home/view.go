@@ -39,8 +39,7 @@ func (m *Model) header(frame frame) string {
 	if !frame.band {
 		return m.clip(m.title()) + "\n"
 	}
-	return panel.Box(m.session(), "", m.system.Band(m.width-2),
-		m.focused() == panel.Panel(m.system) && m.detail == nil,
+	return panel.Box(m.session(), "", m.system.Band(m.width-2), m.headerFocused(),
 		m.width, headerHeight)
 }
 
@@ -169,7 +168,7 @@ func (m *Model) hints() []panel.Hint {
 	//
 	// Not inside a detail, where `tab` moves a focus nobody can see, and not
 	// on a screen with one panel, where it moves nothing at all.
-	if m.detail == nil && len(m.panels) > 1 {
+	if m.detail == nil && m.drawnPanels() > 1 {
 		hints = append(hints, panel.Hint{Text: "tab panels", Drop: 7})
 	}
 	hints = append(hints, panel.Hint{Text: "r refresh", Drop: 2})

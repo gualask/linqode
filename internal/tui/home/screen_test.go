@@ -20,6 +20,7 @@ import (
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
+	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/status"
 )
 
@@ -679,5 +680,69 @@ func TestQQuitsFromEveryLevel(t *testing.T) {
 	// And the menu says so, rather than letting the key be a surprise.
 	if !strings.Contains(menu.View(), "q quit") {
 		t.Errorf("the menu footer does not offer the way out:\n%s", menu.View())
+	}
+}
+
+// Focus must never land on a region that is not drawn: the ring would move
+// without anything changing, and the footer would offer the keys of a panel
+// nobody can see.
+func TestFocusSkipsWhatIsNotDrawn(t *testing.T) {
+	// Before the first sample there is no band, so the machine is not on
+	// screen and the ring has one reachable stop.
+	waiting, _ := buildScreen(screenOptions{width: 100, height: 24,
+		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
+	waiting.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if waiting.focus != waiting.anchor {
+		t.Errorf("tab reached the band before there was one to draw")
+	}
+	if strings.Contains(waiting.View(), "tab panels") {
+		t.Error("the ring is advertised on a screen with one panel drawn")
+	}
+
+	// With `host_metrics` off there is never a band, so the same holds for
+	// the life of the session.
+	off, _ := buildScreen(screenOptions{width: 100, height: 24,
+		services: serviceList("web")})
+	sampleAll(off)
+	off.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if off.focus != off.anchor {
+		t.Errorf("shift+tab reached a band this host never draws")
+	}
+
+	// And once the sample lands it is reachable.
+	ready, _ := buildScreen(screenOptions{width: 100, height: 24,
+		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
+	sampleAll(ready)
+	ready.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if ready.focused().Title() != "system" {
+		t.Errorf("shift+tab reached %q once there was a band", ready.focused().Title())
+	}
+}
+
+// The machine can be on screen twice — the band in the header, its readings in
+// the body of a host with no compose. Exactly one of them may be lit, or the
+// accent stops meaning "this is what the keys are talking to".
+func TestOnlyOneRegionWearsTheAccent(t *testing.T) {
+	screen, _ := noComposeScreen(150, 24, "docker is not installed on this host", true)
+	if screen.panels[screen.anchor] != panel.Panel(screen.system) {
+		t.Fatal("the machine did not take the body")
+	}
+	if screen.headerFocused() {
+		t.Error("the header is lit while its own readings hold the body")
+	}
+
+	// On an ordinary host the header is the machine's only rendering, and
+	// takes the accent when focus reaches it.
+	ordinary, _ := buildScreen(screenOptions{width: 150, height: 24,
+		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
+	sampleAll(ordinary)
+	ordinary.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if !ordinary.headerFocused() {
+		t.Error("the header is not lit when focus is on it and nothing else shows it")
+	}
+	// And gives it up to the view it opens.
+	applyScreen(ordinary, ordinary.Update(tea.KeyMsg{Type: tea.KeyEnter}))
+	if ordinary.headerFocused() {
+		t.Error("the header stays lit behind the view it opened")
 	}
 }

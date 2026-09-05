@@ -101,8 +101,19 @@ panel rather than editing a screen.
 
 `tab` and `shift+tab` move focus around the ring — band, table, events, in the
 order they sit on the screen, so `shift+tab` from the table reaches the band
-and `enter` there opens the machine's readings. Focus skips a satellite that is
-not currently drawn, and leaves one if the terminal shrinks under it.
+and `enter` there opens the machine's readings.
+
+Focus starts on the **table**, not on the first stop: the ring is ordered by
+where things sit, and the initial focus by what an operator does. The band is
+read; the table is acted on — `j`/`k` selects a service, `enter` opens its
+logs, `c` operates on it.
+
+**Focus never lands on a region that is not drawn**, and leaves one the
+terminal shrinks under. Two of the three can be absent: the satellite gives up
+its rows on a short terminal, and the machine has no band before the first
+sample arrives or on a host where `host_metrics` is off. Moving the ring
+through them would change nothing on screen and offer the keys of a region
+nobody can see.
 
 The ring is advertised in the footer as `tab panels`, and it is the one thing
 on this screen that has to be: every other key is either on the panel that
@@ -110,7 +121,7 @@ answers it or already on that line, while the band and the feed cannot be
 reached at all without knowing the ring exists. It is the first hint dropped
 when the line is short — learned once, then the least useful thing there — and
 it is absent inside a detail view, where `tab` would move a focus nobody can
-see, and on a screen with a single panel, where it moves nothing.
+see, and wherever only one panel is drawn, where it moves nothing.
 
 **Focus is carried by colour, never by reverse video.** Reverse already marks
 the selected row inside a panel, and two marks that both mean "here" cancel
@@ -118,6 +129,12 @@ out. The focused panel takes the accent on its border and title; every other
 one recedes to grey, and the selected row of an unfocused panel becomes a
 quiet fill instead of a lit bar — still findable when focus comes back, no
 longer competing with the panel that has it.
+
+**Exactly one region is lit at a time**, which is what makes the accent mean
+anything. The machine can be on screen twice — the band in the header, its
+readings in the body of a host with no compose — and then only the body is
+lit, because that is where the keys go. A detail takes the accent from the
+header that opened it for the same reason.
 
 A selected row is drawn **plain and then filled**. A background laid over text
 that already carries its own colours ends wherever the first of them resets,

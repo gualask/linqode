@@ -142,6 +142,9 @@ func TestBodyIsDrawnAsATitledPanel(t *testing.T) {
 func TestTabWalksTheRing(t *testing.T) {
 	screen, _ := buildScreen(screenOptions{width: 100, height: 24,
 		host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web")})
+	// The band has to exist before focus can reach it, so take the sample
+	// that draws it — which is what the first heartbeat does.
+	sampleAll(screen)
 	if screen.focus != screen.anchor {
 		t.Fatalf("focus started at %d, want the table at %d", screen.focus, screen.anchor)
 	}

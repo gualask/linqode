@@ -336,14 +336,49 @@ func (m *Model) moveFocus(delta int) {
 	m.applyFocus()
 }
 
-// onScreen reports whether a panel is currently drawn. Only the satellite
-// can fail to be: it is the one that gives up its rows on a short terminal,
-// and focus must not land on a panel nobody can see.
+// onScreen reports whether a panel is currently drawn. Focus must never land
+// on one that is not: the ring would move without anything changing, and the
+// footer would offer the keys of a region nobody can see.
+//
+// Two of the three can fail to be drawn. The satellite gives up its rows on a
+// short terminal. The machine is drawn as the header's box, or as the body on
+// a host with no compose, or — before the first sample lands, and on a host
+// where `host_metrics` is off — not at all.
 func (m *Model) onScreen(index int) bool {
-	if index != m.eventsIndex {
+	switch {
+	case index == m.eventsIndex:
+		return m.frame().events.height > 0
+	case m.panels[index] == panel.Panel(m.system):
+		return m.frame().band || m.anchor == index
+	default:
 		return true
 	}
-	return m.frame().events.height > 0
+}
+
+// drawnPanels is how many of the ring an operator can actually reach. It is
+// what decides whether the ring is worth advertising: on a screen where only
+// one panel is drawn, `tab` moves nothing.
+func (m *Model) drawnPanels() int {
+	drawn := 0
+	for index := range m.panels {
+		if m.onScreen(index) {
+			drawn++
+		}
+	}
+	return drawn
+}
+
+// headerFocused reports whether the header's box wears the focus accent.
+//
+// The machine can be on screen twice — the band in the header, the readings
+// in the body, on a host with no compose to put there — and only one of them
+// may be lit, or the screen says two regions have focus when the whole point
+// of the accent is that exactly one does. The body wins: it is where the keys
+// go. A detail takes the accent for the same reason.
+func (m *Model) headerFocused() bool {
+	return m.detail == nil &&
+		m.focused() == panel.Panel(m.system) &&
+		m.panels[m.anchor] != panel.Panel(m.system)
 }
 
 // frame is the current layout, computed from the same inputs the rendering
