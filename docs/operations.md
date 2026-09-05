@@ -138,6 +138,16 @@ action or script propagates the reported non-zero remote status. **No command
 is retried or reconnected automatically** — a mutation whose outcome is
 uncertain must not be repeated by a machine.
 
+One probe runs after connecting, before the operation. A command that needs
+compose on a host that cannot run it is rejected with the condition named
+rather than left to exit non-zero with whatever the shell printed:
+`docker_permission_denied` is an account to add to a group,
+`docker_unavailable` a host to install docker on, `compose_dir_missing` a path
+to correct in the config, `compose_unavailable` what is left. A probe that
+fails, or that establishes nothing, rejects nothing — the command runs and
+reports its own failure, which is never worse than before. `script` is exempt:
+it is a command the operator wrote and has never needed a daemon.
+
 Machine commands accept only exact host and script names from the default
 operator-controlled TOML. Inline targets, `--config`, arbitrary execution and
 runtime script arguments are unavailable, and authentication never prompts or

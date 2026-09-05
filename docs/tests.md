@@ -1,6 +1,6 @@
 # Testing
 
-_Last updated: 2026-08-08_
+_Last updated: 2026-09-05._
 
 How Linqode is tested, what each layer covers, and how to extend it. The
 strategy in short: pure logic is unit-tested against captured fixtures with
@@ -143,6 +143,8 @@ TUI against it. The script with no command prints what it can do.
 | `TestWatchReportsProjectChanges` | The event stream a restart is noticed through: the change reaches the client without anything being asked, health-check `exec_*` noise never does (the demo project probes two services every two seconds), and neither does a container started outside the project — the label filter being the only thing scoping `docker events` to this session |
 | `TestWatchStopsWithItsContext` | Closing the stream ends the remote `docker events`, which would otherwise outlive every session that opened one |
 | `TestContainerCgroupsAgainstRealProject` | The cgroup globs find the layout a real daemon uses, the ids in those paths reconcile with the short ones `ps` reports, the unprivileged operator account can read all of it — including `/proc/<pid>/net/dev` — and two readings a couple of seconds apart derive a plausible CPU percentage |
+| `TestProbeAgainstRealHost` | The capability probe against a real daemon, in the direction it must not get wrong: an ordinary account in the `docker` group, the compose plugin and a project directory that is there must all read as "nothing to report", because a probe that turns capabilities off on a working host is worse than no probe. Also that nothing reaches stderr — every command in the batch is guarded, and a leaked guard would put "not found" in front of an operator for a reading that succeeded |
+| `TestProbeFindsAMissingComposeDir` | The one probe finding this fixture can produce on demand, and the distinction the sentence turns on: the daemon is fine, only the path is wrong |
 | `TestMachineBinaryCommands` | The compiled binary uses default TOML and non-interactive SSH for JSON status, bounded JSONL logs, a validated restart, an exact configured script, and exact propagation of remote exit `7` |
 
 `tests/e2e/cost_test.go` measures what candidate dashboard commands cost on
@@ -239,6 +241,13 @@ frame.
 
 ## Known gaps
 
+- **Three of the four probe findings need a different machine.** A host
+  without docker, one with compose v1, and an account outside the `docker`
+  group are three fixtures, and this is one. They are unit-tested against the
+  CLIs' documented output — including the exact stderr a refused socket
+  produces — and e2e-tested only in the direction the fixture can reach. Same
+  position as temperatures and graphics cards, and it closes the same way: a
+  real deployment.
 - **SSH agent auth**: still skipped everywhere via `IdentitiesOnly`,
   including in the e2e fixture, which authenticates with a generated
   identity file. Covering it needs a fake agent socket, or an agent

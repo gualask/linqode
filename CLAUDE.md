@@ -40,7 +40,8 @@ intro (install, configuration, keys):
 - All documentation, code comments, commit messages, and generated reports
   are written in **English**, regardless of the conversation language.
 - One Go module (`github.com/gualask/linqode`): packages under `internal/`
-  (`cli`, `operations`, `config`, `remote`, `compose`, `host`, `logs`, `tui`)
+  (`cli`, `operations`, `config`, `remote`, `probe`, `compose`, `host`,
+  `logs`, `tui`)
   plus `cmd/linqode`. See `docs/architecture.md` for package ownership and
   dependency direction.
 - Stack: Bubble Tea + Lipgloss, `golang.org/x/crypto/ssh`,
@@ -75,9 +76,18 @@ daemon, and the host readings that follow from a batch where a reading costs
 bytes rather than a round trip. See `docs/monitoring.md` and
 `docs/interface.md`.
 
+The connect-time capability probe landed in September 2026 (`internal/probe`):
+one round trip establishing docker, the socket as this user, which compose,
+and whether `compose_dir` is there — and a screen built around what is left
+rather than around what is missing, so a host without docker keeps its meters
+and becomes a machine monitor. See `docs/monitoring.md` and
+`docs/interface.md`.
+
 The fixture is still a controlled Alpine environment: **no real deployment
 has been touched yet**, and it has no temperature sensor and no GPU, so those
 two readings are unit-tested against documented interfaces and e2e-tested
-only for behaving correctly when absent. Next per `docs/PROJECT.md`:
-hardening against real hosts, then the broadened remote-operations scope
-(PTY, `.sh` upload, `tail -F`).
+only for behaving correctly when absent. The same holds for three of the
+probe's four findings: a host without docker, one with compose v1 and an
+account outside the `docker` group are three different machines. Next per
+`docs/PROJECT.md`: hardening against real hosts, then the broadened
+remote-operations scope (PTY, `.sh` upload, `tail -F`).

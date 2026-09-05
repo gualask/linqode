@@ -49,6 +49,43 @@ The on-demand tier is read the *moment* its view opens rather than at the
 next beat: the source was not due a moment earlier, so waiting would be
 waiting for nothing.
 
+## The capability probe, on no tier at all
+
+One round trip at connect, before anything else runs, establishing four things
+that decide what the rest of this document even applies to: whether docker is
+installed, whether this user may reach the daemon, which compose the host has,
+and whether the configured `compose_dir` exists. **40 ms and 148 bytes**,
+measured, once per session — against the 66 ms `compose ps` pays every minute.
+
+It is on no tier because none of it is a reading. A tier is a cadence, and a
+cadence assumes the answer changes; these do not change while a session is
+open, and a host that gains a docker group mid-session is a reconnect, not a
+refresh.
+
+**The rule for what goes in it**: probe what changes what the interface can
+offer or what error it can explain; guard inline what only changes one
+command's fallback. The two inline guards below are on the other side of that
+line and stay there — `timeout` for the mount list, `command -v nvidia-smi`
+for the graphics cards. Both change one command's fallback and nothing else,
+and as probe state they would be machinery for nothing.
+
+The mechanism is the host batch's: marked sections, evidence rather than
+verdicts, the verdict taken on the client, and a section that is missing
+degrading to unknown rather than failing the result. Unknown reads as "carry
+on" everywhere it is consulted, which is the rule the whole thing turns on: a
+probe that established nothing must never be the reason a working host loses
+its table.
+
+Two details are load-bearing. The daemon section captures stderr, because on a
+refused socket everything worth reading is there and the message names the
+socket it tried. And `docker compose version` needs the CLI but not the
+daemon, so a host whose socket refuses this user still reports which compose it
+has — which is what makes "no docker here" and "docker is here and will not
+talk to you" two different sentences instead of one empty table.
+
+What is done with the findings is [interface.md](interface.md) for the screen
+and [operations.md](operations.md) for the machine adapter.
+
 ## The service list
 
 `docker compose ps --all --format json` in the project's directory, parsed
@@ -256,9 +293,10 @@ typically hundreds of milliseconds and worse with persistence mode off. One
 slow vendor is enough to keep the whole reading off the always-on tier.
 
 Both vendors are asked in a single exec with the NVIDIA half behind
-`command -v`, which buys what a connect-time probe would have bought without
-the state: a host with neither matches no glob and starts no tool — **2 ms and
-16 bytes**, measured. Intel is left out; it offers little without something
+`command -v`. This is the guard side of the probe's own rule: it changes one
+command's fallback and nothing else, so it costs a shell builtin rather than
+probe state. A host with neither matches no glob and starts no tool — **2 ms
+and 16 bytes**, measured. Intel is left out; it offers little without something
 installed.
 
 `/sys/class/drm` holds a directory per *connector* as well as per card, and a
@@ -297,6 +335,7 @@ go test -tags e2e ./tests/e2e/ -run TestRemoteCommandCost -cost.measure
 | Command | Cost | Bytes |
 | ------- | ---- | ----- |
 | exec overhead (`true`) | 1 ms | 0 |
+| capability probe (once, at connect) | 40 ms | 148 B |
 | host batch (`/proc`, `df -Pk`, hwmon) | 6 ms | 2.8 KB |
 | container cgroups (`/sys/fs/cgroup` + `/proc/<pid>/net/dev`) | 6 ms | 3.4 KB |
 | process table (`/proc/<pid>/stat`, on demand) | 3 ms | 200 B per process |

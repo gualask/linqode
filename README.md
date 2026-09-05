@@ -80,6 +80,16 @@ Lifecycle actions and scripts instead propagate a reported non-zero remote
 exit code exactly. Logs default to 200 lines; `--tail` accepts values from 1
 through 10,000.
 
+Connecting establishes what the host can be asked for, once. A command that
+needs Compose on a host that cannot run it is refused before it runs, with the
+condition named — `docker_permission_denied` (the daemon is there and this
+account may not reach it), `docker_unavailable`, `compose_dir_missing`, or
+`compose_unavailable` — instead of exiting with whatever the remote shell
+printed. `script` is exempt: a configured command has never needed Docker. In
+the TUI the same finding turns the Compose features off and leaves everything
+else running, so a host without Docker still shows its meters, filesystems,
+temperatures, processes and scripts.
+
 Machine authentication does not prompt, accept an unknown host key, or ask for
 a key passphrase. Prepare trust and credentials with OpenSSH or the TUI first.
 Script arguments cannot be supplied at runtime: put every allowed variant in

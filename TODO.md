@@ -5,51 +5,6 @@ the roadmap live in [docs/PROJECT.md](docs/PROJECT.md) — this file is the
 working list that hangs off its "Next" section, and the record of what was
 looked at and not taken, so nothing is re-derived from scratch.
 
-## Probe host capabilities once per connection
-
-**Next up.** Establish the ground at connect time instead of discovering it
-through failed commands.
-
-The criterion, which is what this item was missing: **probe what changes what
-the interface can offer or what error it can explain; guard inline what only
-changes one command's fallback.** Two precedents from September 2026 are on
-the guard side and should stay there — the mount list runs under `timeout 5`
-only where `command -v timeout` says so, and the GPU read reaches `nvidia-smi`
-only where `command -v` finds it. Both would have been more machinery as probe
-state, for nothing.
-
-What passes the criterion, in descending order of what it buys:
-
-- **The docker socket as this user.** Today a host where the daemon runs but
-  the operator is not in the `docker` group fails every command opaquely,
-  forever. One sentence at connect replaces that. This is also the case the
-  probe most has to get right — see the counter-example below.
-- **Compose v2 (`docker compose`) against v1 (`docker-compose`).** It changes
-  the prefix of *every* compose command, which is precisely what an inline
-  guard cannot do cheaply. Named in PROJECT.md as something real hosts bring.
-- **Whether the configured `compose_dir` is actually there.** Otherwise `ps`
-  fails on its safety-net interval for the life of the session and the screen
-  never says why.
-- **`/etc/os-release`.** Lowest value: cosmetic, a line in the system view.
-  Do it only because it is free once the batch exists.
-
-The mechanism already exists in `internal/host/host.go` — one round trip,
-marked sections, a missing section degrading to unknown rather than failing
-the sample. The cost is noise beside the `compose ps` already being paid; see
-the cost budget in [monitoring.md](docs/monitoring.md).
-
-Two things it would unblock. The PTY question below turns on how often a host
-actually needs an interactive `sudo`, which this would answer from real hosts
-instead of from speculation. And "hardening against real deployments" is
-largely a list of things this probe would report.
-
-omnyssh's `ssh/probe.rs` prompted the idea and is a counter-example twice
-over. Its script is `cat << 'EOF' | bash`, assuming bash, while its own metric
-commands stay carefully POSIX. And it detects Docker as
-`has_section("DOCKER")` — that is, "`docker ps` printed something" — so a host
-where Docker runs but the user is not in the `docker` group is reported as a
-host without Docker. That is exactly the case this probe exists to tell apart.
-
 ## Is a machine command's environment trusted?
 
 Open question, and the only item here that touches security. Machine commands
@@ -162,6 +117,28 @@ Recorded so it is not re-examined from scratch:
   "The mutation surface stays narrow" in [PROJECT.md](docs/PROJECT.md).
 
 ## Closed
+
+- **Probe host capabilities once per connection** _(September 2026)_ — landed
+  as `internal/probe`: one round trip at connect, 40 ms and 148 bytes measured,
+  establishing docker, the socket as this user, which compose, and whether
+  `compose_dir` is there. The criterion held: nothing was added to it that only
+  changes one command's fallback, and the two September guards (`timeout`,
+  `nvidia-smi`) stayed inline. See the probe section in
+  [monitoring.md](docs/monitoring.md), the degraded screen in
+  [interface.md](docs/interface.md), and the typed failure kinds in
+  [operations.md](docs/operations.md).
+
+  Two notes for whoever comes back to it. **Compose v1 is named, not driven** —
+  detecting it is a section, adapting to it would put the binary's name in
+  front of every compose command this codebase builds, for a tool whose authors
+  stopped shipping it in June 2023. And **the three findings the fixture cannot
+  produce** — no docker, compose v1, an account outside the `docker` group —
+  are three different machines and this fixture is one, so they are unit-tested
+  against the CLIs' documented output and stay that way until a real deployment
+  is reached. That is the same position temperatures and graphics cards are in.
+
+  It does not answer the PTY question yet. It was going to, from real hosts;
+  no real host has been touched, so that still waits on hardening.
 
 - **Top processes in the system panel** _(September 2026)_ — landed as the
   on-demand tier's first reading; see [monitoring.md](docs/monitoring.md).

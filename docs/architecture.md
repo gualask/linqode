@@ -59,6 +59,7 @@ Four principles shape the design:
 | `internal/config` | `config.toml` loading and host selection |
 | `internal/remote` | SSH: target resolution, connect, host-key policy, auth, one-shot and streaming exec with cancellation |
 | `internal/compose` | `docker compose` command builders (with shell quoting) and the parsers for what they return: `ps` output, the daemon's event stream, container cgroup counters, `docker system df`, and both `docker stats` forms |
+| `internal/probe` | the connect-time capability probe: what the host can be asked for, established once in one round trip and degrading to unknown rather than to a finding |
 | `internal/host` | everything about the machine itself, read out of `/proc` and `/sys`: the marker-sectioned host batch, the client-side deltas that turn its counters into percentages and rates, and the on-demand process table and graphics cards |
 | `internal/logs` | log engine: line assembly, tail buffer, JSONL records, field filters, stats, search |
 | `internal/tui` | Bubble Tea application: the app model routing between the home screen and the follow view, and the backend adapting operations to background commands |
@@ -112,6 +113,22 @@ channel over it.
 - Prompts run in the terminal before the TUI takes over the screen. The machine
   connector instead fails closed: it never learns an unknown key or requests a
   passphrase, and maps authentication failures to typed JSON.
+- **The capability probe**: one round trip, once, before anything else runs.
+  It establishes whether docker is installed, whether this user may reach the
+  daemon, which compose the host has, and whether the configured `compose_dir`
+  exists — four conditions that hold for the life of the session and that a
+  command hitting one of them can only report opaquely. Measured at 40 ms and
+  148 bytes; see [monitoring.md](monitoring.md).
+
+  Nothing it finds refuses the session. What it establishes becomes a nil
+  fetch in the backend, which is how this codebase already says a host does
+  not offer something, plus the sentence saying why — so a host with no docker
+  keeps its meters, its filesystems, its process table and its scripts, and
+  the screen is built around what is left. The machine adapter turns the same
+  findings into typed failure kinds (`docker_permission_denied`,
+  `docker_unavailable`, `compose_dir_missing`, `compose_unavailable`) before a
+  command runs. What it does *not* establish turns nothing off: Unknown reads
+  as "carry on".
 
 ### And then
 

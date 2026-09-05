@@ -44,6 +44,33 @@ this cannot.
 cost that got an earlier right-hand sidebar removed, so only a region that can
 take focus draws one. A purely informative region stays a bare band.
 
+### When the anchor has nothing to anchor
+
+The [connect-time probe](monitoring.md) can find a host with no docker, a
+refused socket, compose v1, or a `compose_dir` that moved. The screen is then
+built around what is left rather than around what is missing.
+
+The machine takes the body. Every reading the system view holds comes off
+`/proc` and `/sys` and owes docker nothing, so on such a host the system view
+*is* the anchor — the meters, the filesystems, the temperatures, the process
+table, all of it — with the sentence about compose as its first row. What the
+screen becomes is what it can honestly be, which is a machine monitor.
+
+This was decided by looking at it rather than by reasoning about it. With the
+table gone but still the anchor, a panel whose entire content was three lines
+explaining its own absence held the largest area on the screen, with ten blank
+rows beneath it, on a host that had every reading it always had.
+
+Two exceptions. With `host_metrics` off as well there is nothing behind the
+band either, and then the services panel keeps the body, because a panel that
+at least says why is better than an empty machine. And the sentence is drawn in
+**yellow, not red**, wherever it appears: nothing failed, the host is what it
+is, and red is what the stale meters and the failed refreshes use.
+
+Nothing that cannot work is offered. `enter logs`, `a live` and `c actions`
+leave the footer; `x scripts` and `! run` stay, because neither ever needed a
+daemon.
+
 ## Panels and focus
 
 A panel is a titled box that occupies **exactly** the cells it was given:
