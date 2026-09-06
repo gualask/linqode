@@ -91,7 +91,9 @@ Machine authentication does not prompt, accept an unknown host key, or ask for
 a key passphrase. Prepare trust and credentials with OpenSSH or the TUI first.
 Script arguments cannot be supplied at runtime: put every allowed variant in
 the TOML as its own named command. This boundary assumes the agent cannot
-modify the operator-controlled config or SSH files.
+modify the operator-controlled config or SSH files, and that the process
+environment is the operator's: `HOME` selects which config and which SSH files
+are used, `SSH_AUTH_SOCK` which agent.
 
 ## Keys
 

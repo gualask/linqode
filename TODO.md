@@ -5,24 +5,6 @@ the roadmap live in [docs/PROJECT.md](docs/PROJECT.md) — this file is the
 working list that hangs off its "Next" section, and the record of what was
 looked at and not taken, so nothing is re-derived from scratch.
 
-## Is a machine command's environment trusted?
-
-Open question, and the only item here that touches security. Machine commands
-select the default config and the SSH files through the process environment,
-so `HOME` and `SSH_AUTH_SOCK` decide which config and which credentials are
-used.
-
-Either that is a capability-boundary bypass — in which case machine mode
-should bind to an operator-selected immutable home, with a regression test —
-or it is an accepted deployment precondition, in which case the documented
-boundary in [operations.md](docs/operations.md) and
-[PROJECT.md](docs/PROJECT.md) should say so in as many words. It is currently
-neither.
-
-To decide it: trace the direct machine path, demonstrate the behaviour with a
-temporary home, compare against the TUI path, and reconcile with what the
-README and PROJECT.md already claim.
-
 ## PTY — analysis not finished
 
 Named in PROJECT.md as "PTY support for interactive commands (`sudo`,
@@ -53,8 +35,9 @@ Open questions to settle before any of this is scheduled:
 - How often does the blocking case actually occur? A deployment where the
   operator's account needs an interactive `sudo` for docker is one shape; most
   Compose hosts put the user in the `docker` group and never prompt. The
-  capability probe above would answer this from real hosts — which argues for
-  doing that first and deciding afterwards.
+  capability probe would answer this from real hosts; it landed in September
+  (see Closed) and no real host has been reached yet, so the answer waits on
+  hardening rather than on the probe.
 - Is there a cheaper answer for the narrow case? Passing a password to a
   single `sudo -S` on stdin, or simply reporting "this host needs an
   interactive sudo" and refusing, may cover the whole of it without a terminal
@@ -122,6 +105,18 @@ Recorded so it is not re-examined from scratch:
   "The mutation surface stays narrow" in [PROJECT.md](docs/PROJECT.md).
 
 ## Closed
+
+- **Is a machine command's environment trusted?** _(decided 2026-09-06)_ —
+  yes, and it is now a stated precondition rather than an unanswered question.
+  `HOME` locates the default TOML and the SSH files and `SSH_AUTH_SOCK` the
+  agent, so whoever sets the environment decides which config a machine
+  command obeys. Binding machine mode to a fixed path was weighed and
+  declined: it would pin the config and leave the credentials, break the
+  per-user install, and defend only against someone already running processes
+  as the operator — who can then run the command directly instead of
+  persuading Linqode to. Written into the boundary in
+  [PROJECT.md](docs/PROJECT.md), [operations.md](docs/operations.md) and the
+  README.
 
 - **Probe host capabilities once per connection** _(September 2026)_ — landed
   as `internal/probe`: one round trip at connect, 40 ms and 148 bytes measured,

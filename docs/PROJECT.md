@@ -1,6 +1,6 @@
 # Linqode — Project Document
 
-_Last updated: 2026-09-05._
+_Last updated: 2026-09-06._
 
 Vision, scope, settled decisions, and roadmap. How the system works is
 documented by capability — the codebase's shape in
@@ -104,6 +104,18 @@ These decisions are settled — do not re-litigate them when implementing:
   agent must not be able to modify the config, SSH credentials, or Linqode
   binary. The TUI keeps inline hosts, prompts, and its explicit human `!`
   command. Exact command syntax lives in the [README](../README.md#machine-interface).
+
+  **The process environment is part of that precondition** _(decided
+  2026-09-06)_. `HOME` locates the default TOML and the SSH files,
+  `SSH_AUTH_SOCK` the agent, so whoever sets the environment decides which
+  config a machine command obeys: `HOME=/tmp/mine linqode script prod backup`
+  runs whatever *that* config calls `backup`. Binding machine mode to a fixed
+  path was weighed and declined — it would pin the config and leave the
+  credentials where they are, break the per-user install under `~/.config`,
+  and defend only against someone already running processes as the operator,
+  who can then run the command directly rather than persuade Linqode to. The
+  guardrail is over an environment the operator controls, and that is now
+  said rather than implied.
 - **Keymap: no case-variant pairs** _(decided 2026-08-01)_. Two keys that
   differ only by the shift key must never do different things. The cost is
   not confusion but damage: `s` for stop beside `S` for start puts a

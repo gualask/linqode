@@ -1,6 +1,6 @@
 # Operations
 
-_Last updated: 2026-09-05._
+_Last updated: 2026-09-06._
 
 What Linqode *does* to a host, as opposed to what it reads from one
 ([monitoring.md](monitoring.md)) or draws on the screen
@@ -156,3 +156,10 @@ Machine commands accept only exact host and script names from the default
 operator-controlled TOML. Inline targets, `--config`, arbitrary execution and
 runtime script arguments are unavailable, and authentication never prompts or
 learns an unknown host key.
+
+**Which TOML that is comes from the environment**, and so do the credentials:
+`HOME` locates `~/.config/linqode/config.toml` and `~/.ssh`, `SSH_AUTH_SOCK`
+the agent. That is a stated precondition rather than a hole — the boundary is
+a capability guardrail over an environment the operator controls, and an
+environment somebody else controls is one where they can run the command
+themselves. See the boundary policy in [PROJECT.md](PROJECT.md).
