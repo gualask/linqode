@@ -1,6 +1,6 @@
 # Architecture
 
-_Last updated: 2026-09-05._
+_Last updated: 2026-09-06._
 
 The shape of the codebase: what the pieces are, which way they depend, and
 how a session starts. The behaviour they implement is documented by
@@ -117,8 +117,10 @@ channel over it.
   It establishes whether docker is installed, whether this user may reach the
   daemon, which compose the host has, and whether the configured `compose_dir`
   exists — four conditions that hold for the life of the session and that a
-  command hitting one of them can only report opaquely. Measured at 40 ms and
-  148 bytes; see [monitoring.md](monitoring.md).
+  command hitting one of them can only report opaquely. The same batch also
+  carries the host's own name, `PRETTY_NAME` from `/etc/os-release`, which
+  nothing turns on and which the system view prints as its last row. Measured
+  at 40 ms and 148 bytes; see [monitoring.md](monitoring.md).
 
   Nothing it finds refuses the session. What it establishes becomes a nil
   fetch in the backend, which is how this codebase already says a host does

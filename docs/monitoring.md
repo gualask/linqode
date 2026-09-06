@@ -1,6 +1,6 @@
 # Monitoring
 
-_Last updated: 2026-09-05._
+_Last updated: 2026-09-06._
 
 What Linqode reads off a remote host, how often, and why each reading is on
 the tier it is on. The screen those readings are drawn on is
@@ -68,6 +68,15 @@ command's fallback. The two inline guards below are on the other side of that
 line and stay there — `timeout` for the mount list, `command -v nvidia-smi`
 for the graphics cards. Both change one command's fallback and nothing else,
 and as probe state they would be machinery for nothing.
+
+**One section of the batch is not a condition at all**, and is the one
+deliberate exception to that rule: the last one reads `PRETTY_NAME` out of
+`/etc/os-release`. Nothing turns on it — it decides no capability, explains no
+error, and a host that does not answer it loses nothing. It is here because the
+round trip is already being paid and what a machine calls itself costs a `grep`
+on the end of it, and it goes where that belongs: the last row of the system
+view (see [interface.md](interface.md)). Named here as an exception rather than
+left to be found in the batch by whoever reads it next.
 
 The mechanism is the host batch's: marked sections, evidence rather than
 verdicts, the verdict taken on the client, and a section that is missing

@@ -1,6 +1,6 @@
 # Interface
 
-_Last updated: 2026-09-05._
+_Last updated: 2026-09-06._
 
 How the screen is put together: what is drawn, what takes focus, and what
 gives way when the terminal runs short. What is *read* to fill it is
@@ -271,6 +271,7 @@ row has to leave out, plus the readings that are only taken while it is open.
  temp     [▇▇▇▇▇▇▇▇░░]  74°C Composite of 85°C   71°C Package id 0   44°C acpitz
  gpu      [▇▇▇▇▇▇▇▇▇░]  91% busy   20.9G/22.5G   74°C   149W   NVIDIA A10
  uptime                 42d7h
+ system                 Debian GNU/Linux 12 (bookworm)
 
  processes  by memory   9 running
   process                    RSS       CPU   pid
@@ -300,6 +301,12 @@ what keeps the home cheap to draw and cheap to sample.
   out beside it, since on a card it is memory that stops work starting. Where
   a driver reports no utilisation the meter falls back to memory and the row
   says which number it is drawing.
+- **The last row is what the machine calls itself**, established once by the
+  [connect-time probe](monitoring.md) rather than sampled — it does not change
+  and it never goes stale. It is last because the order is by urgency and the
+  box truncates from the bottom: a host's name answers no question about what
+  is wrong with it, so it is the row worth losing first. A host that reports
+  no name draws no row, and nothing above it moves.
 
 ### Trend strips
 

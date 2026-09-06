@@ -298,7 +298,7 @@ func (m *Model) View() string {
 	}
 	// Last, because it is the row that answers no question about what is
 	// wrong: the list is ordered by urgency and the box truncates from the
-	// bottom, so what the machine calls itself is what should go first.
+	// bottom, so what the machine calls itself is what should go last.
 	if m.os != "" {
 		rows = append(rows, row{text: m.textRow(column, "system", theme.Dim.Render(m.os))})
 	}
