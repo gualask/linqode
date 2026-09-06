@@ -90,4 +90,4 @@ only for behaving correctly when absent. The same holds for three of the
 probe's four findings: a host without docker, one with compose v1 and an
 account outside the `docker` group are three different machines. Next per
 `docs/PROJECT.md`: hardening against real hosts, then the broadened
-remote-operations scope (PTY, `.sh` upload, `tail -F`).
+remote-operations scope (typed integrations, PTY, `tail -F`).
