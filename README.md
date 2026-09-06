@@ -5,9 +5,6 @@ Humans can inspect and operate a remote project in the TUI; automation can use
 typed JSON commands without receiving arbitrary SSH execution. Agentless:
 nothing to install on the server.
 
-> **Status:** MVP implemented (July 2026), not yet validated against real
-> deployments.
-
 ## Getting started
 
 Download the archive for your platform from
@@ -114,54 +111,41 @@ modify the operator-controlled config or SSH files.
 | `q` | quit, from wherever you are |
 
 `c` and `x` open a menu — arrows to choose, `Enter` to run, `Esc` to back
-out, `q` to quit — that shows the exact command before it runs. Service actions sit
-behind one deliberately: no two keys in Linqode differ only by the shift
-key, so a mistyped capital can never stop a service you meant to start.
+out — that shows the exact command before it runs. No two keys in Linqode
+differ only by the shift key, so a mistyped capital can never stop a service
+you meant to start.
 
-Scripts and `!` commands run where `ssh user@host 'command'` would run
-them — your login directory, not `compose_dir`. Only the actions Linqode
-builds itself (the `c` menu, log following) target the compose project.
-Output streams into the log view, with the exit code when the command
-finishes.
+Scripts and `!` commands run in your login directory, where
+`ssh user@host 'command'` would run them, not in `compose_dir`. Their output
+streams into the log view, with the exit code when the command finishes.
 
-The RESTARTS column shows how many times docker has restarted each
-container — a count that climbs is a service crash-looping rather than
-recovering. It comes from a `docker inspect` alongside the refresh, and
-reads `-` on a host where that command did not answer. The table itself is
-re-read when the docker daemon says something changed rather than on a
-timer, so a container that dies is on screen as soon as it dies.
+The RESTARTS column counts how many times docker has restarted each
+container: a count that climbs is a service crash-looping rather than
+recovering, and `-` means the host did not report one. The table re-reads
+itself when the daemon says something changed, so a container that dies is
+on screen as soon as it dies.
 
-**The host band** is the row of meters in the header box, whose title is the
-session — which host you are on and where its project lives. The row is
-labelled `host` because CPU and memory appear twice on this screen: once for
-the machine, once per container in the table. The bar is the percentage and
-the numbers inside it are the absolute amounts. It shows the CPU, memory, the *fullest*
-filesystem (not always `/`: a comfortable root says nothing about the
-`/var/lib/docker` that is about to fill), swap once a meaningful share of it
-is in use, and a temperature where the hardware reports one. The whole
-sample costs about 6 ms every 5 seconds.
+**The host band** is the row of meters in the header box, whose title says
+which host you are on and where its project lives. It shows CPU, memory, the
+*fullest* filesystem (not always `/`: a comfortable root says nothing about
+the `/var/lib/docker` that is about to fill), swap once a meaningful share of
+it is in use, and a temperature where the hardware reports one.
 
 The session opens with the header focused, so `Enter` goes straight into the
-**system view**: per-core CPU, both other load figures, swap, every filesystem with its device, network
-throughput, kernel pressure, temperatures, graphics cards, what docker is
-holding in images and volumes, and the top processes — `s` switches those
-between ranking by memory and by CPU. The readings only that view shows are
-read only while it is open.
+**system view**: per-core CPU, load, swap, every filesystem with its device,
+network throughput, kernel pressure, temperatures, graphics cards, what
+docker is holding in images and volumes, and the top processes — `s` switches
+those between ranking by memory and by CPU.
 
 **The events feed** under the table is what the daemon reported happening,
 newest first: restarts, health changes, OOM kills, with the exit code read
 rather than printed — 137 is a container that was killed. `Enter` on one
-opens that container's logs. It answers what a table cannot: not what is
-running now, but when something happened and in what order.
+opens that container's logs.
 
-The table's per-container columns — CPU, MEM, and the network and
-block-device totals docker accumulates since each container started (NET
-RX/TX and IO R/W, each keeping both halves of the pair; below 120 columns
-those two are dropped rather than ellipsized, since half a pair is not a
-reading) — are read from the kernel every 5 seconds. When you want to watch
-resources move rather than glance at them, `a` opens the live panel, which
-streams a sample per second for as long as it is open and stops the remote
-command when you close it.
+The per-container columns — CPU, MEM, NET RX/TX and IO R/W — are sampled
+while the table is on screen. To watch resources move rather than glance at
+them, `a` opens a live panel that streams a sample per second for as long as
+it is open.
 
 **Log view** — follow mode with scrollback:
 
@@ -193,6 +177,8 @@ While a search, a filter or a field name is being typed, every key types:
 - [docs/operations.md](docs/operations.md) — compose lifecycle, scripts,
   ad-hoc commands, log following, the machine interface
 - [docs/tests.md](docs/tests.md) — testing strategy, layers, conventions
+- [docs/docker-setup.md](docs/docker-setup.md) — a Docker engine for the e2e
+  fixture, and keeping it off when unused
 - [docs/porting.md](docs/porting.md) — how the Go codebase was ported from
   the Rust reference implementation (tag `rust-mvp`)
 
