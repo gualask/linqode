@@ -68,7 +68,7 @@ Open questions to settle before any of this is scheduled:
 
 ## Watch, but do not act on yet
 
-- **`internal/tui/system.View()` is 114 lines**, the longest function in the
+- **`internal/tui/system.View()` is 127 lines**, the longest function in the
   tree, and it grew that way across phases C through G. It is a flat sequence
   of independent blocks — one per reading, three to eight lines each, no
   nesting — so it is long rather than dense. Splitting it into a method per
@@ -76,6 +76,11 @@ Open questions to settle before any of this is scheduled:
   are ordered by how much they answer "what is wrong with this machine",
   because the box truncates from the bottom. Revisit if a reading is added
   that is not a straight `if reported { append row }`.
+
+  It was 114 when this was written, and the thirteen it has gained since are
+  the two rows the probe brought: the compose sentence at the top, the host's
+  own name at the bottom. Both are straight appends, so the trigger above has
+  not fired — the number moved and the reason not to act did not.
 
 ## Considered and not taken
 
