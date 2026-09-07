@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"slices"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -13,7 +14,7 @@ import (
 // the connect fails, mirroring OpenSSH.
 const passphraseAttempts = 3
 
-// authMethods builds the MVP authentication ladder: SSH agent identities
+// authCallback builds the MVP authentication ladder: SSH agent identities
 // first (unless identitiesOnly), then the target's identity files, prompting
 // for a passphrase only when a key is encrypted. The returned cleanup closes
 // the agent connection once the handshake is over.
@@ -21,8 +22,9 @@ const passphraseAttempts = 3
 // Identity files load lazily inside their auth method, so no passphrase is
 // asked for if the agent already got us in. A fatal load error (wrong
 // passphrase after retries) is recorded in errOut for Connect to surface.
-func authMethods(target Target, identitiesOnly bool, prompter Prompter, errOut *error) (methods []ssh.AuthMethod, cleanup func()) {
-	cleanup = func() {}
+func authCallback(target Target, identitiesOnly bool, prompter Prompter, errOut *error) (ssh.ClientAuthCallback, func()) {
+	var methods []ssh.AuthMethod
+	cleanup := func() {}
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" && !identitiesOnly {
 		if conn, err := net.Dial("unix", sock); err == nil {
 			cleanup = func() { conn.Close() }
@@ -42,7 +44,21 @@ func authMethods(target Target, identitiesOnly bool, prompter Prompter, errOut *
 			return []ssh.Signer{signer}, nil
 		}))
 	}
-	return methods, cleanup
+	// ClientConfig.Auth only tries the first method named "publickey".
+	// Select each source explicitly so a rejected or empty source advances
+	// to the next one without loading later encrypted keys prematurely.
+	next := func(ctx *ssh.ClientAuthContext) (ssh.AuthMethod, error) {
+		if *errOut != nil {
+			return nil, *errOut
+		}
+		if len(methods) == 0 || !slices.Contains(ctx.AllowedMethods, "publickey") {
+			return nil, nil
+		}
+		method := methods[0]
+		methods = methods[1:]
+		return method, nil
+	}
+	return next, cleanup
 }
 
 // loadIdentity loads one identity file, prompting for its passphrase when

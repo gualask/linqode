@@ -37,6 +37,7 @@ type Model struct {
 	// looking at.
 	statsFeed     *operations.Feed
 	statsStarting bool
+	statsRequest  uint64
 	// history is the CPU series per container, filled only by the live
 	// stream: its samples are a second apart, which is what makes a
 	// sparkline mean anything.

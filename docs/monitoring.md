@@ -1,6 +1,6 @@
 # Monitoring
 
-_Last updated: 2026-09-06._
+_Last updated: 2026-09-08._
 
 What Linqode reads off a remote host, how often, and why each reading is on
 the tier it is on. The screen those readings are drawn on is
@@ -185,12 +185,11 @@ cost: `df` with no argument calls statfs on every mount, and a hung network
 mount holds it for as long as the kernel allows. The one reading that is
 always wanted must not wait on the list.
 
-The list is then filtered to what an operator provisioned — pseudo
-filesystems out, everything under `/proc`, `/sys`, `/dev`, `/run`, `/snap`,
-`/etc` and `/var/lib/docker` out, bind mounts reporting a second time
-deduplicated. Thirteen `df` lines become two on the e2e fixture. **`/` is the
-exception and is kept unconditionally**: on a containerised host it is itself
-an overlay, and the filter would otherwise drop the mount that matters most.
+The list keeps provisioned storage, including a dedicated filesystem at
+`/var/lib/docker`. Pseudo-filesystems and system bookkeeping mounts are
+excluded; duplicate bind mounts are shown once. **`/` is kept
+unconditionally**: on a containerised host it is itself an overlay, and the
+filter would otherwise drop the mount that matters most.
 
 ### Temperatures
 

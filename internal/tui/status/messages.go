@@ -22,9 +22,12 @@ type Config struct {
 
 // OpenStatsMsg asks the application for the live stats stream, which only it
 // can start.
-type OpenStatsMsg struct{}
+type OpenStatsMsg struct {
+	RequestID uint64
+}
 
 type StatsFeedMsg struct {
-	Feed operations.Feed
-	Err  error
+	RequestID uint64
+	Feed      operations.Feed
+	Err       error
 }

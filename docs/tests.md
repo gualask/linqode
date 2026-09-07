@@ -1,6 +1,6 @@
 # Testing
 
-_Last updated: 2026-09-05._
+_Last updated: 2026-09-08._
 
 How Linqode is tested, what each layer covers, and how to extend it. The
 strategy in short: pure logic is unit-tested against captured fixtures with
@@ -62,6 +62,9 @@ Hermeticity comes from two production `ConnectOptions` knobs that
 deliberately mirror OpenSSH options usable by end users: `KnownHostsFile`
 (like `UserKnownHostsFile`; tests point it at a temp file) and
 `IdentitiesOnly` (so the developer's real agent keys are never offered).
+Agent-auth tests use a temporary Unix socket serving an in-process keyring.
+Cancellation tests also use a protocol-level SSH server that withholds
+channel-open or exec replies, or sends output EOF without an exit status.
 Every potentially-blocking wait sits under a 10-second guard timeout so a
 regression hangs the test, not CI.
 
@@ -72,7 +75,10 @@ regression hangs the test, not CI.
 | `TestNonInteractiveUnknownHostKeyFailsWithoutLearning` | Machine authentication refuses an unknown key without prompting or changing `known_hosts` |
 | `TestChangedHostKeyRefusesWithoutPrompting` | A pinned different key yields `HostKeyChangedError` with the conflicting line, without ever consulting the prompter (anti-MITM) |
 | `TestUnauthorizedKeyFailsAuth` | An unaccepted identity yields `AuthFailedError` |
+| `TestAuthFallsBackToLaterIdentity` | Missing, invalid, rejected, or skipped keys do not hide a later authorized identity |
+| `TestAuthAgentFallbackAndLazyPassphrase` | An empty or unauthorized agent falls back to identity files; agent success avoids unlocking an encrypted file |
 | `TestConnectCancellationInterruptsSSHHandshake` | Cancelling during handshake returns promptly instead of waiting for the SSH timeout |
+| `TestCommandCancellationDuringSSHWaits` | Both exec modes honor cancellation during channel creation, exec acknowledgement, and the wait for exit after output EOF |
 | `TestEncryptedKeyAsksPassphrase` | The right passphrase gets in after one prompt; a wrong one retries 3× then yields `BadPassphraseError` |
 | `TestExecCollectsStdoutStderrAndExitCode` | One-shot exec aggregates multi-chunk stdout, stderr, and the exit code |
 | `TestExecStreamDeliversEventsThenEnds` | Streaming exec delivers stdout/stderr/exit events, then the channel closes |
@@ -173,10 +179,11 @@ close enough to the selected row that the two read as the same thing. Both
 passed every assertion, because assertions compare styles and the tests run
 without a TTY where lipgloss emits no color at all.
 
-`internal/tui/home/uishot_test.go` renders a captured frame's escape
-sequences as HTML, and drives the model into the states worth seeing —
-every health and state color, a selected row, the narrow layout, the stale
-flag — writing them to one page:
+`internal/tui/home/uishot_test.go` drives the model into the states worth
+seeing — every health and state color, a selected row, the narrow layout,
+the stale flag — and writes them to one page. Beside it,
+`uishot_fixtures_test.go` holds the sample data and `uishot_html_test.go`
+converts each frame's escape sequences to HTML:
 
 ```bash
 LINQODE_UI_SHOT=/tmp/shot.html go test ./internal/tui/home/ -run TestUIShot
@@ -188,7 +195,7 @@ nothing for it. It asserts nothing and nothing depends on its output: it is
 a viewer, and the assertions stay in the tests beside it. When a view grows
 a state worth inspecting, add a frame rather than a new test.
 
-It lives in a `_test.go` file, not a package of its own, because it is not
+It lives in `_test.go` files, not a package of its own, because it is not
 production code: anything under `internal/` is compiled by `go build ./...`
 and linted as shipping code, while `_test.go` is compiled only for tests.
 The stdlib does promote test support into real packages — `httptest`,
@@ -250,10 +257,6 @@ frame.
   produces — and e2e-tested only in the direction the fixture can reach. Same
   position as temperatures and graphics cards, and it closes the same way: a
   real deployment.
-- **SSH agent auth**: still skipped everywhere via `IdentitiesOnly`,
-  including in the e2e fixture, which authenticates with a generated
-  identity file. Covering it needs a fake agent socket, or an agent
-  forwarded into the fixture.
 - **The TUI itself is never driven end-to-end**: the e2e suite calls the
   shared production operations directly and drives the compiled binary only
   through machine commands, not through the Bubble Tea program. Keybindings

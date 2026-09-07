@@ -3,8 +3,10 @@ package follow
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gualask/linqode/internal/logs"
 	"github.com/gualask/linqode/internal/tui/theme"
@@ -21,9 +23,9 @@ func (m *Model) structuredRendering() bool {
 func (m *Model) View() string {
 	var b strings.Builder
 	b.WriteString(theme.Bold.Render(" linqode "))
-	b.WriteString(m.target)
+	b.WriteString(terminalText(m.target))
 	b.WriteString("  ")
-	b.WriteString(theme.Cyan.Render(m.title))
+	b.WriteString(theme.Cyan.Render(terminalText(m.title)))
 	if m.structuredRendering() {
 		b.WriteString(theme.Magenta.Render("  · json"))
 	}
@@ -83,13 +85,13 @@ func (m *Model) statsView() string {
 		lines = append(lines, theme.Dim.Render("  (none)"))
 	}
 	for _, level := range stats.Levels {
-		lines = append(lines, fmt.Sprintf("%7d  %s", level.N, levelStyle(level.Key).Render(level.Key)))
+		lines = append(lines, fmt.Sprintf("%7d  %s", level.N, levelStyle(level.Key).Render(terminalText(level.Key))))
 	}
 	lines = append(lines, "")
 	if m.topField == "" {
 		return strings.Join(append(lines, theme.Dim.Render("t: pick a top field")), "\n")
 	}
-	lines = append(lines, theme.Bold.Render("top "+m.topField))
+	lines = append(lines, theme.Bold.Render("top "+terminalText(m.topField)))
 	values := stats.Values
 	if len(values) > topValues {
 		values = values[:topValues]
@@ -98,7 +100,7 @@ func (m *Model) statsView() string {
 		lines = append(lines, theme.Dim.Render("  (no values)"))
 	}
 	for _, value := range values {
-		lines = append(lines, fmt.Sprintf("%7d  %s", value.N, value.Key))
+		lines = append(lines, fmt.Sprintf("%7d  %s", value.N, terminalText(value.Key)))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -108,7 +110,7 @@ func (m *Model) footer() string {
 		return m.inputFooter()
 	}
 	if m.notice != "" {
-		return theme.Yellow.Render(" " + m.notice)
+		return theme.Yellow.Render(" " + terminalText(m.notice))
 	}
 	if m.ended {
 		return m.endedFooter()
@@ -126,7 +128,7 @@ func (m *Model) inputFooter() string {
 	case inputTopField:
 		prompt, hint = " top field: ", "  empty clears · esc cancel"
 	}
-	return prompt + m.inputText + "▏" + theme.Dim.Render(hint)
+	return prompt + terminalText(m.inputText) + "▏" + theme.Dim.Render(hint)
 }
 
 func (m *Model) endedFooter() string {
@@ -138,7 +140,7 @@ func (m *Model) endedFooter() string {
 	}
 	out := style.Render(" " + text)
 	if m.stderrNotice != "" {
-		out += theme.Red.Render("  · " + m.stderrNotice)
+		out += theme.Red.Render("  · " + terminalText(m.stderrNotice))
 	}
 	return out
 }
@@ -147,12 +149,12 @@ func (m *Model) activeFooter() string {
 	var out string
 	if m.store.Filter() != nil {
 		out = fmt.Sprintf(" %d/%d lines", m.store.Len(), m.store.Total())
-		out += theme.Cyan.Render("  f:" + m.store.Filter().Expr())
+		out += theme.Cyan.Render("  f:" + terminalText(m.store.Filter().Expr()))
 	} else {
 		out = fmt.Sprintf(" %d lines", m.store.Len())
 	}
 	if m.query != "" {
-		out += theme.Yellow.Render("  /" + m.query)
+		out += theme.Yellow.Render("  /" + terminalText(m.query))
 	}
 	return out + theme.Dim.Render(
 		"  ·  / search · f filter · s json · a stats · t field · esc back · q quit")
@@ -211,6 +213,7 @@ type structuredLineRenderer struct {
 }
 
 func (r *structuredLineRenderer) emit(text string, style lipgloss.Style, highlighted bool) {
+	text = terminalText(text)
 	if r.budget <= 0 || text == "" {
 		return
 	}
@@ -228,6 +231,7 @@ func (r *structuredLineRenderer) emit(text string, style lipgloss.Style, highlig
 }
 
 func renderRaw(line, query string, width int) string {
+	line = terminalText(line)
 	if width > 1 {
 		if runes := []rune(line); len(runes) > width-1 {
 			line = string(runes[:width-2]) + "…"
@@ -237,6 +241,22 @@ func renderRaw(line, query string, width int) string {
 		return line
 	}
 	return highlightIn(line, query, lipgloss.NewStyle())
+}
+
+// terminalText treats remote output as one line of text, never as terminal
+// instructions. Sanitize before adding our own styles, leaving the stored
+// record intact for search, filters, and statistics.
+func terminalText(text string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '\n', '\r', '\t':
+			return ' '
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, ansi.Strip(text))
 }
 
 func highlightIn(text, query string, base lipgloss.Style) string {

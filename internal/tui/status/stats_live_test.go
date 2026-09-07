@@ -82,7 +82,8 @@ func TestLiveStatsUnavailableWithoutCapability(t *testing.T) {
 
 func TestLiveToggleWhileStartingCancels(t *testing.T) {
 	m := withStatsFetch()
-	if cmd := m.Update(key("a")); cmd == nil {
+	cmd := m.Update(key("a"))
+	if cmd == nil {
 		t.Fatal("first press did not start")
 	}
 	if cmd := m.Update(key("a")); cmd != nil {
@@ -90,6 +91,41 @@ func TestLiveToggleWhileStartingCancels(t *testing.T) {
 	}
 	if m.statsStarting {
 		t.Error("still marked as starting after cancelling")
+	}
+	request := cmd().(OpenStatsMsg)
+	stream := newStatsStream()
+	if cmd := m.Update(StatsFeedMsg{RequestID: request.RequestID, Feed: stream.feed()}); cmd != nil {
+		t.Error("cancelled request started ticking")
+	}
+	if m.LiveActive() || !stream.stopped {
+		t.Fatal("late response reopened the cancelled stream")
+	}
+}
+
+func TestSupersededLiveResponseCannotReplaceNewRequest(t *testing.T) {
+	for _, oldFirst := range []bool{true, false} {
+		m := withStatsFetch()
+		old := m.Update(key("a"))().(OpenStatsMsg)
+		m.Update(key("a"))
+		current := m.Update(key("a"))().(OpenStatsMsg)
+		oldStream, currentStream := newStatsStream(), newStatsStream()
+		oldMsg := StatsFeedMsg{RequestID: old.RequestID, Feed: oldStream.feed()}
+		currentMsg := StatsFeedMsg{RequestID: current.RequestID, Feed: currentStream.feed()}
+		if oldFirst {
+			m.Update(oldMsg)
+			if !m.statsStarting {
+				t.Fatal("obsolete response cleared the newer pending request")
+			}
+			m.Update(currentMsg)
+		} else {
+			m.Update(currentMsg)
+			m.Update(oldMsg)
+		}
+		m.Update(StatsFeedMsg{RequestID: old.RequestID, Err: errors.New("obsolete failure")})
+		if !oldStream.stopped || currentStream.stopped || m.statsFeed.Events != currentStream.events || m.statsErr != "" {
+			t.Fatalf("obsolete response affected the new stream (old response first: %v)", oldFirst)
+		}
+		m.stopLive()
 	}
 }
 
@@ -116,8 +152,8 @@ func TestLiveStreamEndingStopsTicking(t *testing.T) {
 func TestLiveFailureReported(t *testing.T) {
 	m := withStatsFetch()
 	m.SetServices(services("web"), nil)
-	m.Update(key("a"))
-	m.Update(StatsFeedMsg{Err: errors.New("permission denied")})
+	request := m.Update(key("a"))().(OpenStatsMsg)
+	m.Update(StatsFeedMsg{RequestID: request.RequestID, Err: errors.New("permission denied")})
 	if m.statsStarting || !strings.Contains(m.Status(), "permission denied") {
 		t.Errorf("live failure not reported: %q", m.Status())
 	}

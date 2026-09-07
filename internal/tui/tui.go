@@ -85,16 +85,19 @@ type Backend struct {
 
 // feedMsg is the outcome of starting a follow.
 type feedMsg struct {
-	title string
-	feed  operations.Feed
-	err   error
+	requestID uint64
+	title     string
+	feed      operations.Feed
+	err       error
 }
 
 type appModel struct {
-	info       Info
-	backend    Backend
-	home       *home.Model
-	followView *follow.Model
+	info         Info
+	backend      Backend
+	home         *home.Model
+	followView   *follow.Model
+	feedStarting bool
+	feedRequest  uint64
 
 	width, height int
 }
@@ -155,7 +158,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case follow.CloseMsg:
 		return m.closeFeed()
 	case status.OpenStatsMsg:
-		return m.openLiveStats()
+		return m.openLiveStats(msg)
 	}
 	return m.routeVisibleView(msg)
 }
@@ -170,31 +173,41 @@ func (m appModel) resize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m appModel) openLogs(msg home.OpenLogsMsg) (tea.Model, tea.Cmd) {
-	return m, startFeed(msg.Title, func() (operations.Feed, error) {
+	return m.startFeed(msg.Title, func() (operations.Feed, error) {
 		return m.backend.Logs(msg.Service, logTail)
 	})
 }
 
 func (m appModel) openAction(msg home.OpenActionMsg) (tea.Model, tea.Cmd) {
-	return m, startFeed(msg.Title, func() (operations.Feed, error) {
+	return m.startFeed(msg.Title, func() (operations.Feed, error) {
 		return m.backend.Action(msg.Action, msg.Service)
 	})
 }
 
 func (m appModel) openScript(msg home.OpenScriptMsg) (tea.Model, tea.Cmd) {
-	return m, startFeed(msg.Title, func() (operations.Feed, error) {
+	return m.startFeed(msg.Title, func() (operations.Feed, error) {
 		return m.backend.Script(msg.Name)
 	})
 }
 
 func (m appModel) openAdHoc(msg home.OpenAdHocMsg) (tea.Model, tea.Cmd) {
-	return m, startFeed(msg.Title, func() (operations.Feed, error) {
+	return m.startFeed(msg.Title, func() (operations.Feed, error) {
 		return m.backend.AdHoc(msg.Command)
 	})
 }
 
 func (m appModel) applyFeed(msg feedMsg) (tea.Model, tea.Cmd) {
+	if !m.feedStarting || msg.requestID != m.feedRequest {
+		if msg.feed.Stop != nil {
+			msg.feed.Stop()
+		}
+		return m, nil
+	}
+	m.feedStarting = false
 	if msg.err != nil {
+		if msg.feed.Stop != nil {
+			msg.feed.Stop()
+		}
 		m.home.SetError(msg.err.Error())
 		return m, nil
 	}
@@ -205,6 +218,7 @@ func (m appModel) applyFeed(msg feedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m appModel) closeFeed() (tea.Model, tea.Cmd) {
+	m.feedStarting = false
 	if m.followView != nil {
 		m.followView.Stop()
 		m.followView = nil
@@ -213,11 +227,11 @@ func (m appModel) closeFeed() (tea.Model, tea.Cmd) {
 	return m, m.home.Refresh()
 }
 
-func (m appModel) openLiveStats() (tea.Model, tea.Cmd) {
+func (m appModel) openLiveStats(msg status.OpenStatsMsg) (tea.Model, tea.Cmd) {
 	follow := m.backend.LiveStats
 	return m, func() tea.Msg {
 		feed, err := follow()
-		return status.StatsFeedMsg{Feed: feed, Err: err}
+		return status.StatsFeedMsg{RequestID: msg.RequestID, Feed: feed, Err: err}
 	}
 }
 
@@ -231,10 +245,16 @@ func (m appModel) routeVisibleView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, m.home.Update(msg)
 }
 
-func startFeed(title string, start func() (operations.Feed, error)) tea.Cmd {
-	return func() tea.Msg {
+func (m appModel) startFeed(title string, start func() (operations.Feed, error)) (tea.Model, tea.Cmd) {
+	if m.feedStarting || m.followView != nil {
+		return m, nil
+	}
+	m.feedStarting = true
+	m.feedRequest++
+	requestID := m.feedRequest
+	return m, func() tea.Msg {
 		feed, err := start()
-		return feedMsg{title: title, feed: feed, err: err}
+		return feedMsg{requestID: requestID, title: title, feed: feed, err: err}
 	}
 }
 

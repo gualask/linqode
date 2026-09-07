@@ -43,8 +43,17 @@ func selectedServiceIndex(selected int, previous, refreshed []compose.Service) i
 }
 
 func (m *Model) handleStatsFeed(msg StatsFeedMsg) tea.Cmd {
+	if !m.statsStarting || msg.RequestID != m.statsRequest {
+		if msg.Feed.Stop != nil {
+			msg.Feed.Stop()
+		}
+		return nil
+	}
 	m.statsStarting = false
 	if msg.Err != nil {
+		if msg.Feed.Stop != nil {
+			msg.Feed.Stop()
+		}
 		m.statsErr = msg.Err.Error()
 		return nil
 	}

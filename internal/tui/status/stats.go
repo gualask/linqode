@@ -86,8 +86,10 @@ func (m *Model) toggleLive() tea.Cmd {
 		return nil
 	}
 	m.statsStarting = true
+	m.statsRequest++
 	m.statsErr = ""
-	return func() tea.Msg { return OpenStatsMsg{} }
+	requestID := m.statsRequest
+	return func() tea.Msg { return OpenStatsMsg{RequestID: requestID} }
 }
 
 // stopLive tears the stream down and forgets its history. The readings

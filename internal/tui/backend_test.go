@@ -1,9 +1,13 @@
 package tui
 
 import (
+	"errors"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/gualask/linqode/internal/operations"
+	"github.com/gualask/linqode/internal/tui/follow"
 	"github.com/gualask/linqode/internal/tui/home"
 	"github.com/gualask/linqode/internal/tui/status"
 )
@@ -113,13 +117,98 @@ func TestAppRoutesLiveStatsThroughTypedBackend(t *testing.T) {
 		},
 	}}
 
-	_, command := model.Update(status.OpenStatsMsg{})
+	_, command := model.Update(status.OpenStatsMsg{RequestID: 42})
 	message, ok := command().(status.StatsFeedMsg)
 	if !ok || message.Err != nil {
 		t.Fatalf("message = %#v", command())
 	}
-	if !called {
-		t.Fatal("LiveStats was not called")
+	if !called || message.RequestID != 42 {
+		t.Fatal("LiveStats did not preserve the request identity")
+	}
+}
+
+func TestAppSerializesFollowStarts(t *testing.T) {
+	requests := []tea.Msg{
+		home.OpenLogsMsg{Title: "logs: web", Service: "web"},
+		home.OpenActionMsg{Title: "restart: web", Action: operations.ActionRestart, Service: "web"},
+		home.OpenScriptMsg{Title: "script: deploy", Name: "deploy"},
+		home.OpenAdHocMsg{Title: "$ uptime", Command: "uptime"},
+	}
+	for _, first := range requests {
+		starts, stops := 0, 0
+		start := func() (operations.Feed, error) {
+			starts++
+			return operations.Feed{Events: make(chan operations.Event), Stop: func() { stops++ }}, nil
+		}
+		model := appModel{
+			home: home.New(home.Config{}, status.New(status.Config{})),
+			backend: Backend{
+				Logs:   func(string, int) (operations.Feed, error) { return start() },
+				Action: func(operations.ServiceAction, string) (operations.Feed, error) { return start() },
+				Script: func(string) (operations.Feed, error) { return start() },
+				AdHoc:  func(string) (operations.Feed, error) { return start() },
+			},
+		}
+		pending, command := model.Update(first)
+		for _, next := range requests {
+			var duplicate tea.Cmd
+			pending, duplicate = pending.Update(next)
+			if duplicate != nil {
+				t.Fatalf("%T followed by %T scheduled another command while starting", first, next)
+			}
+		}
+		opened, _ := pending.Update(command())
+		for _, next := range requests {
+			if _, duplicate := opened.Update(next); duplicate != nil {
+				t.Fatalf("%T could replace an active follow", next)
+			}
+		}
+		closed, _ := opened.Update(follow.CloseMsg{})
+		if starts != 1 || stops != 1 {
+			t.Fatalf("%T: started %d commands and stopped %d, want one each", first, starts, stops)
+		}
+		if _, command := closed.Update(first); command == nil {
+			t.Fatalf("%T could not reopen after closing", first)
+		}
+	}
+}
+
+func TestAppDisposesSupersededFollowResult(t *testing.T) {
+	var stops int
+	model := appModel{
+		home: home.New(home.Config{}, status.New(status.Config{})),
+		backend: Backend{Logs: func(string, int) (operations.Feed, error) {
+			return operations.Feed{Events: make(chan operations.Event), Stop: func() { stops++ }}, nil
+		}},
+	}
+	request := home.OpenLogsMsg{Title: "logs: web", Service: "web"}
+	pending, oldCommand := model.Update(request)
+	closed, _ := pending.Update(follow.CloseMsg{})
+	reopened, newCommand := closed.Update(request)
+	newResult := newCommand().(feedMsg)
+	current, _ := reopened.Update(newResult)
+	current, command := current.Update(oldCommand())
+	if stops != 1 || command != nil || current.(appModel).followView == nil {
+		t.Fatal("obsolete response was not disposed while preserving the active follow")
+	}
+	current.Update(follow.CloseMsg{})
+	if stops != 2 {
+		t.Fatalf("active follow was not stopped on close: %d stops", stops)
+	}
+}
+
+func TestAppCanStartAgainAfterFollowFailure(t *testing.T) {
+	model := appModel{
+		home: home.New(home.Config{}, status.New(status.Config{})),
+		backend: Backend{Logs: func(string, int) (operations.Feed, error) {
+			return operations.Feed{}, errors.New("connection failed")
+		}},
+	}
+	request := home.OpenLogsMsg{Title: "logs: web", Service: "web"}
+	pending, command := model.Update(request)
+	failed, _ := pending.Update(command())
+	if _, command := failed.Update(request); command == nil {
+		t.Fatal("failed startup left further requests blocked")
 	}
 }
 

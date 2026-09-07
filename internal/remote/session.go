@@ -95,11 +95,11 @@ func prepareConnection(target Target, prompter Prompter, opts ConnectOptions) (c
 	}
 
 	authErr := new(error)
-	methods, cleanup := authMethods(target, opts.IdentitiesOnly, prompter, authErr)
+	auth, cleanup := authCallback(target, opts.IdentitiesOnly, prompter, authErr)
 	return connectionSetup{
 		config: &ssh.ClientConfig{
 			User:            target.User,
-			Auth:            methods,
+			AuthCallback:    auth,
 			HostKeyCallback: policy.callback,
 		},
 		policy: policy, authErr: authErr, cleanup: cleanup,
@@ -177,7 +177,7 @@ func (s *Session) Close() {
 // Exec runs command and collects its output until it finishes or ctx is
 // cancelled.
 func (s *Session) Exec(ctx context.Context, command string) (ExecOutput, error) {
-	sess, err := s.client.NewSession()
+	sess, err := s.newSession(ctx)
 	if err != nil {
 		return ExecOutput{}, err
 	}
@@ -186,13 +186,9 @@ func (s *Session) Exec(ctx context.Context, command string) (ExecOutput, error) 
 	var stdout, stderr bytes.Buffer
 	sess.Stdout, sess.Stderr = &stdout, &stderr
 
-	done := make(chan error, 1)
-	go func() { done <- sess.Run(command) }()
-	select {
-	case <-ctx.Done():
-		terminate(sess)
+	err = s.runSession(ctx, sess, func() error { return sess.Run(command) })
+	if ctx.Err() != nil {
 		return ExecOutput{}, ctx.Err()
-	case err = <-done:
 	}
 
 	out := ExecOutput{Stdout: stdout.Bytes(), Stderr: stderr.Bytes(), ExitCode: -1}

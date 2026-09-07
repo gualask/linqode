@@ -40,6 +40,7 @@ const v1Sample = `#cgcpu
 #cgmem
 /sys/fs/cgroup/memory/docker/aaaaaaaaaaaa1111/memory.usage_in_bytes:12939428
 #cgfile
+/sys/fs/cgroup/memory/docker/aaaaaaaaaaaa1111/memory.stat:inactive_file 1939428
 /sys/fs/cgroup/memory/docker/aaaaaaaaaaaa1111/memory.stat:total_inactive_file 1939428
 #cgmax
 /sys/fs/cgroup/memory/docker/aaaaaaaaaaaa1111/memory.limit_in_bytes:9223372036854771712
@@ -115,6 +116,27 @@ func TestParseCgroupSampleV1(t *testing.T) {
 	}
 	if reading.PIDs != 14 {
 		t.Errorf("PIDs = %d", reading.PIDs)
+	}
+}
+
+func TestCgroupCacheUsesOneCounterRegardlessOfOrder(t *testing.T) {
+	const path = "/sys/fs/cgroup/memory/docker/aaaaaaaaaaaa1111/memory.stat:"
+	for _, tc := range []struct {
+		name, fields string
+		want         uint64
+	}{
+		{"local before total", path + "inactive_file 100\n" + path + "total_inactive_file 250\n", 750},
+		{"total before local", path + "total_inactive_file 250\n" + path + "inactive_file 100\n", 750},
+		{"zero total", path + "total_inactive_file 0\n" + path + "inactive_file 100\n", 1000},
+		{"cache exceeds usage", path + "inactive_file 100\n" + path + "total_inactive_file 1100\n", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := "#cgmem\n/sys/fs/cgroup/memory/docker/aaaaaaaaaaaa1111/memory.usage_in_bytes:1000\n#cgfile\n" + tc.fields
+			sample := ParseCgroupSample([]byte(raw), time.Unix(100, 0))
+			if got := sample.Containers["aaaaaaaaaaaa1111"].MemBytes; got != tc.want {
+				t.Fatalf("memory = %d, want %d", got, tc.want)
+			}
+		})
 	}
 }
 

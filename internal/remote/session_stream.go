@@ -38,7 +38,7 @@ type ExecEvent struct {
 // misses the signal dies of SIGPIPE on its next write) and closes the
 // channel, so an abandoned stream never leaks a follower process.
 func (s *Session) ExecStream(ctx context.Context, command string) (<-chan ExecEvent, error) {
-	sess, stdout, stderr, err := s.startStreamingCommand(command)
+	sess, stdout, stderr, err := s.startStreamingCommand(ctx, command)
 	if err != nil {
 		return nil, err
 	}
@@ -51,12 +51,12 @@ func (s *Session) ExecStream(ctx context.Context, command string) (<-chan ExecEv
 
 	// The controller tears the command down on cancel, which unblocks the
 	// readers; with no cancel it waits for them and reports the exit.
-	go finishExecStream(ctx, sess, events, &readers)
+	go s.finishExecStream(ctx, sess, events, &readers)
 	return events, nil
 }
 
-func (s *Session) startStreamingCommand(command string) (*ssh.Session, io.Reader, io.Reader, error) {
-	sess, err := s.client.NewSession()
+func (s *Session) startStreamingCommand(ctx context.Context, command string) (*ssh.Session, io.Reader, io.Reader, error) {
+	sess, err := s.newSession(ctx)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -70,7 +70,7 @@ func (s *Session) startStreamingCommand(command string) (*ssh.Session, io.Reader
 		sess.Close()
 		return nil, nil, nil, err
 	}
-	if err := sess.Start(command); err != nil {
+	if err := s.runSession(ctx, sess, func() error { return sess.Start(command) }); err != nil {
 		sess.Close()
 		return nil, nil, nil, err
 	}
@@ -100,18 +100,22 @@ func sendExecEvent(ctx context.Context, events chan<- ExecEvent, event ExecEvent
 	}
 }
 
-func finishExecStream(ctx context.Context, sess *ssh.Session, events chan ExecEvent, readers *sync.WaitGroup) {
+func (s *Session) finishExecStream(ctx context.Context, sess *ssh.Session, events chan ExecEvent, readers *sync.WaitGroup) {
 	defer close(events)
-	finished := waitForReaders(readers)
+	finished := make(chan struct{})
+	var err error
+	go func() {
+		err = sess.Wait()
+		readers.Wait()
+		close(finished)
+	}()
 	select {
 	case <-ctx.Done():
-		terminate(sess)
-		<-finished
+		s.cancelCommand(sess, finished)
 		return
 	case <-finished:
 	}
 
-	err := sess.Wait()
 	sess.Close()
 	var exitErr *ssh.ExitError
 	switch {
@@ -122,13 +126,4 @@ func finishExecStream(ctx context.Context, sess *ssh.Session, events chan ExecEv
 	default:
 		// Cancelled or transport gone: no exit to report.
 	}
-}
-
-func waitForReaders(readers *sync.WaitGroup) <-chan struct{} {
-	finished := make(chan struct{})
-	go func() {
-		readers.Wait()
-		close(finished)
-	}()
-	return finished
 }

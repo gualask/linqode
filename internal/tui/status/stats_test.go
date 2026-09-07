@@ -63,12 +63,12 @@ func openLive(t *testing.T, m *Model) *statsStream {
 	if cmd == nil {
 		t.Fatal("`a` did not start the live stream")
 	}
-	_, ok := cmd().(OpenStatsMsg)
+	request, ok := cmd().(OpenStatsMsg)
 	if !ok {
 		t.Fatalf("`a` produced %T, want OpenStatsMsg", cmd())
 	}
 	stream := newStatsStream()
-	m.Update(StatsFeedMsg{Feed: stream.feed()})
+	m.Update(StatsFeedMsg{RequestID: request.RequestID, Feed: stream.feed()})
 	return stream
 }
 

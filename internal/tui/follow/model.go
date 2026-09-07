@@ -141,6 +141,7 @@ func (m *Model) applyFeedEvent(event operations.Event) {
 		m.adjustForDroppedLines(m.store.Push(event.Text))
 	case operations.EventStderr:
 		m.stderrNotice = event.Text
+		m.adjustForDroppedLines(m.store.Push(event.Text))
 	case operations.EventExit:
 		m.ended = true
 		m.exitCode = event.ExitCode
