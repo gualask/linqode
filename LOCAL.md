@@ -1,6 +1,7 @@
 # Plan — the local machine as a target
 
-_Last updated: 2026-09-09. Status: designed, not implemented._
+_Last updated: 2026-09-09. Status: step 1 of the implementation order is
+in (`internal/local`); the rest is designed._
 
 _Re-verified against `895007d` (SSH execution and monitoring feeds hardened,
 `internal/host` and `internal/compose/cgroup` split into command and parse
@@ -339,6 +340,16 @@ while switching changes the shape of the backend itself.
    the wait for exit after output EOF. The local analogues are process start
    and the wait after the pipes close; `TestCommandCancellationDuringSSHWaits`
    is the test to mirror.
+
+   **Done.** `internal/local` is the second Executor, `operations.Executor`
+   satisfied and asserted. Cancellation signals the process group — SIGTERM,
+   then SIGKILL for whoever ignored it — because `sh -c` with a pipeline
+   stays alive as the parent of its children and signalling one pid leaves
+   them running. Two things the writing surfaced: a command that exits
+   leaving a background child holding the output pipe would wait forever, so
+   `WaitDelay` bounds it and the holder is killed rather than inherited; and
+   the readers are joined *before* `Wait`, because os/exec closes the pipes
+   there and a read still in flight would lose the last of the output.
 2. **Composition root** — `interactive.go` branches on a `local` spec, skipping
    `remote.Connect` and the "Connecting to …" line. `Catalog` rejects the spec;
    `hosts` omits it.

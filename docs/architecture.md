@@ -1,6 +1,6 @@
 # Architecture
 
-_Last updated: 2026-09-06._
+_Last updated: 2026-09-09._
 
 The shape of the codebase: what the pieces are, which way they depend, and
 how a session starts. The behaviour they implement is documented by
@@ -58,6 +58,7 @@ Four principles shape the design:
 | `internal/operations` | shared configured catalog and connected status/stats/log/action/script workflows; presentation-neutral streams |
 | `internal/config` | `config.toml` loading and host selection |
 | `internal/remote` | SSH: target resolution, connect, host-key policy, auth, one-shot and streaming exec with cancellation |
+| `internal/local` | the same one-shot and streaming exec on the machine Linqode itself runs on, cancelled by signalling the command's own process group so that nothing it started outlives it. Not yet reachable from the composition root: see `LOCAL.md` |
 | `internal/compose` | `docker compose` command builders (with shell quoting) and the parsers for what they return: `ps` output, the daemon's event stream, container cgroup counters, `docker system df`, and both `docker stats` forms |
 | `internal/probe` | the connect-time capability probe: what the host can be asked for, established once in one round trip and degrading to unknown rather than to a finding |
 | `internal/host` | everything about the machine itself, read out of `/proc` and `/sys`: the marker-sectioned host batch, the client-side deltas that turn its counters into percentages and rates, and the on-demand process table and graphics cards |
