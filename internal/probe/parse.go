@@ -30,6 +30,11 @@ func Parse(raw []byte, composeDir string) Result {
 		result.Directory = classifyDirectory(composeDir, dir)
 	}
 	result.OS = prettyName(sections[osMarker])
+	if proc, asked := sections[procMarker]; asked {
+		result.Proc = classifyProc(proc)
+	}
+	result.DockerHost = firstLine(sections[endpointMarker])
+	result.DockerContext = firstLine(sections[contextMarker])
 	return result
 }
 
@@ -88,10 +93,30 @@ func classifyDirectory(composeDir, section string) Directory {
 	if composeDir == "" {
 		return DirectoryUnconfigured
 	}
-	if strings.TrimSpace(section) == dirPresentWord {
+	if strings.TrimSpace(section) == presentWord {
 		return DirectoryPresent
 	}
 	return DirectoryMissing
+}
+
+func classifyProc(section string) Proc {
+	if strings.TrimSpace(section) == presentWord {
+		return ProcPresent
+	}
+	return ProcAbsent
+}
+
+// firstLine is the value of a section holding one echoed variable. An unset
+// variable echoes an empty line, which is the same empty string as a section
+// that was never printed — and both mean "nothing to show", so neither needs
+// telling apart here.
+func firstLine(section string) string {
+	for line := range strings.Lines(section) {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // isVersion reports whether a line is a bare version and nothing else. Both

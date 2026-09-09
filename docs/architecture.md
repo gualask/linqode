@@ -127,9 +127,11 @@ what is not built yet, is in `LOCAL.md`.
   passphrase, and maps authentication failures to typed JSON.
 - **The capability probe**: one round trip, once, before anything else runs.
   It establishes whether docker is installed, whether this user may reach the
-  daemon, which compose the host has, and whether the configured `compose_dir`
-  exists — four conditions that hold for the life of the session and that a
-  command hitting one of them can only report opaquely. The same batch also
+  daemon, which compose the host has, whether the configured `compose_dir`
+  exists, whether the host has a readable `/proc`, and which daemon
+  `DOCKER_HOST` or `DOCKER_CONTEXT` points at — conditions that hold for the
+  life of the session and that a command hitting one of them can only report
+  opaquely. The same batch also
   carries the host's own name, `PRETTY_NAME` from `/etc/os-release`, which
   nothing turns on and which the system view prints as its last row. Measured
   at 40 ms and 148 bytes; see [monitoring.md](monitoring.md).
@@ -141,7 +143,9 @@ what is not built yet, is in `LOCAL.md`.
   the screen is built around what is left. The machine adapter turns the same
   findings into typed failure kinds (`docker_permission_denied`,
   `docker_unavailable`, `compose_dir_missing`, `compose_unavailable`) before a
-  command runs. What it does *not* establish turns nothing off: Unknown reads
+  command runs. A host with no `/proc` loses the process table, which is that
+  filesystem and nothing else; the docker endpoint turns nothing off and is
+  shown in the header. What it does *not* establish turns nothing off: Unknown reads
   as "carry on".
 
 ### And then

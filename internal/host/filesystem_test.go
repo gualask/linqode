@@ -2,6 +2,7 @@ package host
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -67,5 +68,48 @@ func TestFullestIsTheOneAboutToFill(t *testing.T) {
 	}
 	if fullest.Mount != "/var" {
 		t.Errorf("fullest = %q at %.0f%%, want /var", fullest.Mount, fullest.UsedPercent())
+	}
+}
+
+// What `df -Pk` prints on an Apple silicon Mac: ten lines, of which two are
+// worth a row. Measured on this machine — the numbers are its own.
+func TestMacSystemVolumesAreNotStorageAnyoneWatches(t *testing.T) {
+	metrics, _ := Parse([]byte("#mounts\n" +
+		"Filesystem 1024-blocks Used Available Capacity Mounted on\n" +
+		"/dev/disk3s1s1 482797652 12341016 285838376 5% /\n" +
+		"devfs 200 200 0 100% /dev\n" +
+		"/dev/disk3s6 482797652 2097172 285838376 1% /System/Volumes/VM\n" +
+		"/dev/disk3s2 482797652 8836432 285838376 4% /System/Volumes/Preboot\n" +
+		"/dev/disk3s4 482797652 1852 285838376 1% /System/Volumes/Update\n" +
+		"/dev/disk1s2 512000 6164 490348 2% /System/Volumes/xarts\n" +
+		"/dev/disk1s1 512000 6120 490348 2% /System/Volumes/iSCPreboot\n" +
+		"/dev/disk1s3 512000 1468 490348 1% /System/Volumes/Hardware\n" +
+		"/dev/disk3s5 482797652 176673560 285838376 39% /System/Volumes/Data\n"))
+
+	var mounts []string
+	for _, filesystem := range metrics.Filesystems {
+		mounts = append(mounts, filesystem.Mount)
+	}
+	want := []string{"/", "/System/Volumes/Data"}
+	if !slices.Equal(mounts, want) {
+		t.Errorf("kept %v, want %v", mounts, want)
+	}
+	// The Data volume is the one an operator is actually filling, and it is
+	// the row the band's single meter will land on.
+	fullest, found := metrics.Fullest()
+	if !found || fullest.Mount != "/System/Volumes/Data" {
+		t.Errorf("Fullest() = %+v, want the data volume", fullest)
+	}
+}
+
+// A Linux host has no such path, and must not lose a mount to a rule written
+// for another operating system.
+func TestALinuxMountNamedLikeAMacVolumeIsKept(t *testing.T) {
+	metrics, _ := Parse([]byte("#mounts\n" +
+		"Filesystem 1024-blocks Used Available Capacity Mounted on\n" +
+		"/dev/sda1 100000 50000 50000 50% /\n" +
+		"/dev/sdb1 200000 10000 190000 5% /System/Volumes/Data\n"))
+	if len(metrics.Filesystems) != 2 {
+		t.Errorf("kept %+v, want both", metrics.Filesystems)
 	}
 }

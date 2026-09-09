@@ -1,6 +1,6 @@
 # Monitoring
 
-_Last updated: 2026-09-08._
+_Last updated: 2026-09-09._
 
 What Linqode reads off a remote host, how often, and why each reading is on
 the tier it is on. The screen those readings are drawn on is
@@ -51,11 +51,16 @@ waiting for nothing.
 
 ## The capability probe, on no tier at all
 
-One round trip at connect, before anything else runs, establishing four things
-that decide what the rest of this document even applies to: whether docker is
+One round trip at connect, before anything else runs, establishing what
+decides whether the rest of this document even applies: whether docker is
 installed, whether this user may reach the daemon, which compose the host has,
-and whether the configured `compose_dir` exists. **40 ms and 148 bytes**,
+whether the configured `compose_dir` exists, whether the host has the `/proc`
+every reading below is made of, and which daemon `DOCKER_HOST` or
+`DOCKER_CONTEXT` will send those commands to. **40 ms and 148 bytes**,
 measured, once per session — against the 66 ms `compose ps` pays every minute.
+That measurement predates the last three sections, which add about 35 bytes of
+answer, two shell builtins and no round trip; it is due a re-measurement
+against the fixture rather than an estimate published as a figure.
 
 It is on no tier because none of it is a reading. A tier is a cadence, and a
 cadence assumes the answer changes; these do not change while a session is
@@ -68,6 +73,24 @@ command's fallback. The two inline guards below are on the other side of that
 line and stay there — `timeout` for the mount list, `command -v nvidia-smi`
 for the graphics cards. Both change one command's fallback and nothing else,
 and as probe state they would be machinery for nothing.
+
+**`/proc` is asked about because one capability is nothing else.** The
+readings below are files under `/proc` — the load average, the memory, the CPU
+counters, the process table — and a host without it answers the batch with
+eight empty sections beside a real `df`. The screen already declines to draw a
+meter it has no number for, so most of that needs no probing. The process
+table is the exception: it is `/proc/<pid>/stat` and nothing else, so on such
+a host it is not a reading that comes back empty but a panel that could only
+ever open empty, and the probe turns it off the way it turns off compose.
+
+**The docker endpoint is asked about because of the local target.** A local
+session inherits the operator's environment, so a header saying `local` can be
+driving production through an exported `DOCKER_HOST`, and nothing else on the
+screen would give that away; the header says so when it is set (see
+[interface.md](interface.md)). Over SSH the variables are almost always unset,
+sshd's environment being minimal — but a host that does set one is a host
+where the same sentence is worth showing, and asking costs one `echo` either
+way. There is no second batch for a second transport.
 
 **One section of the batch is not a condition at all**, and is the one
 deliberate exception to that rule: the last one reads `PRETTY_NAME` out of
@@ -343,7 +366,7 @@ go test -tags e2e ./tests/e2e/ -run TestRemoteCommandCost -cost.measure
 | Command | Cost | Bytes |
 | ------- | ---- | ----- |
 | exec overhead (`true`) | 1 ms | 0 |
-| capability probe (once, at connect) | 40 ms | 148 B |
+| capability probe (once, at connect) | 40 ms | 148 B (before the `/proc` and docker-endpoint sections; see above) |
 | host batch (`/proc`, `df -Pk`, hwmon) | 6 ms | 2.8 KB |
 | container cgroups (`/sys/fs/cgroup` + `/proc/<pid>/net/dev`) | 6 ms | 3.4 KB |
 | process table (`/proc/<pid>/stat`, on demand) | 3 ms | 200 B per process |

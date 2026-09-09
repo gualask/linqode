@@ -41,7 +41,12 @@ const (
 	legacyMarker   = "#legacy"
 	dirMarker      = "#dir"
 	osMarker       = "#os"
-	dirPresentWord = "present"
+	procMarker     = "#proc"
+	endpointMarker = "#endpoint"
+	contextMarker  = "#context"
+	// presentWord is what a shell test echoes when it holds: one word, for
+	// the two sections that ask a yes-or-no question.
+	presentWord = "present"
 )
 
 // Docker is what the daemon answered, which is not the same question as
@@ -102,6 +107,26 @@ const (
 	DirectoryPresent
 )
 
+// Proc is whether the host has the /proc filesystem the machine readings are
+// made of. It is not a Linux-or-not question dressed up: what matters is that
+// the process table, the load average, the memory and the CPU counters are
+// all reads of files under /proc, and a host without it answers the batch
+// with eight empty sections and a real `df`.
+//
+// The screen already declines to draw a reading it did not get. What this
+// adds is the one capability that is *all* /proc — the process table — which
+// would otherwise be an openable panel that can only ever be empty.
+type Proc int
+
+const (
+	// ProcUnknown is a host that did not answer this section.
+	ProcUnknown Proc = iota
+	// ProcAbsent is a host with no readable /proc: a Mac, mainly.
+	ProcAbsent
+	// ProcPresent is a host whose /proc/stat can be read.
+	ProcPresent
+)
+
 // Result is what one probe established. Every field has an Unknown state and
 // every consumer must treat it as "carry on": a host that answered nothing is
 // a host this refuses to make claims about, not a host to shut features off on.
@@ -126,7 +151,41 @@ type Result struct {
 	// because it is free once the batch exists, not because anything turns on
 	// it.
 	OS string
+
+	Proc Proc
+
+	// DockerHost and DockerContext are DOCKER_HOST and DOCKER_CONTEXT as the
+	// session's environment has them, and empty when it does not.
+	//
+	// They are read because a local session inherits the operator's
+	// environment: with DOCKER_HOST=ssh://prod exported, a session whose
+	// header says `local` is driving production, and nothing on the screen
+	// would say so. Over SSH the same variables are almost always unset,
+	// sshd's environment being minimal — but a host that does set one is a
+	// host where the same sentence is worth showing, and asking costs one
+	// echo either way. There is no second command shape for a second
+	// transport.
+	DockerHost, DockerContext string
 }
+
+// DockerEndpoint is the daemon this session will reach when it is not the
+// local socket, and empty when it is. DOCKER_HOST wins: docker reads it
+// before it reads the context.
+func (r Result) DockerEndpoint() string {
+	if r.DockerHost != "" {
+		return r.DockerHost
+	}
+	if r.DockerContext != "" && r.DockerContext != "default" {
+		return "context " + r.DockerContext
+	}
+	return ""
+}
+
+// CanReadProc reports whether the readings made of /proc are worth asking
+// for. Unknown counts as yes, as everywhere else here: a probe that
+// established nothing must not be the reason a working host loses its
+// process table.
+func (r Result) CanReadProc() bool { return r.Proc != ProcAbsent }
 
 // ComposeUnavailable is why compose commands cannot work on this host, and
 // the empty string when they can. It is one sentence because it goes where the
@@ -224,9 +283,16 @@ func Command(composeDir string) string {
 	b.WriteString("echo '" + legacyMarker + "'; command -v docker-compose 2>/dev/null; ")
 	b.WriteString("echo '" + dirMarker + "'; ")
 	if composeDir != "" {
-		b.WriteString("[ -d " + shellQuote(composeDir) + " ] && echo " + dirPresentWord + "; ")
+		b.WriteString("[ -d " + shellQuote(composeDir) + " ] && echo " + presentWord + "; ")
 	}
 	b.WriteString("echo '" + osMarker + "'; " +
-		"grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null")
+		"grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null; ")
+	b.WriteString("echo '" + procMarker + "'; " +
+		"[ -r /proc/stat ] && echo " + presentWord + "; ")
+	// Quoted, because an unset variable must print an empty section rather
+	// than nothing at all — the difference between "no endpoint set" and "the
+	// host never got this far".
+	b.WriteString("echo '" + endpointMarker + `'; echo "$DOCKER_HOST"; `)
+	b.WriteString("echo '" + contextMarker + `'; echo "$DOCKER_CONTEXT"`)
 	return b.String()
 }

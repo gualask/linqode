@@ -193,6 +193,7 @@ func TestCommandAsksForEverySection(t *testing.T) {
 	command := Command("/srv/app")
 	for _, marker := range []string{
 		dockerMarker, daemonMarker, composeMarker, legacyMarker, dirMarker, osMarker,
+		procMarker, endpointMarker, contextMarker,
 	} {
 		if !strings.Contains(command, marker) {
 			t.Errorf("Command() does not emit marker %q", marker)
@@ -245,5 +246,62 @@ func TestTheDaemonSurvivesComposeBeingUnusable(t *testing.T) {
 	}
 	if !Parse(nil, "").CanReachDaemon() {
 		t.Error("an unestablished daemon was turned off")
+	}
+}
+
+// A machine with no /proc answers eight of the batch's ten sections with
+// nothing, and the process table — which is /proc and nothing else — is the
+// one capability that becomes a panel that can only ever be empty.
+func TestAHostWithoutProcKeepsEverythingItStillHas(t *testing.T) {
+	result := Parse([]byte("#docker\n/opt/homebrew/bin/docker\n#daemon\n29.7.0\n"+
+		"#compose\n5.5.1\n#legacy\n#dir\npresent\n#os\n#proc\n#endpoint\n#context\n"), "/srv/app")
+
+	if result.Proc != ProcAbsent {
+		t.Errorf("Proc = %v, want ProcAbsent", result.Proc)
+	}
+	if result.CanReadProc() {
+		t.Error("CanReadProc on a host with no /proc")
+	}
+	// Everything else this host does have is untouched: the readings that
+	// are not /proc, and compose above all.
+	if !result.CanCompose() {
+		t.Errorf("a Mac with a working daemon was told %q", result.ComposeUnavailable())
+	}
+}
+
+func TestProcPresentAndUnknownBothCarryOn(t *testing.T) {
+	present := Parse([]byte("#proc\npresent\n"), "")
+	if present.Proc != ProcPresent || !present.CanReadProc() {
+		t.Errorf("Proc = %v", present.Proc)
+	}
+	// A batch that never reached the section establishes nothing, and
+	// nothing established turns nothing off.
+	silent := Parse([]byte("#docker\n/usr/bin/docker\n"), "")
+	if silent.Proc != ProcUnknown || !silent.CanReadProc() {
+		t.Errorf("Proc = %v, want ProcUnknown carrying on", silent.Proc)
+	}
+}
+
+// A local session inherits the operator's environment, so the header can say
+// `local` while the daemon is somewhere else entirely.
+func TestTheDockerEndpointIsReportedWhenItIsNotTheSocket(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		section string
+		want    string
+	}{
+		{"unset", "#endpoint\n\n#context\n\n", ""},
+		{"DOCKER_HOST", "#endpoint\nssh://deploy@prod\n#context\n\n", "ssh://deploy@prod"},
+		{"context", "#endpoint\n\n#context\ncolima\n", "context colima"},
+		{"the default context is the socket", "#endpoint\n\n#context\ndefault\n", ""},
+		// docker reads DOCKER_HOST before it reads the context, and so does
+		// this: a session with both set reaches the one docker will.
+		{"both", "#endpoint\ntcp://10.0.0.2:2375\n#context\ncolima\n", "tcp://10.0.0.2:2375"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Parse([]byte(tc.section), "").DockerEndpoint(); got != tc.want {
+				t.Errorf("DockerEndpoint() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

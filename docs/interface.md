@@ -1,6 +1,6 @@
 # Interface
 
-_Last updated: 2026-09-06._
+_Last updated: 2026-09-09._
 
 How the screen is put together: what is drawn, what takes focus, and what
 gives way when the terminal runs short. What is *read* to fill it is
@@ -62,6 +62,23 @@ border and a title lighting up everywhere else.
 Without a host sample there is nothing to put in the box, and the session falls
 back to a bare line with a blank row under it. Still two rows, so nothing below
 it moves.
+
+**The title line names the session, and sometimes a fourth thing.** It is
+`linqode`, the host, and the project directory — plus, in yellow, the docker
+endpoint when it is not the host's own socket. That last one exists for the
+local target: a session that inherited an exported `DOCKER_HOST` says `local`
+and drives production, and this is the only place on the screen that would
+say so. It is yellow because it is neither an error nor decoration.
+
+```
+┌─ linqode  local  ~/Dev/myapp  docker ssh://deploy@prod ─────────────────┐
+```
+
+A mount point too long for its column is cut at the **front**, at a segment
+boundary where one fits: `…/Volumes/Data`. The head of a path is what two
+rows have in common — `/System/Volumes/Data` and `/System/Volumes/Preboot`
+are the same string for sixteen cells — and the tail is what tells them
+apart.
 
 ### When the anchor has nothing to anchor
 

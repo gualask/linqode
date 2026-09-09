@@ -63,6 +63,13 @@ func (m *Model) title() string {
 		b.WriteString("  ")
 		b.WriteString(theme.Cyan.Render(m.info.ComposeDir))
 	}
+	// Yellow because it is not an error and not decoration: it is the one
+	// line saying the docker on this screen is not the docker on this
+	// machine.
+	if endpoint := m.dockerEndpoint(); endpoint != "" {
+		b.WriteString("  ")
+		b.WriteString(theme.Yellow.Render(endpoint))
+	}
 	return b.String()
 }
 
@@ -73,7 +80,21 @@ func (m *Model) session() string {
 	if m.info.ComposeDir != "" {
 		text += "  " + m.info.ComposeDir
 	}
+	if endpoint := m.dockerEndpoint(); endpoint != "" {
+		text += "  " + endpoint
+	}
 	return text
+}
+
+// dockerEndpoint is the header's word for a daemon somewhere else. The
+// prefix is there because the value alone — `ssh://deploy@prod`, `context
+// colima` — reads as a second host to connect to rather than as where this
+// session's containers actually are.
+func (m *Model) dockerEndpoint() string {
+	if m.info.DockerEndpoint == "" {
+		return ""
+	}
+	return "docker " + m.info.DockerEndpoint
 }
 
 // body is the anchor panel with its satellite under it, or the detail or the

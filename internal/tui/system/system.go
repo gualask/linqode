@@ -553,10 +553,44 @@ func sparkCell(percent float64) string {
 // than pushing the gauge beside it out of line. It measures cells, not
 // bytes, the way panel.fitLine does — a mount point can carry anything a
 // filesystem can be named.
+//
+// A path is cut at the *front*, because that is where its uninformative half
+// is: `/System/Volumes/Data` and `/System/Volumes/Preboot` are the same
+// string for sixteen cells and differ only in what a right-hand truncation
+// would throw away, and `/var/lib/docker` beside `/var/lib/postgresql` is
+// the same story on the hosts this usually runs against.
 func pad(label string, column int) string {
+	label = trimPath(label, column)
 	label = lipgloss.NewStyle().MaxWidth(column).Render(label)
 	if gap := column - lipgloss.Width(label); gap > 0 {
 		return label + strings.Repeat(" ", gap)
+	}
+	return label
+}
+
+// trimPath keeps the last column cells of a path, marking the cut with an
+// ellipsis. Anything that is not a path — the meter labels, which are one
+// short word — is returned untouched and truncated the ordinary way.
+func trimPath(label string, column int) string {
+	if column < 4 || !strings.HasPrefix(label, "/") || lipgloss.Width(label) <= column {
+		return label
+	}
+	runes := []rune(label)
+	// A whole segment at a time where one fits, so the cut lands where a
+	// reader expects a path to be abbreviated: `…/Volumes/Data`, not
+	// `…em/Volumes/Data`.
+	for cut, r := range runes {
+		if r != '/' {
+			continue
+		}
+		if trimmed := "…" + string(runes[cut:]); lipgloss.Width(trimmed) <= column {
+			return trimmed
+		}
+	}
+	for cut := len(runes) - column + 1; cut < len(runes); cut++ {
+		if trimmed := "…" + string(runes[cut:]); lipgloss.Width(trimmed) <= column {
+			return trimmed
+		}
 	}
 	return label
 }

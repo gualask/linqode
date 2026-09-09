@@ -89,6 +89,7 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 		ComposeDir:         sel.ComposeDir,
 		Scripts:            sel.Scripts,
 		OS:                 capabilities.OS,
+		DockerEndpoint:     capabilities.DockerEndpoint(),
 		ComposeUnavailable: capabilities.ComposeUnavailable(),
 	}
 	// Scripts and the `!` prompt are here whatever the probe found: neither
@@ -129,8 +130,14 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 		backend.Host = func() (host.Metrics, error) {
 			return operator.HostMetrics(ctx)
 		}
-		backend.Processes = func() (host.ProcessSample, error) {
-			return operator.HostProcesses(ctx)
+		// The process table is /proc and nothing else, so on a host without
+		// one it is a panel that could only ever open empty. Every other
+		// reading here survives: `df` answers on any Unix, and the screen
+		// already declines to draw a meter it has no number for.
+		if capabilities.CanReadProc() {
+			backend.Processes = func() (host.ProcessSample, error) {
+				return operator.HostProcesses(ctx)
+			}
 		}
 		backend.GPUs = func() ([]host.GPU, error) {
 			return operator.GPUs(ctx)

@@ -23,6 +23,12 @@ type Info struct {
 	// OS is what the host calls itself, from /etc/os-release. Empty on a host
 	// that did not say.
 	OS string
+	// DockerEndpoint is the daemon this session reaches when it is not the
+	// local socket, and empty when it is. It is in the header because of the
+	// local target: a session inheriting an operator's DOCKER_HOST says
+	// `local` and drives production, and nothing else on the screen would
+	// give that away.
+	DockerEndpoint string
 	// ComposeUnavailable is why this host cannot run compose commands, empty
 	// when it can. The connect-time probe establishes it once; it names a
 	// permanent condition, not a refresh that failed, and the panel it stands
@@ -121,6 +127,7 @@ func Run(info Info, backend Backend) error {
 		Target:             info.Target,
 		ComposeDir:         info.ComposeDir,
 		OS:                 info.OS,
+		DockerEndpoint:     info.DockerEndpoint,
 		Scripts:            info.Scripts,
 		ComposeUnavailable: info.ComposeUnavailable,
 		ActionPreview:      backend.ActionPreview,

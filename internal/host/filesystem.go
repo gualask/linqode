@@ -64,6 +64,20 @@ var systemMounts = []string{
 	"/proc", "/sys", "/dev", "/run", "/snap", "/etc",
 }
 
+// macSystemVolumes is where macOS mounts APFS volumes of its own — Preboot,
+// Update, VM, xarts, iSCPreboot, Hardware — six rows of firmware and
+// bookkeeping that would bury the two that matter. It is a Linux-shaped
+// filter learning one more shape, not a second filter: no Linux host has
+// this path, so the rule costs those hosts a string comparison and nothing
+// else.
+//
+// `Data` is the exception, and it is the important row. On a machine with a
+// sealed system volume `/` is the read-only system — 12G of it here — and
+// everything the operator has actually put on the machine lives under
+// /System/Volumes/Data.
+const macSystemVolumes = "/System/Volumes/"
+const macDataVolume = macSystemVolumes + "Data"
+
 // realFilesystems is the mount list worth showing, sorted by mount point.
 //
 // The root filesystem is kept unconditionally. On a containerised host —
@@ -119,6 +133,10 @@ func keepMount(filesystem Filesystem) bool {
 		if filesystem.Mount == prefix || strings.HasPrefix(filesystem.Mount, prefix+"/") {
 			return false
 		}
+	}
+	if strings.HasPrefix(filesystem.Mount, macSystemVolumes) &&
+		filesystem.Mount != macDataVolume {
+		return false
 	}
 	return true
 }

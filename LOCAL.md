@@ -1,8 +1,8 @@
 # Plan — the local machine as a target
 
-_Last updated: 2026-09-09. Status: steps 1 and 2 of the implementation order
-are in (`internal/local`, and the composition root that reaches for it); the
-rest is designed._
+_Last updated: 2026-09-09. Status: steps 1 to 4 of the implementation order
+are in. What is left is the Darwin readings (5, 6), the header's machine
+name (7) and the picker (8)._
 
 _Re-verified against `895007d` (SSH execution and monitoring feeds hardened,
 `internal/host` and `internal/compose/cgroup` split into command and parse
@@ -192,14 +192,23 @@ There is one thing the split must not lose. A machine without `/proc` still
 answers `df -Pk`, and disk pressure is worth watching locally. Measured: on
 input where every marker is echoed but every `/proc` read fails, `host.Parse`
 returns **no error** and a `Metrics` with `load=0 cpus=0 memTotal=0` beside a
-**real** disk reading — a header that is half true, half fabricated, and silent
-about it. So:
+**real** disk reading.
 
-- the **probe** gates whole capabilities that become nil fetches (process
-  table, container cgroup columns), which is what its package comment says it
-  is for;
-- the **parser** reports absent sections as absent rather than as zeros,
-  extending the `Pressure.Present` pattern already in `host.Metrics`.
+The conclusion drawn from that — "a header half true, half fabricated, and
+silent about it" — **was wrong, and a rendered frame is what showed it.** The
+band asks `HasLoad()`, `MemTotalKB > 0`, `Fullest()` and a swap threshold
+before it draws anything; a sample with those zeros produces a header holding
+one disk meter and nothing else. The screen was already honest. What the
+parser hands it is ugly, not fabricated, and presence flags mirroring
+`Pressure.Present` across every section would have been machinery for a defect
+that does not reach the screen. (The one soft spot left: `HasLoad()` is
+`CPUs > 0`, a proxy — a Linux host that answered `loadavg` but not `cpuinfo`
+would lose a reading it had. Not a Mac, and not worth a field.)
+
+What is left of the paragraph is the half that was right, and it is done: the
+**probe** gates whole capabilities that become nil fetches. The process table
+is `/proc/<pid>/stat` and nothing else, so on a host without `/proc` it is not
+a reading that comes back empty but a panel that could only ever open empty.
 
 ## What macOS gives, measured
 
@@ -286,17 +295,7 @@ case, and the view needs the same habit.
    say "GPU 45 °C". Options: show the maximum, show a compact list, or map
    known keys per chip generation (fragile). Affects both the system view's
    temperature section and `GPU.TempMilliC`.
-2. **The filesystem filter is Linux-shaped.** `pseudoDevices` lists `tmpfs`,
-   `overlay`, `proc`, `cgroup2` …; `systemMounts` excludes `/proc`, `/sys`,
-   `/dev`, `/run`, `/snap`, `/etc`. Measured on this Mac: `df -Pk` prints ten
-   lines and the filter would keep **eight** — `/`, `/System/Volumes/Data`, and
-   the six system volumes (VM, Preboot, Update, xarts, iSCPreboot, Hardware).
-   Only `devfs` is dropped, and by accident, because its mount point starts
-   with `/dev`; `map auto_home` is dropped by another accident, a device name
-   containing a space that fails the numeric parse. The Darwin reader needs its
-   own exclusion rule, and the honest pair to show is `/` and
-   `/System/Volumes/Data`.
-3. **The gopsutil dependency.** The stack policy prefers the listed libraries
+2. **The gopsutil dependency.** The stack policy prefers the listed libraries
    "unless a real blocker shows up"; a platform whose CPU counters no CLI
    exposes is one. Weigh its surface against hand-written Mach calls before
    committing.
@@ -365,7 +364,23 @@ while switching changes the shape of the backend itself.
    nothing more until step 6.
 3. **Probe** — two marker lines: whether `/proc` is there, and
    `DOCKER_HOST` / `DOCKER_CONTEXT`.
-4. **Parser presence flags** — absent sections reported absent, not zero.
+
+   **Done**, as three sections (`#proc`, `#endpoint`, `#context`) in the one
+   batch both transports share. `/proc` turns off the process table and
+   nothing else. The endpoint is consumed rather than merely established: the
+   header shows it in yellow when it is set, which is the whole point of
+   asking — a session that inherited an exported `DOCKER_HOST` says `local`
+   and drives production, and nothing else on the screen would say so.
+4. ~~**Parser presence flags** — absent sections reported absent, not zero.~~
+   **Dropped**, see "Two readers" above: the screen never draws those zeros,
+   so the flags would have been machinery for a defect that does not reach
+   it. What the frame *did* show, and what took its place: the filesystem
+   filter is Linux-shaped, and on this Mac it kept eight rows of which six
+   are firmware volumes. It now drops `/System/Volumes/*` except `Data` —
+   which is the row that matters there, `/` being the sealed system volume —
+   and a mount point too long for its column is cut at the front, at a
+   segment boundary, so `…/Volumes/Data` is not six rows of
+   `/System/Volumes/`. That closes open question 2.
 5. **Darwin GPU** — `ioreg` through the same Executor, parsed by a file CI
    compiles and tests like the other two. No build tag, no dependency: the
    phase that costs nothing to undo. What it puts on screen is a Mac with an
@@ -375,8 +390,9 @@ while switching changes the shape of the backend itself.
    This is the irreversible half — a dependency outside the declared stack,
    code CI never compiles, numbers the fixture cannot cover — so it is taken
    last, once the screen already works.
-7. **Header** — the word `local` plus the machine's name, and the Docker
-   endpoint when it is not the local socket.
+7. **Header** — the word `local` plus the machine's name. The docker
+   endpoint half of this landed with step 3, where the probe that establishes
+   it is.
 8. **The picker** — a separate phase, shippable independently, sharing
    nothing with the rest; intertwining it only delays the first commit.
 

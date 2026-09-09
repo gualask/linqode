@@ -112,6 +112,9 @@ type Config struct {
 	Target string
 	// ComposeDir is the remote project directory shown in the header.
 	ComposeDir string
+	// DockerEndpoint is the daemon this session reaches when it is not the
+	// host's own socket. Empty is the ordinary case and shows nothing.
+	DockerEndpoint string
 	// OS is what the host calls itself, from the connect-time probe. Empty on
 	// a host that did not say, and then the system view simply has one row
 	// fewer.

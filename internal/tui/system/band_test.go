@@ -464,3 +464,27 @@ func TestTheSystemViewDrawsTheTemperature(t *testing.T) {
 		t.Errorf("a made-up denominator was not declared:\n%s", bare.View())
 	}
 }
+
+// A path that does not fit its column keeps its tail: the head of a mount
+// point is what two rows have in common, and the tail is what tells them
+// apart.
+func TestLongMountPointsKeepTheEndThatIdentifiesThem(t *testing.T) {
+	for _, tc := range []struct {
+		label  string
+		column int
+		want   string
+	}{
+		{"/", 16, "/               "},
+		{"/System/Volumes/Data", 16, "…/Volumes/Data  "},
+		{"/var/lib/postgresql", 16, "…/lib/postgresql"},
+		// No segment boundary fits, so the cut lands inside the last one
+		// rather than giving up and overflowing the column.
+		{"/verylongsinglesegment", 12, "…nglesegment"},
+		// Not a path: a meter label is one short word and is left alone.
+		{"memory", 16, "memory          "},
+	} {
+		if got := pad(tc.label, tc.column); got != tc.want {
+			t.Errorf("pad(%q, %d) = %q, want %q", tc.label, tc.column, got, tc.want)
+		}
+	}
+}
