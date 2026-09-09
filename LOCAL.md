@@ -1,6 +1,11 @@
 # Plan — the local machine as a target
 
-_Last updated: 2026-09-06. Status: designed, not implemented._
+_Last updated: 2026-09-09. Status: designed, not implemented._
+
+_Re-verified against `895007d` (SSH execution and monitoring feeds hardened,
+`internal/host` and `internal/compose/cgroup` split into command and parse
+halves): every assumption below still holds. What the refactor changed for
+the better, and the one thing it surfaced, are noted in place._
 
 Linqode connects to a host over SSH. This plan makes **the machine Linqode
 runs on** a target like any other, so the same screen can watch a laptop or a
@@ -30,6 +35,11 @@ type Executor interface {
 Everything above that line — sampler, probe, log engine, Compose parsers,
 actions — is transport-blind. Local execution is a **second Executor**, not a
 second application.
+
+`895007d` rewrote SSH cancellation underneath this contract without touching
+it: the interface is byte-identical, and `remote.ExecOutput` and
+`remote.ExecEvent` are unchanged. Only unexported signatures gained a
+`context.Context`.
 
 The machine readings are the one thing that does not ride on it: see
 "Two readers, split by what is there" below.
@@ -138,7 +148,37 @@ The machine readings are the one thing that does not ride on it: see
 - **Local on Linux** keeps the same batch, run through the local Executor. Zero
   new code, numbers identical to the remote path, PSI included.
 - **Local on macOS** uses a native reader behind the same `host.Metrics` type,
-  selected by build tag. The remote path never imports it.
+  selected by build tag. The remote path never imports it. That build tag is
+  for `host.Metrics` alone: the GPU stays a command and a parser everywhere,
+  for the reason below.
+
+**The matrix is vendor-per-platform, and nothing may multiply it by
+transport.** The GPU already reads from two places that do not resemble each
+other — AMD's sysfs files, NVIDIA's driver binary — and both converge on
+`host.GPU` without anything above knowing where a number came from. A third
+source for Apple is one more row in a matrix the project already pays for.
+What would be a *second way of monitoring* is a source that varies by
+transport: reading `/sys/class/drm/card*/device/gpu_busy_percent` with
+`os.ReadFile` locally, because a fork costs nothing without a round trip,
+while the remote path keeps the command. That is how two implementations
+which must agree stop agreeing — units, rounding, the `card0-DP-1` connector
+filter — with the e2e fixture exercising only one of them. So: **the local
+path on Linux optimises nothing.** A divergence is paid per platform that
+lacks the source, never per transport.
+
+A Go library is not on offer for graphics in any case. gopsutil has no GPU
+module; NVIDIA's `go-nvml` dlopens `libnvidia-ml.so` and needs cgo, which
+would cost `CGO_ENABLED=0`, the single static binary and cross-compilation;
+and AMD's "library" is `os.ReadFile` over the same sysfs files. The
+proprietary drivers that make this reading awkward are also what closes the
+question.
+
+The `895007d` split makes the macOS reader cheaper than it was when first
+written. `internal/host` now separates `command.go` (the Linux batch),
+`parse.go` (its output) and `filesystem.go` from `host.go` (the types) and
+`usage.go` (the derived arithmetic — deltas, rates, `HasPressure`). Types and
+arithmetic are OS-neutral and are reused verbatim; only the command-and-parse
+pair is Linux-specific, and it is now its own pair of files to sit beside.
 
 What was rejected: a **macOS variant of the commands**. It would be a second
 `internal/host` — `sysctl`, `vm_stat` (pages, not KB), `netstat -ib`,
@@ -212,24 +252,48 @@ Mapping onto `host.GPU`:
 | `Name` | `model` + `gpu-core-count` | `Apple M4 (10 cores)` |
 | `BusyPercent` / `BusyReported` | `Device Utilization %` | direct |
 | `MemUsedKB` | `In use system memory` | bytes → KB |
-| `MemTotalKB` | — | **open**, see below |
+| `MemTotalKB` | — | **unreported**, by decision below |
 | `TempMilliC` | — | **open**, see below |
 | `PowerWatts` | — | needs `powermetrics`, which needs root; unreported |
 
 `ioreg` output is a plist-ish text format, so this is a parser in the same
 family as the ones already in `internal/host`, not a new dependency.
 
+**No build tag.** Which command to issue is a property of the machine being
+observed, not of the machine compiling — the probe's own kind of question,
+beside "is there docker" and "which compose". Locally the two coincide, but
+modelling it as a property of the observed keeps the `ioreg` parser compiled
+and tested by CI on Linux, against a text fixture, exactly as the AMD and
+NVIDIA parsers are; a `gpu_darwin.go` would be the only parser here that CI
+never builds. A build tag is earned where code has no meaning elsewhere —
+gopsutil, the Mach calls — not where a command string differs.
+
+**Unified memory reports no VRAM total, and none is invented.** `MemTotalKB`
+stays unreported, so `MemUsedPercent` means nothing and the view must know
+that rather than paper over it — the card shows bytes in use and no bar.
+Setting it to `hw.memsize` was declined: it would produce a number that looks
+like the quantity the other vendors report and is in fact "share of system
+RAM", comparable at a glance and false in substance. `host.GPU` already
+carries `BusyReported` for "this driver does not state it"; this is the same
+case, and the view needs the same habit.
+
 ## Open questions
 
-1. **Unified memory has no VRAM total.** `MemTotalKB` could be left unreported
-   (and `MemUsedPercent` then means nothing) or set to `hw.memsize` (honest
-   about the architecture, but changes what the percentage means across
-   vendors). Decide before writing the view.
-2. **No labelled SMC sensors.** Apple Silicon exposes `PMU tdieN` /
+1. **No labelled SMC sensors.** Apple Silicon exposes `PMU tdieN` /
    `PMU2 tdieN` — real die temperatures with no semantic name, so nothing can
    say "GPU 45 °C". Options: show the maximum, show a compact list, or map
    known keys per chip generation (fragile). Affects both the system view's
    temperature section and `GPU.TempMilliC`.
+2. **The filesystem filter is Linux-shaped.** `pseudoDevices` lists `tmpfs`,
+   `overlay`, `proc`, `cgroup2` …; `systemMounts` excludes `/proc`, `/sys`,
+   `/dev`, `/run`, `/snap`, `/etc`. Measured on this Mac: `df -Pk` prints ten
+   lines and the filter would keep **eight** — `/`, `/System/Volumes/Data`, and
+   the six system volumes (VM, Preboot, Update, xarts, iSCPreboot, Hardware).
+   Only `devfs` is dropped, and by accident, because its mount point starts
+   with `/dev`; `map auto_home` is dropped by another accident, a device name
+   containing a space that fails the numeric parse. The Darwin reader needs its
+   own exclusion rule, and the honest pair to show is `/` and
+   `/System/Volumes/Data`.
 3. **The gopsutil dependency.** The stack policy prefers the listed libraries
    "unless a real blocker shows up"; a platform whose CPU counters no CLI
    exposes is one. Weigh its surface against hand-written Mach calls before
@@ -269,17 +333,31 @@ while switching changes the shape of the backend itself.
    process group (`Setpgid`, SIGTERM to the group, SIGKILL after a grace
    period). Without it an abandoned `compose logs -f` outlives the session.
    This is the whole transport half.
+
+   `895007d` set the bar this must match: `internal/remote/session_context.go`
+   honours cancellation at channel creation, at exec acknowledgement, and in
+   the wait for exit after output EOF. The local analogues are process start
+   and the wait after the pipes close; `TestCommandCancellationDuringSSHWaits`
+   is the test to mirror.
 2. **Composition root** — `interactive.go` branches on a `local` spec, skipping
    `remote.Connect` and the "Connecting to …" line. `Catalog` rejects the spec;
    `hosts` omits it.
 3. **Probe** — two marker lines: whether `/proc` is there, and
    `DOCKER_HOST` / `DOCKER_CONTEXT`.
 4. **Parser presence flags** — absent sections reported absent, not zero.
-5. **Darwin reader** — `host.Metrics` behind a build tag, then the GPU via
-   `ioreg`, then temperatures.
-6. **Header** — the word `local` plus the machine's name, and the Docker
+5. **Darwin GPU** — `ioreg` through the same Executor, parsed by a file CI
+   compiles and tests like the other two. No build tag, no dependency: the
+   phase that costs nothing to undo. What it puts on screen is a Mac with an
+   empty band and one real card — semi-empty and honest, which is the shape
+   the probe established and the best exercise of step 4.
+6. **Darwin metrics** — `host.Metrics` behind a build tag, then temperatures.
+   This is the irreversible half — a dependency outside the declared stack,
+   code CI never compiles, numbers the fixture cannot cover — so it is taken
+   last, once the screen already works.
+7. **Header** — the word `local` plus the machine's name, and the Docker
    endpoint when it is not the local socket.
-7. **The picker** — a separate phase, shippable independently.
+8. **The picker** — a separate phase, shippable independently, sharing
+   nothing with the rest; intertwining it only delays the first commit.
 
 A bonus to collect along the way: with a local Executor, part of the e2e suite
 can run inside the dind container without sshd, removing scaffolding rather
