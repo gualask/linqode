@@ -86,10 +86,15 @@ func ReadPreflight(invocation Invocation, hostMetrics bool) *Failure {
 // SelectionFailure classifies strict configured-name selection.
 func SelectionFailure(operation string, err error) *Failure {
 	var unknown operations.UnknownHostError
+	var localHost operations.LocalHostError
 	var unknownScript operations.UnknownScriptError
 	switch {
 	case errors.As(err, &unknown):
 		return inputFailure(operation, "unknown_host", err.Error())
+	// Configured, and still not a name this interface answers to. Saying
+	// "unknown" instead would send the caller looking for a typo.
+	case errors.As(err, &localHost):
+		return inputFailure(operation, "local_host", err.Error())
 	case errors.As(err, &unknownScript):
 		return inputFailure(operation, "unknown_script", err.Error())
 	}

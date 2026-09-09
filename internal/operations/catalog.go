@@ -31,12 +31,22 @@ func NewCatalog(cfg *config.Config) Catalog {
 	return Catalog{config: cfg}
 }
 
-// HostNames returns configured host names in stable order.
+// HostNames returns configured host names in stable order, less the local
+// ones. This command is the machine surface's discovery, and listing a name
+// every other command here refuses would be a lie.
 func (c Catalog) HostNames() []string {
 	if c.config == nil {
 		return []string{}
 	}
-	return sortedKeys(c.config.Hosts)
+	names := make([]string, 0, len(c.config.Hosts))
+	for name, configured := range c.config.Hosts {
+		if configured.Host == config.LocalSpec {
+			continue
+		}
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 // ScriptNames returns the configured script names for host in stable order.
@@ -81,6 +91,9 @@ func (c Catalog) configuredHost(name string) (config.Host, error) {
 	if !ok {
 		return config.Host{}, UnknownHostError{Name: name}
 	}
+	if configured.Host == config.LocalSpec {
+		return config.Host{}, LocalHostError{Name: name}
+	}
 	return configured, nil
 }
 
@@ -91,6 +104,23 @@ func sortedKeys[V any](values map[string]V) []string {
 	}
 	slices.Sort(names)
 	return names
+}
+
+// LocalHostError reports a configured host the machine interface will not
+// reach. The boundary's value is the gap between what an agent can do
+// without Linqode — nothing on that server — and what Linqode grants it:
+// typed operations, and only those. On the machine Linqode runs on that gap
+// is zero, because the agent already has a shell there.
+//
+// So `config.toml` holds two categories of host: those an agent may reach,
+// and those only the operator may.
+type LocalHostError struct {
+	Name string
+}
+
+func (e LocalHostError) Error() string {
+	return fmt.Sprintf(
+		"host %q is local; an agent needs no Linqode to run commands on this machine", e.Name)
 }
 
 // UnknownHostError reports a name outside the configured machine boundary.

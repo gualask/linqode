@@ -1,7 +1,8 @@
 # Plan — the local machine as a target
 
-_Last updated: 2026-09-09. Status: step 1 of the implementation order is
-in (`internal/local`); the rest is designed._
+_Last updated: 2026-09-09. Status: steps 1 and 2 of the implementation order
+are in (`internal/local`, and the composition root that reaches for it); the
+rest is designed._
 
 _Re-verified against `895007d` (SSH execution and monitoring feeds hardened,
 `internal/host` and `internal/compose/cgroup` split into command and parse
@@ -353,6 +354,15 @@ while switching changes the shape of the backend itself.
 2. **Composition root** — `interactive.go` branches on a `local` spec, skipping
    `remote.Connect` and the "Connecting to …" line. `Catalog` rejects the spec;
    `hosts` omits it.
+
+   **Done.** The branch is `openTransport`, which returns an executor, the
+   name for the header, and how to close it; the rest of `runTUI` is written
+   against `operations.Executor` and did not change. The refusal is
+   `LocalHostError`, raised in `Catalog.configuredHost` so that every
+   machine-facing entry point inherits it, and mapped to a `local_host`
+   failure rather than `unknown_host` — the name is configured, and a caller
+   told "unknown" would go hunting for a typo. The header says `local` and
+   nothing more until step 6.
 3. **Probe** — two marker lines: whether `/proc` is there, and
    `DOCKER_HOST` / `DOCKER_CONTEXT`.
 4. **Parser presence flags** — absent sections reported absent, not zero.

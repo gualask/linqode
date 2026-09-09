@@ -52,6 +52,36 @@ func TestCatalogRejectsUnknownHost(t *testing.T) {
 	}
 }
 
+// A local host is configured and still outside this boundary: the agent
+// already has a shell on the machine Linqode runs on, so the typed
+// operations grant it nothing it did not have. The refusal says that rather
+// than claiming the name is unknown, which would send a caller hunting for a
+// typo.
+func TestCatalogRejectsAConfiguredLocalHost(t *testing.T) {
+	catalog := NewCatalog(&config.Config{Hosts: map[string]config.Host{
+		"laptop":  {Host: config.LocalSpec, Scripts: map[string]string{"build": "make"}},
+		"remote":  {Host: "deploy@example.com"},
+		"aliased": {Host: "production"},
+	}})
+
+	if got, want := catalog.HostNames(), []string{"aliased", "remote"}; !slices.Equal(got, want) {
+		t.Errorf("HostNames() = %v, want %v", got, want)
+	}
+	for _, selectLocal := range []func() error{
+		func() error { _, err := catalog.ScriptNames("laptop"); return err },
+		func() error { _, err := catalog.SelectHost("laptop"); return err },
+	} {
+		err := selectLocal()
+		var local LocalHostError
+		if !errors.As(err, &local) {
+			t.Fatalf("selection error = %v, want LocalHostError", err)
+		}
+		if local.Name != "laptop" {
+			t.Errorf("local host = %q", local.Name)
+		}
+	}
+}
+
 func TestCatalogSelectHostReturnsAuthorizedConnectionData(t *testing.T) {
 	disabled := false
 	catalog := NewCatalog(&config.Config{Hosts: map[string]config.Host{

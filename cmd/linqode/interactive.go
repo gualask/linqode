@@ -8,11 +8,53 @@ import (
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/config"
 	"github.com/gualask/linqode/internal/host"
+	"github.com/gualask/linqode/internal/local"
 	"github.com/gualask/linqode/internal/operations"
 	"github.com/gualask/linqode/internal/probe"
 	"github.com/gualask/linqode/internal/remote"
 	"github.com/gualask/linqode/internal/tui"
 )
+
+// transport is how one run reaches its host, and how the header names it.
+// Everything below is written against operations.Executor and cannot tell
+// which one it holds, which is the whole point of the seam.
+type transport struct {
+	executor operations.Executor
+	target   string
+	close    func()
+}
+
+// openTransport reaches the host, or the machine this is running on.
+//
+// The local branch skips the "Connecting to …" line rather than printing a
+// version of it: that line exists because opening an SSH session takes a
+// noticeable moment and can fail in ways worth naming, and neither is true
+// of starting a process here.
+func openTransport(ctx context.Context, spec string, stderr io.Writer) (transport, error) {
+	if spec == config.LocalSpec {
+		return transport{
+			executor: local.New(),
+			target:   config.LocalSpec,
+			close:    func() {},
+		}, nil
+	}
+
+	target, err := remote.Resolve(spec)
+	if err != nil {
+		return transport{}, err
+	}
+	fmt.Fprintf(stderr, "Connecting to %s@%s:%d ...\n",
+		target.User, target.DisplayHost, target.Port)
+	session, err := remote.Connect(ctx, target, terminalPrompter{})
+	if err != nil {
+		return transport{}, err
+	}
+	return transport{
+		executor: session,
+		target:   target.User + "@" + target.DisplayHost,
+		close:    session.Close,
+	}, nil
+}
 
 // runTUI connects and launches the interactive TUI.
 func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) error {
@@ -24,20 +66,13 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 	if err != nil {
 		return err
 	}
-	target, err := remote.Resolve(sel.Spec)
+	link, err := openTransport(ctx, sel.Spec, stderr)
 	if err != nil {
 		return err
 	}
+	defer link.close()
 
-	fmt.Fprintf(stderr, "Connecting to %s@%s:%d ...\n",
-		target.User, target.DisplayHost, target.Port)
-	session, err := remote.Connect(ctx, target, terminalPrompter{})
-	if err != nil {
-		return err
-	}
-	defer session.Close()
-
-	operator := operations.NewHostOperator(session, sel.ComposeDir, sel.Scripts...)
+	operator := operations.NewHostOperator(link.executor, sel.ComposeDir, sel.Scripts...)
 
 	// One round trip establishing what this host can be asked for, before
 	// anything asks it. A probe that could not run establishes nothing, and
@@ -50,7 +85,7 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 	}
 
 	info := tui.Info{
-		Target:             target.User + "@" + target.DisplayHost,
+		Target:             link.target,
 		ComposeDir:         sel.ComposeDir,
 		Scripts:            sel.Scripts,
 		OS:                 capabilities.OS,

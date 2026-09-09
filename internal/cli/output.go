@@ -2,11 +2,8 @@ package cli
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-
-	"github.com/gualask/linqode/internal/operations"
 )
 
 const schemaVersion = 1
@@ -71,11 +68,7 @@ func Run(invocation Invocation, configured catalog, stdout, stderr io.Writer) in
 	case CommandScripts:
 		names, err := configured.ScriptNames(invocation.Host)
 		if err != nil {
-			var unknown operations.UnknownHostError
-			if errors.As(err, &unknown) {
-				return Report(stderr, inputFailure(invocation.Operation(), "unknown_host", err.Error()))
-			}
-			return Report(stderr, OperationalFailure(invocation.Operation(), "config_error", err))
+			return Report(stderr, SelectionFailure(invocation.Operation(), err))
 		}
 		return writeSuccess(stdout, stderr, invocation.Operation(), scriptsDocument{
 			SchemaVersion: schemaVersion,

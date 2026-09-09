@@ -15,12 +15,24 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+// LocalSpec is the `host` value that means the machine Linqode is running
+// on rather than one to reach over SSH. It is a target value, not a mode:
+// `linqode local` works with no config at all, and a named entry giving it a
+// project is an ordinary host entry. It is deliberately not `localhost`,
+// which is a real name meaning something else — `ssh localhost` goes through
+// sshd, possibly as another user — and which this would make inexpressible.
+//
+// A user who configures `[hosts.local]` wins over the keyword: Select looks
+// the name up before falling through to an inline spec.
+const LocalSpec = "local"
+
 type Config struct {
 	Hosts map[string]Host `toml:"hosts"`
 }
 
 type Host struct {
-	// Host is a ~/.ssh/config alias or an inline `[user@]host[:port]`.
+	// Host is a ~/.ssh/config alias, an inline `[user@]host[:port]`, or
+	// LocalSpec.
 	Host string `toml:"host"`
 	// ComposeDir is the directory on the server containing compose.yaml.
 	ComposeDir string `toml:"compose_dir"`

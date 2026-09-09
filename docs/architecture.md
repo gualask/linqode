@@ -58,7 +58,7 @@ Four principles shape the design:
 | `internal/operations` | shared configured catalog and connected status/stats/log/action/script workflows; presentation-neutral streams |
 | `internal/config` | `config.toml` loading and host selection |
 | `internal/remote` | SSH: target resolution, connect, host-key policy, auth, one-shot and streaming exec with cancellation |
-| `internal/local` | the same one-shot and streaming exec on the machine Linqode itself runs on, cancelled by signalling the command's own process group so that nothing it started outlives it. Not yet reachable from the composition root: see `LOCAL.md` |
+| `internal/local` | the same one-shot and streaming exec on the machine Linqode itself runs on, cancelled by signalling the command's own process group so that nothing it started outlives it |
 | `internal/compose` | `docker compose` command builders (with shell quoting) and the parsers for what they return: `ps` output, the daemon's event stream, container cgroup counters, `docker system df`, and both `docker stats` forms |
 | `internal/probe` | the connect-time capability probe: what the host can be asked for, established once in one round trip and degrading to unknown rather than to a finding |
 | `internal/host` | everything about the machine itself, read out of `/proc` and `/sys`: the marker-sectioned host batch, the client-side deltas that turn its counters into percentages and rates, and the on-demand process table and graphics cards |
@@ -101,6 +101,17 @@ without resolving or connecting to SSH.
 
 One SSH session is established per run; every later operation opens its own
 channel over it.
+
+**Unless the target is the machine itself.** A `host` of `local` — the
+keyword, or a configured entry whose `host` is that word — is a target value
+like an alias or an inline spec, and the composition root answers it with an
+`internal/local` executor: nothing to resolve, nothing to authenticate, and
+no "Connecting to …" line, because that line exists for a wait that can fail
+and starting a process is neither. Everything above the executor is unchanged,
+including the probe. The machine interface refuses such a host
+(`local_host`) and `hosts` does not list it: see
+[operations.md](operations.md). The rest of the plan for local targets, and
+what is not built yet, is in `LOCAL.md`.
 
 - **Host key**: checked against `~/.ssh/known_hosts`, keyed by the resolved
   host as OpenSSH does — servers already trusted via plain `ssh` are

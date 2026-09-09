@@ -1,6 +1,6 @@
 # Operations
 
-_Last updated: 2026-09-06._
+_Last updated: 2026-09-09._
 
 What Linqode *does* to a host, as opposed to what it reads from one
 ([monitoring.md](monitoring.md)) or draws on the screen
@@ -156,6 +156,16 @@ Machine commands accept only exact host and script names from the default
 operator-controlled TOML. Inline targets, `--config`, arbitrary execution and
 runtime script arguments are unavailable, and authentication never prompts or
 learns an unknown host key.
+
+**A local host is configured and still outside the boundary.** Its value is
+the gap between what an agent can do without Linqode — nothing on that server
+— and what Linqode grants it; on the machine Linqode runs on that gap is
+zero, because the agent already has a shell there. So a host whose `host` is
+`local` is refused with `local_host` rather than `unknown_host`, which would
+send a caller hunting for a typo, and `hosts` omits it: that command is this
+surface's discovery, and listing a name every other command here refuses
+would be a lie. `config.toml` therefore holds two categories of host, those
+an agent may reach and those only the operator may.
 
 **Which TOML that is comes from the environment**, and so do the credentials:
 `HOME` locates `~/.config/linqode/config.toml` and `~/.ssh`, `SSH_AUTH_SOCK`
