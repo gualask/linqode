@@ -660,9 +660,10 @@ func (m *Model) actionsHere() (service string, offered bool) {
 	if !ok || !services.OffersServiceKeys() {
 		return "", false
 	}
-	// A region may offer the key with nothing under the cursor — the table
-	// does, for the round trip before its rows arrive — and then there is
-	// something to advertise and nothing to open.
+	// A region that offers the key does not have to have something under the
+	// cursor at this instant, and the two are kept apart deliberately: what a
+	// region advertises is its own to decide, and a future panel may want to
+	// offer a key while its cursor is between things.
 	service, _ = services.SelectedService()
 	return service, true
 }

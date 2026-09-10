@@ -85,10 +85,18 @@ func TestActionMenuTargetsSelectedService(t *testing.T) {
 	assertActionRequest(t, m, operations.ActionStop, "stop: web", 1)
 	assertActionRequest(t, m, operations.ActionStart, "start: web", 2)
 
+	// A compose project with nothing in it: the key is neither answered nor
+	// advertised, the same as anywhere else with nothing under the cursor.
 	empty := screenWith(t, Config{})
+	empty.SetSize(120, 30)
 	empty.Update(key("c"))
 	if empty.menu != nil {
 		t.Error("c with no services should not open a menu")
+	}
+	for _, offered := range []string{"c actions", "enter logs"} {
+		if strings.Contains(empty.View(), offered) {
+			t.Errorf("an empty compose project advertises %q:\n%s", offered, empty.View())
+		}
 	}
 }
 

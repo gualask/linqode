@@ -73,18 +73,25 @@ func (m *Model) Unavailable() string { return m.unavailable }
 // taking `enter logs` and `c actions` off the footer.
 var _ panel.ServiceRegion = (*Model)(nil)
 
-// OffersServiceKeys is this panel's half of panel.ServiceRegion: the keys that
-// need a service are offered wherever this host has compose at all.
+// OffersServiceKeys is this panel's half of panel.ServiceRegion: there has to
+// be a row, and this host has to have compose to have produced one.
 //
-// Not on there being a row selected, which is the other panel's answer. This
-// table is empty for one round trip at the start of a session and then has
-// the project in it; a key withheld until the first `ps` lands would appear
-// on the footer a moment after the screen did, which reads as the keymap
-// arriving late rather than as the truth about a lasting state. Where there
-// is genuinely nothing to act on — a host with no compose — the sentence
-// saying why is already standing where the table would be, and then nothing
-// is offered.
-func (m *Model) OffersServiceKeys() bool { return m.unavailable == "" }
+// A table with no rows has nothing any of these keys can do. `ps` is asked
+// with `--all`, so a project that is merely down still lists its services as
+// exited and they can be started; no rows means no containers exist for this
+// project at all, and the only command that would help there is a
+// project-level `compose up`, which Linqode does not have and has decided not
+// to grow (docs/PROJECT.md, the mutation surface). The panel already says
+// `(no services in this compose project)` where the rows would be, which is
+// the honest thing to offer: a sentence, not three keys that do nothing.
+//
+// It costs the first round trip of a session, where the table says it is
+// loading and its keys are not on the footer yet. They arrive with the rows
+// they are about, which is the same rule the feed follows and one fewer
+// exception to explain.
+func (m *Model) OffersServiceKeys() bool {
+	return m.unavailable == "" && len(m.services) > 0
+}
 
 // SetServices applies one reading of the service list. A failure keeps the
 // last good table on screen and reports itself in the panel's footer line:

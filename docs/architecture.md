@@ -84,9 +84,12 @@ type: the compose table and the events feed implement `ServiceRegion`, the
 machine's band and its readings do not, so on them the keys are neither
 advertised nor answered whatever they are showing. *Is one under the cursor,
 and is the key worth offering when there is not?* is answered by the panel,
-because only it knows what its own emptiness means — the table's lasts a round
-trip and then it has the project in it, the feed's is a deployment where
-nothing has happened, which is the ordinary state and lasts all day.
+because only it knows what its own emptiness means. Both currently answer that
+an empty region offers nothing — a compose project with no containers has
+nothing these keys can do, and neither has a feed in which nothing has
+happened — but they answer it separately, and a panel that wanted to offer a
+key while its cursor sat between things would say so without the screen
+learning a new special case.
 
 The screen's part is choosing which region the keys are talking to — the panel
 with focus, or the detail that has taken the body from it — and asking it.

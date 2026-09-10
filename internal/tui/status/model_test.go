@@ -43,6 +43,45 @@ func TestBackgroundHandlesTheStreamButNotKeys(t *testing.T) {
 	}
 }
 
+// The keys that need a service are offered only where there is one. `ps` is
+// asked with `--all`, so a project that is merely down still lists its
+// services as exited and they can be started; a table with no rows at all is
+// a project with no containers, and nothing here can make one — the command
+// that would is a project-level `up`, which this product does not have.
+func TestATableWithNoRowsOffersNoKeys(t *testing.T) {
+	m := New(Config{LiveStats: true})
+
+	// Before the first read: the panel says it is loading, and promises
+	// nothing it cannot do yet.
+	if m.OffersServiceKeys() || len(m.Hints()) != 0 {
+		t.Errorf("a table that has read nothing offers %v", m.Hints())
+	}
+
+	// Read, and the project has nothing in it.
+	m.SetServices(nil, nil)
+	if m.OffersServiceKeys() || len(m.Hints()) != 0 {
+		t.Errorf("an empty compose project offers %v", m.Hints())
+	}
+	if view := m.View(); !strings.Contains(view, "no services") {
+		t.Errorf("the panel does not say why it is empty:\n%s", view)
+	}
+
+	// With rows they are all back, exited ones included: `start` is exactly
+	// what a stopped service is waiting for.
+	m.SetServices([]compose.Service{{Service: "web", Name: "app-web-1",
+		State: "exited", Status: "Exited (0) 3 days ago"}}, nil)
+	if !m.OffersServiceKeys() || len(m.Hints()) == 0 {
+		t.Error("a table with a stopped service offers nothing")
+	}
+
+	// And a host with no compose offers nothing whatever it holds.
+	unavailable := New(Config{Unavailable: "docker is not installed on this host"})
+	unavailable.SetServices(services("web"), nil)
+	if unavailable.OffersServiceKeys() || len(unavailable.Hints()) != 0 {
+		t.Errorf("a host without compose offers %v", unavailable.Hints())
+	}
+}
+
 func TestRefreshPreservesSelectionByName(t *testing.T) {
 	m := New(Config{})
 	m.SetServices(services("db", "web", "worker"), nil)

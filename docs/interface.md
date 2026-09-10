@@ -454,16 +454,28 @@ selected event was about rather than on whatever the table is sitting on. On
 the band it is neither advertised nor answered, and inside the system view the
 same.
 
-**Under the cursor, not merely in the region.** The feed offers its keys —
-`enter logs` as well as `c actions` — only while its cursor is on an event
-whose container the project still has, and offers nothing at all otherwise:
-its half of the line goes empty, divider included. An empty feed is not a
-panel waiting for data, it is a deployment where nothing has happened, which
-is the good case and the one an operator is in most of the time; an event
-about a container that was destroyed is a row and a cursor with nothing behind
-them. The table is the other way round — its rows are one round trip away, and
-its emptiness is a moment — so there `c` follows compose being available
-rather than a row being selected. The cost is one `tab` for an operator who is reading the meters and
+**Under the cursor, not merely in the region.** Both regions offer their keys
+— `enter logs` as well as `c actions` — only while there is something under
+the cursor, and offer nothing at all otherwise: that half of the line goes
+empty, divider included.
+
+For the feed that is an empty feed, which is not a panel waiting for data but
+a deployment where nothing has happened — the good case, and the one an
+operator is in most of the time — or an event about a container that was
+destroyed, which is a row and a cursor with nothing behind them.
+
+For the table it is a compose project with no containers at all. `ps` is asked
+with `--all`, so a project that is merely *down* still lists its services as
+exited and `start` is exactly what they are waiting for; no rows means nothing
+has ever been created here, and the only command that would help is a
+project-level `up`, which Linqode does not have (see
+[PROJECT.md](PROJECT.md#decided-policies), the mutation surface). What the
+panel offers instead is the sentence `(no services in this compose project)`
+where the rows would be, which is worth more than three keys that do nothing.
+
+The cost is the first round trip of a session, where the table says it is
+loading and its keys are not on the line yet. They arrive with the rows they
+are about. The cost is one `tab` for an operator who is reading the meters and
 wants to restart something — the table is still on screen behind the band, and
 its selection still visible — and the rule that buys it is the one anybody can
 state after seeing the footer once. The alternative, "`c` works if the table
