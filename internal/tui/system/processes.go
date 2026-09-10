@@ -292,6 +292,12 @@ func (m *Model) gpuRows(column int) []row {
 		if gpu.MemTotalKB > 0 {
 			text += fmt.Sprintf("   %s/%s",
 				formatKB(gpu.MemUsedKB), formatKB(gpu.MemTotalKB))
+		} else if gpu.MemUsedKB > 0 {
+			// Unified memory has no VRAM total for this to be a share of,
+			// so the figure stands on its own. The alternative — making it a
+			// fraction of the machine's RAM — would be a different quantity
+			// wearing this one's clothes.
+			text += fmt.Sprintf("   %s used", formatKB(gpu.MemUsedKB))
 		}
 		var tail []string
 		if gpu.TempMilliC > 0 {

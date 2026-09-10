@@ -29,6 +29,7 @@ import (
 const (
 	amdMarker    = "#amdgpu"
 	nvidiaMarker = "#nvidia"
+	appleMarker  = "#apple"
 )
 
 // nvidiaQuery is the one call, with the units stripped so the numbers do not
@@ -38,8 +39,25 @@ const nvidiaQuery = "nvidia-smi --query-gpu=" +
 	"index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw" +
 	" --format=csv,noheader,nounits 2>/dev/null"
 
-// GPUCommand reads what both vendors will say. A host with neither matches no
-// glob and runs no second command.
+// appleQuery is the third vendor, and the one whose card is soldered to the
+// machine Linqode may itself be running on. `ioreg` needs no root and costs
+// 20 ms — cheaper than nvidia-smi, whose driver-context startup is why this
+// reading is on the on-demand tier at all.
+//
+// The grep is not tidying: the full node is **46 KB**, most of it bundle
+// names and scheduler state, against 497 bytes kept. That is the same
+// discipline as `--query-gpu` on the NVIDIA side and named files on the AMD
+// one — ask the host for the reading, not for everything around it.
+//
+// The `+-o` line is kept because it is the only node boundary in the output.
+// One accelerator is what every Mac has, but the keys inside a node come back
+// in no particular order — here PerformanceStatistics precedes model — so a
+// second card would be unsplittable without it.
+const appleQuery = "ioreg -r -d 1 -w 0 -c IOAccelerator 2>/dev/null | " +
+	`grep -E '^[+]-o |"(model|gpu-core-count)" =|"PerformanceStatistics" ='`
+
+// GPUCommand reads what all three vendors will say. A host with none matches
+// no glob and runs no second command.
 func GPUCommand() string {
 	return "echo '" + amdMarker + "'; grep -H '' " +
 		"/sys/class/drm/card*/device/gpu_busy_percent " +
@@ -48,7 +66,9 @@ func GPUCommand() string {
 		"/sys/class/drm/card*/device/hwmon/hwmon*/temp1_input " +
 		"/sys/class/drm/card*/device/hwmon/hwmon*/power1_average 2>/dev/null; " +
 		"echo '" + nvidiaMarker + "'; " +
-		"if command -v nvidia-smi >/dev/null 2>&1; then " + nvidiaQuery + "; fi"
+		"if command -v nvidia-smi >/dev/null 2>&1; then " + nvidiaQuery + "; fi; " +
+		"echo '" + appleMarker + "'; " +
+		"if command -v ioreg >/dev/null 2>&1; then " + appleQuery + "; fi"
 }
 
 // GPU is one card.
@@ -79,11 +99,14 @@ func (g GPU) MemUsedPercent() float64 {
 	return float64(g.MemUsedKB) / float64(g.MemTotalKB) * 100
 }
 
-// ParseGPUs reads the output of GPUCommand, AMD cards first in card order and
-// NVIDIA cards after them in index order.
+// ParseGPUs reads the output of GPUCommand: AMD cards first in card order,
+// NVIDIA cards after them in index order, Apple's last — an ordering that
+// matters only to a machine with two vendors in it, which is a workstation
+// with a discrete card, never a Mac.
 func ParseGPUs(raw []byte) []GPU {
 	sections := split(string(raw))
-	return append(parseAMD(sections[amdMarker]), parseNVIDIA(sections[nvidiaMarker])...)
+	gpus := append(parseAMD(sections[amdMarker]), parseNVIDIA(sections[nvidiaMarker])...)
+	return append(gpus, parseApple(sections[appleMarker])...)
 }
 
 // parseAMD gathers the sysfs files back into cards. Everything under a card's
@@ -228,6 +251,84 @@ func nvidiaNumber(text string) (float64, bool) {
 	}
 	value, err := strconv.ParseFloat(text, 64)
 	if err != nil || value < 0 {
+		return 0, false
+	}
+	return value, true
+}
+
+// parseApple reads the ioreg node of an Apple GPU. The format is
+// plist-flavoured text — `"key" = value`, with a dictionary written inline
+// as `{"key"=value,…}` — so this is a parser in the same family as the two
+// above it, not a dependency.
+//
+// Two of the six fields stay unreported, and both by decision rather than
+// omission. There is no VRAM total to report: the memory is the machine's,
+// unified, and `hw.memsize` in that field would look like the quantity the
+// other vendors put there and mean "share of system RAM" instead. And the
+// die temperature Apple exposes carries no semantic name — `PMU tdie12`,
+// with nothing saying which die — so nothing here can honestly say "GPU
+// 45 °C".
+func parseApple(section string) []GPU {
+	var gpus []GPU
+	var current *GPU
+	cores := 0
+
+	flush := func() {
+		if current == nil {
+			return
+		}
+		// A node that named no model is an accelerator this cannot
+		// describe, and a row saying nothing is worse than no row.
+		if current.Name != "" {
+			if cores > 0 {
+				current.Name += " (" + strconv.Itoa(cores) + " cores)"
+			}
+			gpus = append(gpus, *current)
+		}
+		current, cores = nil, 0
+	}
+
+	for line := range strings.Lines(section) {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "+-o "):
+			flush()
+			current = &GPU{}
+		case current == nil:
+			// Output before the first node boundary: not ours to read.
+		case strings.HasPrefix(line, `"model" = `):
+			current.Name = strings.Trim(strings.TrimPrefix(line, `"model" = `), `"`)
+		case strings.HasPrefix(line, `"gpu-core-count" = `):
+			cores, _ = strconv.Atoi(strings.TrimPrefix(line, `"gpu-core-count" = `))
+		case strings.HasPrefix(line, `"PerformanceStatistics" = `):
+			if busy, ok := appleStat(line, "Device Utilization %"); ok {
+				current.BusyPercent, current.BusyReported = float64(busy), true
+			}
+			if used, ok := appleStat(line, "In use system memory"); ok {
+				current.MemUsedKB = uint64(used) / 1024
+			}
+		}
+	}
+	flush()
+	return gpus
+}
+
+// appleStat reads one number out of the inline dictionary
+// PerformanceStatistics is written as. The key is matched with its quotes and
+// its `=`, which is what keeps "In use system memory" from matching "In use
+// system memory (driver)" — a different reading that is 0 on this machine and
+// would silently become the memory figure.
+func appleStat(line, key string) (int64, bool) {
+	_, rest, found := strings.Cut(line, `"`+key+`"=`)
+	if !found {
+		return 0, false
+	}
+	digits := rest
+	if end := strings.IndexAny(digits, ",}"); end >= 0 {
+		digits = digits[:end]
+	}
+	value, err := strconv.ParseInt(strings.TrimSpace(digits), 10, 64)
+	if err != nil {
 		return 0, false
 	}
 	return value, true

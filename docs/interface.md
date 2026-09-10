@@ -317,7 +317,13 @@ what keeps the home cheap to draw and cheap to sample.
 - **A card gets a row per card**, metered on utilisation with memory spelled
   out beside it, since on a card it is memory that stops work starting. Where
   a driver reports no utilisation the meter falls back to memory and the row
-  says which number it is drawing.
+  says which number it is drawing. On Apple silicon there is no VRAM total to
+  be a fraction of — the memory is the machine's — so the row shows what is in
+  use and no share of it, which is the whole difference between the two:
+
+  ```
+   gpu      [▇▇░░░░░░░░]  21% busy   335M used   Apple M4 (10 cores)
+  ```
 - **The last row is what the machine calls itself**, established once by the
   [connect-time probe](monitoring.md) rather than sampled — it does not change
   and it never goes stale. It is last because the order is by urgency and the

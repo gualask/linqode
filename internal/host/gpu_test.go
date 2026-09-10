@@ -134,4 +134,95 @@ func TestGPUCommandGuardsTheSlowHalf(t *testing.T) {
 	if !strings.Contains(command, "--format=csv,noheader,nounits") {
 		t.Errorf("the query is not asked for in the shape parsed: %s", command)
 	}
+	// ioreg is on every Mac and on no Linux host, so the guard is what keeps
+	// a server from reporting a missing binary on stderr.
+	if !strings.Contains(command, "command -v ioreg") {
+		t.Errorf("ioreg is called unguarded: %s", command)
+	}
+	// The whole node is 46 KB of bundle names and scheduler state. Asking
+	// for it and throwing it away on the client is the thing this reading
+	// exists not to do.
+	if !strings.Contains(command, "grep -E") {
+		t.Errorf("the ioreg node is fetched whole: %s", command)
+	}
+}
+
+// What this Mac's ioreg answers, verbatim. The keys come back in no
+// particular order — PerformanceStatistics before model — which is why the
+// node boundary is what the parser splits on.
+const appleOutput = "#apple\n" +
+	"+-o AGXAcceleratorG16G  <class AGXAcceleratorG16G, id 0x10000050b, registered, matched, active, busy 0 (655 ms), retain 51>\n" +
+	`      "PerformanceStatistics" = {"In use system memory (driver)"=0,"Alloc system memory"=1574862848,"Tiler Utilization %"=20,"recoveryCount"=0,"Renderer Utilization %"=19,"TiledSceneBytes"=1605632,"Device Utilization %"=21,"SplitSceneCount"=0,"In use system memory"=351141888}` + "\n" +
+	`      "model" = "Apple M4"` + "\n" +
+	`      "gpu-core-count" = 10` + "\n"
+
+func TestAppleSiliconReportsWhatItHasAndNothingElse(t *testing.T) {
+	gpus := ParseGPUs([]byte(appleOutput))
+	if len(gpus) != 1 {
+		t.Fatalf("got %d cards, want 1: %+v", len(gpus), gpus)
+	}
+	gpu := gpus[0]
+	if gpu.Name != "Apple M4 (10 cores)" {
+		t.Errorf("Name = %q", gpu.Name)
+	}
+	if !gpu.BusyReported || gpu.BusyPercent != 21 {
+		t.Errorf("busy = %v %v, want 21 reported", gpu.BusyPercent, gpu.BusyReported)
+	}
+	// "In use system memory", not the "(driver)" reading beside it, which is
+	// 0 here and would pass unnoticed as the memory figure.
+	if gpu.MemUsedKB != 351141888/1024 {
+		t.Errorf("MemUsedKB = %d", gpu.MemUsedKB)
+	}
+	// Unified memory has no VRAM total, and hw.memsize in that field would
+	// be a different quantity wearing this one's clothes. The temperature
+	// and the power draw are equally absent: Apple's die sensors carry no
+	// semantic name, and the power needs root.
+	if gpu.MemTotalKB != 0 || gpu.TempMilliC != 0 || gpu.PowerWatts != 0 {
+		t.Errorf("invented a total, a temperature or a power draw: %+v", gpu)
+	}
+	if gpu.MemUsedPercent() != 0 {
+		t.Errorf("MemUsedPercent() = %v with no total", gpu.MemUsedPercent())
+	}
+}
+
+// A node with no model is an accelerator this cannot describe, and a row
+// naming nothing is worse than no row at all.
+func TestAnUnnamedAcceleratorIsNotACard(t *testing.T) {
+	gpus := ParseGPUs([]byte("#apple\n+-o IOAccelerator  <class IOAccelerator>\n" +
+		`      "gpu-core-count" = 8` + "\n"))
+	if len(gpus) != 0 {
+		t.Errorf("got %+v", gpus)
+	}
+}
+
+// Two accelerators in one answer stay two rows, which is what the node
+// boundary is kept for.
+func TestTwoAppleNodesAreTwoCards(t *testing.T) {
+	gpus := ParseGPUs([]byte("#apple\n" +
+		"+-o AGXAcceleratorG16G  <class A>\n" +
+		`      "model" = "Apple M4"` + "\n" +
+		`      "gpu-core-count" = 10` + "\n" +
+		"+-o AGXAcceleratorG17G  <class B>\n" +
+		`      "model" = "Apple M4 Max"` + "\n" +
+		`      "gpu-core-count" = 40` + "\n"))
+	if len(gpus) != 2 || gpus[0].Name != "Apple M4 (10 cores)" ||
+		gpus[1].Name != "Apple M4 Max (40 cores)" {
+		t.Errorf("got %+v", gpus)
+	}
+}
+
+// The three vendors land in one list, in the command's order.
+func TestEveryVendorInOneAnswer(t *testing.T) {
+	gpus := ParseGPUs([]byte("#amdgpu\n" +
+		"/sys/class/drm/card0/device/gpu_busy_percent:62\n" +
+		"/sys/class/drm/card0/device/mem_info_vram_total:17179869184\n" +
+		"#nvidia\n0, NVIDIA A10, 91, 21402, 23028, 74, 148.6\n" +
+		appleOutput))
+	if len(gpus) != 3 {
+		t.Fatalf("got %d cards: %+v", len(gpus), gpus)
+	}
+	if gpus[0].Name != "amdgpu card0" || gpus[1].Name != "NVIDIA A10" ||
+		gpus[2].Name != "Apple M4 (10 cores)" {
+		t.Errorf("got %+v", gpus)
+	}
 }

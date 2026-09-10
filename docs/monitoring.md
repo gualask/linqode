@@ -56,11 +56,12 @@ decides whether the rest of this document even applies: whether docker is
 installed, whether this user may reach the daemon, which compose the host has,
 whether the configured `compose_dir` exists, whether the host has the `/proc`
 every reading below is made of, and which daemon `DOCKER_HOST` or
-`DOCKER_CONTEXT` will send those commands to. **40 ms and 148 bytes**,
+`DOCKER_CONTEXT` will send those commands to. **39 ms and 183 bytes**,
 measured, once per session — against the 66 ms `compose ps` pays every minute.
-That measurement predates the last three sections, which add about 35 bytes of
-answer, two shell builtins and no round trip; it is due a re-measurement
-against the fixture rather than an estimate published as a figure.
+The three sections added last cost 35 bytes of answer, two shell builtins and
+no round trip: the time is the same 39 ms it was at 148 bytes, because what
+this pays for is the daemon round trip and the compose CLI start, not the
+shell.
 
 It is on no tier because none of it is a reading. A tier is a cadence, and a
 cadence assumes the answer changes; these do not change while a session is
@@ -323,12 +324,31 @@ behind `nvidia-smi`, which is not a file read: it initialises a driver context,
 typically hundreds of milliseconds and worse with persistence mode off. One
 slow vendor is enough to keep the whole reading off the always-on tier.
 
-Both vendors are asked in a single exec with the NVIDIA half behind
-`command -v`. This is the guard side of the probe's own rule: it changes one
-command's fallback and nothing else, so it costs a shell builtin rather than
-probe state. A host with neither matches no glob and starts no tool — **2 ms
-and 16 bytes**, measured. Intel is left out; it offers little without something
-installed.
+Apple silicon is the third, and the one card that is soldered to a machine
+Linqode may be running on itself. `ioreg -r -d 1 -w 0 -c IOAccelerator` needs
+no root and costs **20 ms** — cheaper than nvidia-smi, and the reading is
+`Device Utilization %` and `In use system memory` out of a plist-flavoured
+node. It reports no VRAM total, because there is none: the memory is the
+machine's, unified, and `hw.memsize` in that field would look like the
+quantity the other two vendors put there and mean "share of system RAM"
+instead. So the row shows what is in use and draws no bar for it. No
+temperature either — Apple's die sensors are `PMU tdieN`, real readings with
+no name saying which die — and no power draw, which needs root.
+
+**What is asked for is the reading, not everything around it.** The ioreg node
+is **46 KB** of bundle names, scheduler state and match dictionaries; a `grep`
+for the three keys that matter leaves **497 bytes**. That is the same
+discipline as `--query-gpu` on the NVIDIA side and named files on the AMD one.
+The node boundary line is kept along with them, because the keys inside a node
+come back in no order — `PerformanceStatistics` before `model` on this
+machine — and a second accelerator would otherwise be unsplittable.
+
+All three vendors are asked in a single exec, with the NVIDIA and Apple halves
+behind `command -v`. This is the guard side of the probe's own rule: it
+changes one command's fallback and nothing else, so it costs a shell builtin
+rather than probe state. A host with none matches no glob and starts no tool —
+**2 ms and 23 bytes**, measured. Intel is left out; it offers little without
+something installed.
 
 `/sys/class/drm` holds a directory per *connector* as well as per card, and a
 connector's `device` symlink points back at the card, so `card0-DP-1` would be
@@ -366,11 +386,11 @@ go test -tags e2e ./tests/e2e/ -run TestRemoteCommandCost -cost.measure
 | Command | Cost | Bytes |
 | ------- | ---- | ----- |
 | exec overhead (`true`) | 1 ms | 0 |
-| capability probe (once, at connect) | 40 ms | 148 B (before the `/proc` and docker-endpoint sections; see above) |
+| capability probe (once, at connect) | 39 ms | 183 B |
 | host batch (`/proc`, `df -Pk`, hwmon) | 6 ms | 2.8 KB |
 | container cgroups (`/sys/fs/cgroup` + `/proc/<pid>/net/dev`) | 6 ms | 3.4 KB |
 | process table (`/proc/<pid>/stat`, on demand) | 3 ms | 200 B per process |
-| graphics cards (on demand, no card here) | 2 ms | 16 B |
+| graphics cards (on demand, no card here) | 2 ms | 23 B |
 | `compose ps --all --format json` | 65 ms | 6.2 KB |
 | `docker system df` (on demand) | 65 ms | 116 B |
 | `docker stats --no-stream` | 2.02 s | 973 B |

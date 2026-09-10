@@ -1,7 +1,7 @@
 # Plan — the local machine as a target
 
-_Last updated: 2026-09-09. Status: steps 1 to 4 of the implementation order
-are in. What is left is the Darwin readings (5, 6), the header's machine
+_Last updated: 2026-09-10. Status: steps 1 to 5 of the implementation order
+are in. What is left is the Darwin `host.Metrics` (6), the header's machine
 name (7) and the picker (8)._
 
 _Re-verified against `895007d` (SSH execution and monitoring feeds hardened,
@@ -386,6 +386,17 @@ while switching changes the shape of the backend itself.
    phase that costs nothing to undo. What it puts on screen is a Mac with an
    empty band and one real card — semi-empty and honest, which is the shape
    the probe established and the best exercise of step 4.
+
+   **Done**, and the plan understated one thing: the ioreg node is **46 KB**,
+   which is process-table money for one card. A `grep` for the three keys
+   that matter leaves 497 bytes, and the whole reading still costs 2 ms and
+   23 bytes on a host with no card at all — 7 more than before this section
+   existed. Read on this machine: `Apple M4 (10 cores)`, 21% busy, 335M in
+   use, no total, no temperature, no power. The card is asked for by
+   `command -v ioreg` beside the `command -v nvidia-smi` already there, which
+   is the probe's own rule for a guard that changes one command's fallback
+   and nothing else — no probe state, and nothing for a Linux host to pay but
+   a shell builtin.
 6. **Darwin metrics** — `host.Metrics` behind a build tag, then temperatures.
    This is the irreversible half — a dependency outside the declared stack,
    code CI never compiles, numbers the fixture cannot cover — so it is taken
