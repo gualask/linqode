@@ -12,6 +12,7 @@ package status
 import (
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/operations"
+	"github.com/gualask/linqode/internal/tui/panel"
 )
 
 type Model struct {
@@ -66,6 +67,24 @@ func New(config Config) *Model {
 
 // Unavailable is why this panel has no table, empty when it has one.
 func (m *Model) Unavailable() string { return m.unavailable }
+
+// The table is a region the keys that need a service can talk to. Declared
+// here so that dropping either method breaks the build rather than quietly
+// taking `enter logs` and `c actions` off the footer.
+var _ panel.ServiceRegion = (*Model)(nil)
+
+// OffersServiceKeys is this panel's half of panel.ServiceRegion: the keys that
+// need a service are offered wherever this host has compose at all.
+//
+// Not on there being a row selected, which is the other panel's answer. This
+// table is empty for one round trip at the start of a session and then has
+// the project in it; a key withheld until the first `ps` lands would appear
+// on the footer a moment after the screen did, which reads as the keymap
+// arriving late rather than as the truth about a lasting state. Where there
+// is genuinely nothing to act on — a host with no compose — the sentence
+// saying why is already standing where the table would be, and then nothing
+// is offered.
+func (m *Model) OffersServiceKeys() bool { return m.unavailable == "" }
 
 // SetServices applies one reading of the service list. A failure keeps the
 // last good table on screen and reports itself in the panel's footer line:

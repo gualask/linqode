@@ -7,12 +7,15 @@ package home
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/gualask/linqode/internal/compose"
+	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/operations"
+	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/status"
 )
 
@@ -130,6 +133,62 @@ func TestActionsBelongToTheFocusedRegion(t *testing.T) {
 	}
 	if strings.Contains(screen.View(), "c actions") {
 		t.Errorf("the action key is advertised inside the system view:\n%s", screen.View())
+	}
+}
+
+// The invariant the capability exists to hold: the footer says exactly what
+// the region says, whichever region has focus. A panel that is not a
+// panel.ServiceRegion never gets the key — the machine is not one, and cannot
+// become one by accident — and a panel that is gets it exactly when its own
+// predicate says so.
+//
+// Walked over the whole ring in two states, because the two panels that are
+// service regions answer differently when empty, which is the case this is
+// worth protecting.
+func TestTheFooterSaysWhatTheRegionSays(t *testing.T) {
+	check := func(t *testing.T, screen *Model, state string) {
+		t.Helper()
+		for range len(screen.panels) {
+			region := screen.focused()
+			want := false
+			if services, ok := region.(panel.ServiceRegion); ok {
+				want = services.OffersServiceKeys()
+			}
+			if got := strings.Contains(screen.View(), "c actions"); got != want {
+				t.Errorf("%s, focus on %q: footer offers=%v, the region says %v",
+					state, region.Title(), got, want)
+			}
+			screen.Update(tea.KeyMsg{Type: tea.KeyTab})
+		}
+	}
+
+	stream := newWatchStream()
+	build := func() *Model {
+		screen := New(Config{
+			Host: func() (host.Metrics, error) { return host.Metrics{Uptime: time.Hour}, nil },
+			Services: func() ([]compose.Service, error) {
+				return []compose.Service{{Service: "web", Name: "app-web-1",
+					Project: "app", State: "running"}}, nil
+			},
+			Watch: func(string) (operations.Feed, error) { return stream.feed(), nil },
+		}, status.New(status.Config{}))
+		screen.SetSize(150, 30)
+		applyScreen(screen, screen.sampler.due())
+		return screen
+	}
+
+	quiet := build()
+	check(t, quiet, "nothing has happened yet")
+
+	busy := build()
+	stream.change("app-web-1")
+	applyScreen(busy, busy.handleWatchTick())
+	check(t, busy, "an event about a live container")
+
+	// And the machine is not a region that has services, whatever it is
+	// showing — which is the half of the contract a type answers.
+	if _, ok := any(quiet.system).(panel.ServiceRegion); ok {
+		t.Error("the machine claims to have a service under its cursor")
 	}
 }
 

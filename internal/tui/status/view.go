@@ -68,10 +68,9 @@ func (m *Model) selectionStyle() lipgloss.Style {
 // Hints are the keys the table itself answers to. The screen adds its own and
 // decides which survive a narrow terminal.
 func (m *Model) Hints() []panel.Hint {
-	// Nothing here can work without compose, so nothing here is offered. A
-	// key advertised in the footer and answered with an error is worse than
-	// the reason already standing where the table would be.
-	if m.unavailable != "" {
+	// One predicate governs both this panel's keys and the screen's `c`: what
+	// is on offer here is the same question asked twice.
+	if !m.OffersServiceKeys() {
 		return nil
 	}
 	hints := []panel.Hint{{Text: "enter logs", Drop: 2}}

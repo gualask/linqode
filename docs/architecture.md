@@ -1,6 +1,6 @@
 # Architecture
 
-_Last updated: 2026-09-09._
+_Last updated: 2026-09-10._
 
 The shape of the codebase: what the pieces are, which way they depend, and
 how a session starts. The behaviour they implement is documented by
@@ -69,8 +69,31 @@ Four principles shape the design:
 | `internal/tui/system` | the machine: the header band, and the system view an `enter` on it opens — meters, trend strips, processes, temperatures, cards |
 | `internal/tui/events` | the feed of what the daemon reported happening, fed by the stream the refresh already runs |
 | `internal/tui/follow` | the full-screen view for a log, action, script, or ad-hoc command |
-| `internal/tui/panel` | the chrome a focusable region wears: a titled box that occupies exactly the cells it was given, the focus tokens, and the footer hints |
+| `internal/tui/panel` | the chrome a focusable region wears: a titled box that occupies exactly the cells it was given, the focus tokens, the footer hints, and the capability a region declares when its cursor sits on a service |
 | `internal/tui/theme` | the visual tokens every view shares: named adaptive colors rather than the terminal's ANSI slots, so what an operator sees does not depend on their color scheme |
+
+### What a panel declares, rather than what the screen knows
+
+`panel.Panel` is what every focusable region implements; `panel.ServiceRegion`
+is what only some do, and it is how a key that needs a service finds one.
+
+The keys that act on a service — `enter` for its logs, `c` for what can be
+done to it — raise two questions, and both belong to the region rather than to
+the screen. *Does this region deal in services at all?* is answered by the
+type: the compose table and the events feed implement `ServiceRegion`, the
+machine's band and its readings do not, so on them the keys are neither
+advertised nor answered whatever they are showing. *Is one under the cursor,
+and is the key worth offering when there is not?* is answered by the panel,
+because only it knows what its own emptiness means — the table's lasts a round
+trip and then it has the project in it, the feed's is a deployment where
+nothing has happened, which is the ordinary state and lasts all day.
+
+The screen's part is choosing which region the keys are talking to — the panel
+with focus, or the detail that has taken the body from it — and asking it.
+This replaced a switch on panel identity repeated wherever a key needed a
+service, which is the shape that makes a new panel an edit in three places and
+made `c` open a menu about the table's selection from regions that had one of
+their own, or none at all.
 
 | Concern | Library | Rationale |
 | ------- | ------- | --------- |

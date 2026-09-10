@@ -126,10 +126,30 @@ func (m *Model) SetFocus(focused bool)     { m.focused = focused }
 // so a key advertised in them is a key an operator presses and watches do
 // nothing.
 func (m *Model) Hints() []panel.Hint {
-	if _, ok := m.SelectedService(); !ok {
+	// One predicate governs both this panel's keys and the screen's `c`.
+	if !m.OffersServiceKeys() {
 		return nil
 	}
 	return []panel.Hint{{Text: "enter logs", Drop: 2}}
+}
+
+// The feed is a region the keys that need a service can talk to: its entries
+// are containers of the same project. Declared here so that dropping either
+// method breaks the build rather than quietly taking the keys off the footer.
+var _ panel.ServiceRegion = (*Model)(nil)
+
+// OffersServiceKeys is this panel's half of panel.ServiceRegion, and its
+// answer is the strict one: nothing is offered unless the cursor is on an
+// event whose container the project still has.
+//
+// Both ways of having nothing there last. A feed with no entries is a
+// deployment where nothing has happened, which is the good case and the one
+// an operator is in most of the time; an event about a container that was
+// destroyed is a row and a cursor with nothing behind them. Neither is a
+// panel waiting for data, so neither is a reason to keep a key on the footer.
+func (m *Model) OffersServiceKeys() bool {
+	_, ok := m.SelectedService()
+	return ok
 }
 
 // Status is this panel's half of the footer, and there is nothing for it to

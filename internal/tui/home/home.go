@@ -605,22 +605,18 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 // into the logs of the container it happened to. One gesture, three
 // destinations, and each of them is the obvious next question about what has
 // focus.
+//
+// Two of the three are the same destination reached from two panels, so they
+// are one branch: whatever has a service under the cursor opens its logs, and
+// which panels those are is theirs to say (panel.ServiceRegion). The machine
+// is the one that descends into something other than a service, and it is
+// matched on identity because it is the panel this screen holds the detail
+// slot for.
 func (m *Model) open() tea.Cmd {
 	// On identity rather than on index: which panel sits where is no longer
 	// fixed, and a screen whose body is the machine would otherwise read the
 	// anchor as the table.
-	switch m.focused() {
-	case panel.Panel(m.services):
-		if service, ok := m.services.SelectedService(); ok {
-			return openLogs(service)
-		}
-	case panel.Panel(m.events):
-		// An event about a container the project no longer has — one that
-		// was destroyed — has no logs to open.
-		if service, ok := m.events.SelectedService(); ok {
-			return openLogs(service)
-		}
-	case panel.Panel(m.system):
+	if m.focused() == panel.Panel(m.system) {
 		// Nothing to descend into when the readings are already the body.
 		if m.system.HasBand() && m.anchor != 0 {
 			m.detail = m.system
@@ -631,58 +627,44 @@ func (m *Model) open() tea.Cmd {
 			return tea.Batch(m.sampler.read(sourceProcesses),
 				m.sampler.read(sourceDiskUsage), m.sampler.read(sourceGPU))
 		}
+		return nil
+	}
+	// An empty table, or an event about a container that was destroyed, has
+	// no logs behind the cursor to open.
+	if services, ok := m.focused().(panel.ServiceRegion); ok {
+		if service, ok := services.SelectedService(); ok {
+			return openLogs(service)
+		}
 	}
 	return nil
 }
 
-// actionsHere answers the two questions `c` raises: whether the region with
-// focus acts on services at all — which is what the footer advertises — and
-// which service is under its cursor, which is what the menu opens on.
+// actionsHere answers what `c` needs to know: whether the region the keys are
+// talking to offers a lifecycle action at all, and which service it would open
+// on. Both come from the region itself — see panel.ServiceRegion, which is
+// where the two questions and the difference between them are written down.
 //
-// They are two questions rather than one because a table whose first `ps` has
-// not landed still answers to `c`, the same way it still says `enter logs`:
-// a hint that appeared a second into the session would be advertising the
-// arrival of the data rather than the keymap.
+// The screen's part is only deciding which region that is: the panel with
+// focus, or the detail that has taken the body from it.
 //
-// The rule the split follows: a key belongs on the left of the footer when
-// what it acts on is the session or the machine, and to a panel when what it
-// acts on is a selection. `r`, `x` and `!` are the first kind — a refresh, a
-// configured script and a command the operator typed need nothing selected
-// anywhere. A lifecycle action is the second, and the band and the system
-// view have no selection to offer it.
-//
-// On identity rather than on index, like open(), and for the same reason.
+// It used to be a switch on panel identity here, with an arm per panel and the
+// table's selection read from wherever the key was pressed. That is what put a
+// restart menu about a service chosen somewhere else on the band, and about a
+// service that was not on screen at all inside the system view.
 func (m *Model) actionsHere() (service string, offered bool) {
+	region := m.focused()
 	if m.detail != nil {
-		// The body is a detail, and the only one there is shows the machine.
-		// Nothing under it is a service, and the table whose selection this
-		// used to read is not even drawn.
+		region = m.detail
+	}
+	services, ok := region.(panel.ServiceRegion)
+	if !ok || !services.OffersServiceKeys() {
 		return "", false
 	}
-	switch m.focused() {
-	case panel.Panel(m.services):
-		if m.services.Unavailable() != "" {
-			// A host with no compose lists no services, so there is nothing
-			// here to restart and no key to advertise. The reason is already
-			// standing where the table would be.
-			return "", false
-		}
-		service, _ = m.services.SelectedService()
-		return service, true
-	case panel.Panel(m.events):
-		// The feed's entries are containers too, and acting on the one an
-		// event was about is the second obvious question to ask of it after
-		// its logs.
-		//
-		// Here the two questions collapse into one: the feed offers the key
-		// only when its cursor is on an event whose container the project
-		// still has. That is the difference from the table, whose rows are on
-		// their way and whose emptiness lasts a round trip — a feed with
-		// nothing in it is a deployment where nothing has happened, which is
-		// both the ordinary case and one that can last all day.
-		return m.events.SelectedService()
-	}
-	return "", false
+	// A region may offer the key with nothing under the cursor — the table
+	// does, for the round trip before its rows arrive — and then there is
+	// something to advertise and nothing to open.
+	service, _ = services.SelectedService()
+	return service, true
 }
 
 // closeDetail returns to the home, and tells the panel it is a header again:

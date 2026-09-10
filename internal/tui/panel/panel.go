@@ -318,3 +318,38 @@ type Panel interface {
 	View() string
 	Update(msg tea.Msg) tea.Cmd
 }
+
+// ServiceRegion is a panel whose cursor can sit on a service: the compose
+// table, and the events feed, whose entries are containers of the same
+// project. It exists so that the keys which need a service — `enter` for its
+// logs, `c` for what can be done to it — are decided by the region that has
+// one rather than by the screen guessing which region that is.
+//
+// It answers the two separate questions such a key raises, and they are
+// separate because a panel can be in either state without being in the other:
+//
+//  1. *Does this region deal in services at all?* The type answers. A panel
+//     that does not implement this has no service anywhere in it — the
+//     machine's band, its readings — and the keys are neither advertised nor
+//     answered there, whatever it is showing.
+//  2. *Is one under the cursor now, and is the key worth offering while there
+//     is not?* The panel answers, because only it knows what its own
+//     emptiness means. A table whose first read has not landed is empty for a
+//     round trip and will have rows; a feed with nothing in it is a
+//     deployment where nothing has happened, which is the ordinary state and
+//     lasts. The first goes on offering the keys, the second offers none.
+//
+// The alternative was a switch on panel identity in the screen, repeated
+// wherever a key needed a service, and a new panel meant a new arm in each of
+// them. Here it means implementing two methods, and a panel that has no
+// services says so by not implementing them at all.
+type ServiceRegion interface {
+	// SelectedService is the service under the cursor, and whether there is
+	// one at this moment.
+	SelectedService() (string, bool)
+	// OffersServiceKeys reports whether the keys that need a service belong
+	// on the footer, including when nothing is under the cursor. A key
+	// advertised where it does nothing is worse than one an operator has to
+	// discover: it is pressed, and then it is not believed.
+	OffersServiceKeys() bool
+}
