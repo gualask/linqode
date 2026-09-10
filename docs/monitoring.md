@@ -377,22 +377,35 @@ is usually not this project's.
 
 ## The one machine read without a command
 
-Everything above is a shell command and a parser, and that holds for the
-local target too: on Linux the local path runs the same batch through the
-same Executor and produces the same numbers, byte for byte. It is not an
-optimisation opportunity. Two implementations that must agree eventually stop
+**The rule: one host is read one way, and only a local Mac is read
+natively.** Which of the three applies is decided in `interactive.go`, from
+what the probe found and whether the target is this machine:
+
+| Target | Read by |
+| ------ | ------- |
+| any host with `/proc` — every Linux, remote or local | the batch, over the Executor |
+| `local` on a host without `/proc` — a Mac | `gopsutil`, natively |
+| any other host without `/proc`, over SSH | the batch, which still answers `df`; no process table |
+
+The third row exists so that a native reader is never asked about a machine
+it is not running on: it would answer about the operator's laptop and label
+the numbers with the server's name. Watching a Mac over SSH is not a
+supported target, and nothing here is built towards it.
+
+**Why the second row needs a library at all.** What macOS lacks is not a file
+but a **counter**. `sysctl kern.cp_time` does not exist there; `iostat -c 2`
+blocks for a second and `top -l 2 -s 0 -n 0` for two-thirds of one, and both
+then report percentages rather than the cumulative ticks the arithmetic in
+`usage.go` subtracts. Read natively they are there —
+`user=87320.9 system=39572.2 idle=2762182.4` — in exactly the shape that
+arithmetic already consumes.
+
+**Why the first row covers the local path too.** On Linux the local target
+runs the same batch through the same Executor and produces the same numbers,
+byte for byte. Reading `/proc` directly there would be faster and is
+deliberately not done: two implementations that must agree eventually stop
 agreeing — units, rounding, a filter's edge case — and only one of them would
 be exercised by the e2e fixture.
-
-macOS is the exception, and the reason is narrower than "macOS is different":
-what is missing is not a file but a **counter**. `sysctl kern.cp_time` does
-not exist there; `iostat -c 2` blocks for a second and `top -l 2 -s 0 -n 0`
-for two-thirds of one, and both then report percentages rather than the
-cumulative ticks the arithmetic in `usage.go` subtracts. Read natively they
-are there — `user=87320.9 system=39572.2 idle=2762182.4` — in exactly the
-shape that arithmetic already consumes. So a local Mac is read through
-`gopsutil`, behind a build tag, and a Mac reached over SSH is not: a native
-reader asked about a remote host would answer about the wrong machine.
 
 Measured on an Apple M4, 10 cores, 16 GiB, best of five:
 
