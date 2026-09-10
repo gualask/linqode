@@ -37,6 +37,13 @@ var (
 	// a chosen amount instead of by whatever the terminal decides.
 	grey = lipgloss.AdaptiveColor{Light: "#6b7280", Dark: "#7a7f87"}
 
+	// keyGrey marks the key itself inside a footer hint, one step above the
+	// grey of the words around it. A step rather than body brightness: the
+	// character to press has to be findable inside its own phrase, and a
+	// footer that reached the brightness of the table would be the
+	// second-loudest row on a screen whose subject is the table.
+	keyGrey = lipgloss.AdaptiveColor{Light: "#4b5563", Dark: "#a8aeb6"}
+
 	// surface is a fill a shade off the terminal's own background, for
 	// marking a region without lighting it up.
 	surface = lipgloss.AdaptiveColor{Light: "#e3e6ea", Dark: "#33383f"}
@@ -78,6 +85,18 @@ var (
 	BorderIdle  = lipgloss.NewStyle().Foreground(grey)
 	TitleFocus  = lipgloss.NewStyle().Bold(true).Foreground(blue)
 	TitleIdle   = lipgloss.NewStyle().Foreground(grey)
+
+	// KeyIdle and KeyFocus mark the key inside a hint whose words stay Dim:
+	// `c actions` is one character to press and one word saying what it does,
+	// and a line that spells both the same way is read as prose rather than
+	// as a keymap.
+	//
+	// Two levels of grey on the half that works wherever you are, the focus
+	// accent on the half that belongs to the region with focus — so the
+	// colour that says "you are here" on a border says it on the keymap too,
+	// and the two ends of the screen can be connected without reading either.
+	KeyIdle  = lipgloss.NewStyle().Foreground(keyGrey)
+	KeyFocus = lipgloss.NewStyle().Foreground(blue)
 
 	// SelectedIdle is the selected row of a panel that does not hold focus.
 	// Reverse would keep shouting from a panel nobody is acting on, so the

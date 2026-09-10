@@ -162,6 +162,10 @@ one recedes to grey, and the selected row of an unfocused panel becomes a
 quiet fill instead of a lit bar — still findable when focus comes back, no
 longer competing with the panel that has it.
 
+The accent reaches one more place: **the keys of the focused half of the
+footer**, so the lit border at the top and the keys at the bottom are visibly
+the same statement. See [the footer](#the-footer).
+
 **Exactly one region is lit at a time**, which is what makes the accent mean
 anything. The machine can be on screen twice — the band in the header, its
 readings in the body of a host with no compose — and then only the body is
@@ -455,6 +459,36 @@ the host where the machine takes the body and there is no table at all.
 It is the last hint on its side: `enter` is what the region is for, `c` is what
 can then be done to what it selected. How readily it is given up on a narrow
 line did not change with the side it is on.
+
+**The key is marked, the word is not** — `c` is coloured and `actions` stays
+recessive — and the mark differs between the halves: the always-available keys
+take a grey one step above their words, the focused region's keys take the
+focus accent. Three levels, one colour.
+
+This is what makes the split visible rather than merely true. Both halves used
+to be one flat grey, so `tab` swapped three phrases inside a row of nine and
+nothing said which three: an operator had to read the line word by word to
+find out that anything had happened at all. Now the pattern of marked
+characters differs per region and registers before anything is read, and the
+accent is the one already worn by the border of the panel that changed — the
+two ends of the screen say the same thing, which is the only answer available
+to the real complaint here, that what lights up is at the top and its keys are
+at the bottom.
+
+The global keys are marked a step above their words rather than at body
+brightness. They are worth finding, but they are learned once, and a footer
+that reached the brightness of the table would be the second-loudest row on a
+screen whose subject *is* the table. The candidates were rendered and looked
+at side by side before choosing, which is the only way this kind of question
+gets settled here (see [tests.md](tests.md), "Looking at the UI").
+
+**The log view marks its keys the same way**, for the same reason a keymap
+spelled two ways is one learned twice. It has no divider — the whole screen is
+one region, so everything there is that region's — but `q quit` keeps the
+global grey even so: a key that works from anywhere must not change colour
+depending on which screen it is read from. What is *not* marked there are the
+prompts: `empty clears` has no key in it, and a first word dressed as one
+would be advertising something nobody can press.
 
 **No reading appears here.** Service counts, event counts, uptime, core count,
 the watching flag — each of those is monitoring, and monitoring belongs to the

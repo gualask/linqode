@@ -161,6 +161,9 @@ type Hint struct {
 // different kinds of thing and a dot would read as one list of ten.
 const divider = "  │  "
 
+// hintSeparator is what stands between two hints on the same half of the line.
+const hintSeparator = " · "
+
 // Footer renders the whole hint line: what works wherever you are, a divider,
 // then what the focused region is showing and the keys it answers to.
 //
@@ -185,13 +188,12 @@ func Footer(global []Hint, status string, focused []Hint, width int) string {
 		minimum = 1
 	}
 	for {
-		// Keys are dim on both sides; the status is not. It is the one thing
-		// on this line that is a reading rather than a way to press
-		// something, and on a bad refresh it is an error.
-		left, right := joinHintText(global), joinHintText(focused)
-		if right != "" {
-			right = theme.Dim.Render(right)
-		}
+		// The words of a hint are dim on both sides and its key is not; the
+		// status is neither. It is the one thing on this line that is a
+		// reading rather than a way to press something, and on a bad refresh
+		// it is an error, so it keeps the colour it arrived in.
+		left, right := MarkKeys(joinHintText(global), false),
+			MarkKeys(joinHintText(focused), true)
 		if status != "" && right != "" {
 			right = status + theme.Dim.Render("  ·  ") + right
 		} else if status != "" {
@@ -201,9 +203,9 @@ func Footer(global []Hint, status string, focused []Hint, width int) string {
 		var line string
 		switch {
 		case left != "" && right != "":
-			line = theme.Dim.Render(left+divider) + right
+			line = left + theme.Dim.Render(divider) + right
 		case left != "":
-			line = theme.Dim.Render(left)
+			line = left
 		default:
 			line = right
 		}
@@ -251,7 +253,43 @@ func joinHintText(hints []Hint) string {
 	for index, hint := range hints {
 		texts[index] = hint.Text
 	}
-	return strings.Join(texts, " · ")
+	return strings.Join(texts, hintSeparator)
+}
+
+// MarkKeys renders a joined hint list — `enter logs · c actions` — with the
+// key set apart from what it does: the character to press takes a colour, the
+// word stays recessive.
+//
+// It is what makes a change on this line visible at all. Before it both
+// halves were one flat grey, so `tab` swapped three phrases inside a row of
+// nine and nothing said which; now the pattern of marked characters differs
+// per region and the difference registers before anything has been read. The
+// focused half takes the accent that already means "you are here" on a border
+// and a title, which is what lets the eye connect the lit panel at the top to
+// its keys at the bottom.
+//
+// The key is the first word of a hint, which every hint in the application is
+// shaped around. A hint whose first word is not a key must not be passed
+// here: the log view's prompts say `empty clears`, and marking `empty` would
+// be advertising a key nobody can press.
+func MarkKeys(text string, focused bool) string {
+	if text == "" {
+		return ""
+	}
+	key := theme.KeyIdle
+	if focused {
+		key = theme.KeyFocus
+	}
+	parts := strings.Split(text, hintSeparator)
+	for index, part := range parts {
+		name, rest, found := strings.Cut(part, " ")
+		if !found {
+			parts[index] = key.Render(part)
+			continue
+		}
+		parts[index] = key.Render(name) + theme.Dim.Render(" "+rest)
+	}
+	return strings.Join(parts, theme.Dim.Render(hintSeparator))
 }
 
 // A Panel is one focusable region of the screen. The model composing them

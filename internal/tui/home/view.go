@@ -152,7 +152,8 @@ func (m *Model) footer() string {
 	var text string
 	switch {
 	case m.commandPrompt:
-		text = " $ " + m.commandText + "▏" + theme.Dim.Render("  enter run · esc cancel")
+		text = " $ " + m.commandText + "▏  " +
+			panel.MarkKeys("enter run · esc cancel", true)
 	case m.menu != nil:
 		// A menu takes every key, so `q` is the only thing on the left that
 		// still works: the split says as much rather than listing four

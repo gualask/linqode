@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gualask/linqode/internal/logs"
+	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/theme"
 )
 
@@ -156,8 +157,19 @@ func (m *Model) activeFooter() string {
 	if m.query != "" {
 		out += theme.Yellow.Render("  /" + terminalText(m.query))
 	}
-	return out + theme.Dim.Render(
-		"  ·  / search · f filter · s json · a stats · t field · esc back · q quit")
+	// The keys are marked here the way they are on the home: the character to
+	// press in the accent, the word recessive. A keymap spelled one way on
+	// one screen and another way on the next is one an operator reads twice.
+	// The prompts above are left alone — `empty clears` is not a key.
+	//
+	// `q quit` keeps the global grey for the same reason. This view has no
+	// divider to separate the two kinds — it is one region, and everything
+	// else here is its own — but the colour still means what it means
+	// everywhere else, and a key that works from anywhere must not change
+	// colour depending on which screen it is read from.
+	return out + theme.Dim.Render("  ·  ") +
+		panel.MarkKeys("/ search · f filter · s json · a stats · t field · esc back", true) +
+		theme.Dim.Render(" · ") + panel.MarkKeys("q quit", false)
 }
 
 func levelStyle(level string) lipgloss.Style {

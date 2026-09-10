@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/gualask/linqode/internal/tui/theme"
 )
@@ -135,6 +137,81 @@ func TestFocusTokensAreDistinctFromIdleOnes(t *testing.T) {
 // The footer is two halves: what works wherever you are, and what the region
 // with focus answers to. The split is the point — before it, ten keys ran
 // together in one row and nothing said which would survive a `tab`.
+// A hint is a key and a word for what it does, and the line has to spell the
+// two differently: an operator scanning it is looking for the character to
+// press. The key also has to differ between the halves — the focused half
+// carries the accent that marks the lit panel, which is what lets the two ends
+// of the screen be connected without reading either.
+func TestKeyTokensAreThreeDistinctLevels(t *testing.T) {
+	if theme.KeyFocus.GetForeground() == theme.KeyIdle.GetForeground() {
+		t.Error("the focused half's keys are indistinguishable from the global ones")
+	}
+	for name, style := range map[string]lipgloss.Style{
+		"global": theme.KeyIdle, "focused": theme.KeyFocus} {
+		if style.GetForeground() == theme.Dim.GetForeground() {
+			t.Errorf("the %s key is the colour of the words around it", name)
+		}
+	}
+	// Not merely different: the *same* accent the focused border wears.
+	if theme.KeyFocus.GetForeground() != theme.BorderFocus.GetForeground() {
+		t.Error("the focused key is not the colour that marks the focused panel")
+	}
+}
+
+// MarkKeys may only change how the line looks. Every width decision on this
+// footer — what is dropped, where it is cut — is made on the rendered string,
+// so a styling pass that added or moved a single cell would be an arithmetic
+// bug wearing a colour.
+func TestMarkKeysChangesNothingButTheColour(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+
+	const text = "enter logs · a live · c actions"
+	for _, focused := range []bool{false, true} {
+		marked := MarkKeys(text, focused)
+		if plain := ansi.Strip(marked); plain != text {
+			t.Errorf("focused=%v: the text came back as %q", focused, plain)
+		}
+		if got, want := lipgloss.Width(marked), lipgloss.Width(text); got != want {
+			t.Errorf("focused=%v: %d cells, want %d", focused, got, want)
+		}
+		key := theme.KeyIdle
+		if focused {
+			key = theme.KeyFocus
+		}
+		if !strings.Contains(marked, key.Render("c")) {
+			t.Errorf("focused=%v: the key was not marked: %q", focused, marked)
+		}
+		if !strings.Contains(marked, theme.Dim.Render(" actions")) {
+			t.Errorf("focused=%v: the word did not stay recessive: %q", focused, marked)
+		}
+	}
+	// A hint that is one word is one key, not one word with no key.
+	if marked := MarkKeys("q", true); marked != theme.KeyFocus.Render("q") {
+		t.Errorf("a single-word hint was not marked as a key: %q", marked)
+	}
+	if MarkKeys("", true) != "" {
+		t.Error("an empty half rendered something")
+	}
+}
+
+// The colour is what the width arithmetic is most likely to trip over, and
+// the tests that check it run where there is none. This one turns it on.
+func TestFooterFitsItsWidthInColour(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+
+	global := []Hint{{Text: "tab panels", Drop: 7}, {Text: "r refresh", Drop: 2},
+		{Text: "x scripts", Drop: 6}, {Text: "q quit"}}
+	focused := []Hint{{Text: "enter logs", Drop: 2}, {Text: "c actions", Drop: 3}}
+	for _, width := range []int{20, 30, 45, 60, 80, 120} {
+		line := Footer(global, " 6 services", focused, width)
+		if got := lipgloss.Width(line); got > width {
+			t.Errorf("at %d cells the footer is %d wide: %q", width, got, ansi.Strip(line))
+		}
+	}
+}
+
 func TestFooterSplitsGlobalFromFocused(t *testing.T) {
 	line := Footer(
 		[]Hint{{Text: "r refresh", Drop: 2}, {Text: "q quit"}},
