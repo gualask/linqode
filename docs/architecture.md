@@ -61,7 +61,7 @@ Four principles shape the design:
 | `internal/local` | the same one-shot and streaming exec on the machine Linqode itself runs on, cancelled by signalling the command's own process group so that nothing it started outlives it |
 | `internal/compose` | `docker compose` command builders (with shell quoting) and the parsers for what they return: `ps` output, the daemon's event stream, container cgroup counters, `docker system df`, and both `docker stats` forms |
 | `internal/probe` | the connect-time capability probe: what the host can be asked for, established once in one round trip and degrading to unknown rather than to a finding |
-| `internal/host` | everything about the machine itself, read out of `/proc` and `/sys`: the marker-sectioned host batch, the client-side deltas that turn its counters into percentages and rates, and the on-demand process table and graphics cards |
+| `internal/host` | everything about the machine itself, read out of `/proc` and `/sys`: the marker-sectioned host batch, the client-side deltas that turn its counters into percentages and rates, and the on-demand process table and graphics cards. Plus the one exception to all of that: a native reader for a local macOS target, where those files do not exist |
 | `internal/logs` | log engine: line assembly, tail buffer, JSONL records, field filters, stats, search |
 | `internal/tui` | Bubble Tea application: the app model routing between the home screen and the follow view, and the backend adapting operations to background commands |
 | `internal/tui/home` | the home screen: header, layout, focus, footer, the modal menus, the `!` prompt, and the sampler that decides what is read off the host and how often. It owns the screen; a feature package owns only what is inside its own panel |
@@ -80,6 +80,7 @@ Four principles shape the design:
 | Concurrency | goroutines + channels, `context.Context` | Cancellation and streaming map naturally onto the product |
 | JSON / JSONL | stdlib `encoding/json` with `json.Number` | Keeps numeric literals verbatim in records |
 | Config | `pelletier/go-toml/v2` | TOML host definitions and scripts |
+| Native machine readings (Darwin only) | `shirou/gopsutil/v4` | macOS has no `/proc` and no CLI exposing cumulative CPU counters; behind a build tag, reached only when the target is this machine |
 | CLI args | stdlib `flag` | Small explicit router and one flag set per command |
 
 ## Flows

@@ -1,8 +1,8 @@
 # Plan — the local machine as a target
 
-_Last updated: 2026-09-10. Status: steps 1 to 5 of the implementation order
-are in. What is left is the Darwin `host.Metrics` (6), the header's machine
-name (7) and the picker (8)._
+_Last updated: 2026-09-10. Status: steps 1 to 6 of the implementation order
+are in, and `linqode local` is a working target on Linux and macOS. What is
+left is the header's machine name (7) and the picker (8)._
 
 _Re-verified against `895007d` (SSH execution and monitoring feeds hardened,
 `internal/host` and `internal/compose/cgroup` split into command and parse
@@ -290,15 +290,23 @@ case, and the view needs the same habit.
 
 ## Open questions
 
-1. **No labelled SMC sensors.** Apple Silicon exposes `PMU tdieN` /
-   `PMU2 tdieN` — real die temperatures with no semantic name, so nothing can
-   say "GPU 45 °C". Options: show the maximum, show a compact list, or map
-   known keys per chip generation (fragile). Affects both the system view's
-   temperature section and `GPU.TempMilliC`.
-2. **The gopsutil dependency.** The stack policy prefers the listed libraries
-   "unless a real blocker shows up"; a platform whose CPU counters no CLI
-   exposes is one. Weigh its surface against hand-written Mach calls before
-   committing.
+Both are closed, and are kept here with what closed them.
+
+1. ~~**No labelled SMC sensors.**~~ Forty-one readings, no semantic names, no
+   thresholds. They are grouped by the chip their key starts with and reduced
+   to the hottest of each — the shape hwmon produces on Linux — with the
+   whole key as the name, because `tcal` and `temp` alone name nothing.
+   Nothing claims to be the GPU's temperature, and `GPU.TempMilliC` stays
+   unreported. The one inference, marked as such in the code: a die reading
+   is preferred to a hotter non-die one, because `tcal` is flat at 51.8 °C on
+   both PMUs while every die sits at 28–30 and a calibration reference is not
+   a reading of the machine.
+2. ~~**The gopsutil dependency.**~~ Taken, after measuring it: builds and
+   cross-compiles at `CGO_ENABLED=0`, seven modules and ~2 MB. The
+   alternative was hand-written Mach calls — real work, no e2e coverage
+   possible, for a platform the fixture cannot run on anyway. What keeps it
+   honest is the confinement: one file behind a build tag, and the logic that
+   would otherwise have gone with it kept out where CI can see it.
 
 ## Not available on macOS, and acceptable
 
@@ -401,6 +409,26 @@ while switching changes the shape of the backend itself.
    This is the irreversible half — a dependency outside the declared stack,
    code CI never compiles, numbers the fixture cannot cover — so it is taken
    last, once the screen already works.
+
+   **Done.** gopsutil v4 at `CGO_ENABLED=0`, cross-compiling to linux and
+   darwin on both architectures, seven modules added to the graph and about
+   2 MB to the binary. The build tag covers the calls into it and nothing
+   else: what to *do* with a reading — which of forty-one sensors is worth a
+   row, how two mounts of one APFS container become one, how a tick counter
+   becomes the shape `usage.go` subtracts — is in `native.go`, which CI
+   compiles and tests on Linux. That is the same rule step 5 followed, and
+   the reason "code CI never compiles" turned out to be true of forty lines
+   rather than of the phase.
+
+   Three things only a rendered frame and a stopwatch would have caught.
+   `Status()` on a process shells out to `ps`: **2.0 s** for 684 processes,
+   against 28 ms for the name, memory, CPU and thread count together, for a
+   field nothing displays. Both PMUs report `tcal` at a flat 51.8 °C while
+   their thirty-four die sensors sit at 28–30, so taking the hottest per chip
+   put a fictitious 52 °C in the band; die readings are now preferred. And
+   `statfs` answers for the APFS *container*, so `/` and
+   `/System/Volumes/Data` came back with identical bytes and drew two
+   identical rows — the data volume is dropped when it is the root's twin.
 7. **Header** — the word `local` plus the machine's name. The docker
    endpoint half of this landed with step 3, where the probe that establishes
    it is.

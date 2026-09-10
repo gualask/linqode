@@ -375,6 +375,51 @@ cache are the daemon's, shared with everything else on the host — which is
 exactly what makes the answer worth having, since the thing filling the disk
 is usually not this project's.
 
+## The one machine read without a command
+
+Everything above is a shell command and a parser, and that holds for the
+local target too: on Linux the local path runs the same batch through the
+same Executor and produces the same numbers, byte for byte. It is not an
+optimisation opportunity. Two implementations that must agree eventually stop
+agreeing — units, rounding, a filter's edge case — and only one of them would
+be exercised by the e2e fixture.
+
+macOS is the exception, and the reason is narrower than "macOS is different":
+what is missing is not a file but a **counter**. `sysctl kern.cp_time` does
+not exist there; `iostat -c 2` blocks for a second and `top -l 2 -s 0 -n 0`
+for two-thirds of one, and both then report percentages rather than the
+cumulative ticks the arithmetic in `usage.go` subtracts. Read natively they
+are there — `user=87320.9 system=39572.2 idle=2762182.4` — in exactly the
+shape that arithmetic already consumes. So a local Mac is read through
+`gopsutil`, behind a build tag, and a Mac reached over SSH is not: a native
+reader asked about a remote host would answer about the wrong machine.
+
+Measured on an Apple M4, 10 cores, 16 GiB, best of five:
+
+| Reading | Cost |
+| ------- | ---- |
+| whole sample, always-on tier | **50 ms** |
+| — of which temperatures (41 sensors) | 50 ms |
+| — filesystems, CPU ticks, memory, load | under 1 ms |
+| — network interfaces | 3 ms |
+| process table (609 processes, on demand) | 28 ms |
+
+The temperatures are the whole cost, and they are on the always-on tier
+because on Linux they are three files in a batch that is already being read.
+Fifty milliseconds of local CPU every five seconds is one per cent of one
+core of ten, spent on the machine doing the watching rather than on a server,
+which is why it is left where it is rather than given a cadence of its own.
+
+The process table has one deliberate omission. Its state — running, sleeping
+— is a field of `/proc/<pid>/stat` and free on that path; here it shells out
+to `ps` once per process, **2.0 s** for 684 processes against 28 ms for
+everything else in that loop together. Nothing on the screen shows it.
+
+Two readings a Mac gives that a server usually does not: real temperatures,
+and a GPU. Two it cannot give: PSI, a Linux kernel concept, and the container
+CPU/memory columns, whose cgroups live inside the Linux VM that Colima or
+Docker Desktop runs and are not reachable from the host filesystem.
+
 ## Cost budget
 
 Reproduce with:

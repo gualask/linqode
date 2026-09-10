@@ -27,8 +27,30 @@ works, Linqode works.
 linqode deploy@203.0.113.10        # inline host, no config needed
 linqode myapp                      # a host from the config file
 linqode                            # with a single configured host
+linqode local                      # this machine, no SSH in the middle
 linqode tui status                 # explicit TUI when a host has a command name
 ```
+
+## This machine
+
+`local` is a target like any other: the same screen, watching the machine
+Linqode runs on. Nothing is installed and nothing is connected to — commands
+run here, under `sh -c`, in your home directory and with your environment.
+
+It is meant for the machine part of the dashboard rather than for Compose: on
+your own laptop `docker compose ps` is already at hand, while the meters, the
+filesystems, the process table, the temperatures and the graphics card are
+not. It works on Linux and macOS; Windows is out of scope.
+
+On macOS the readings are taken natively, because there is no `/proc` to read
+and no command that makes up for it. What that costs, and what a Mac reports
+that a Linux host does not, is in [docs/monitoring.md](docs/monitoring.md).
+
+Two things to know. If you have `DOCKER_HOST` or a docker context exported,
+this session drives *that* daemon, not a local one — the header says which,
+in yellow, whenever it is not the plain socket. And the machine interface
+below never accepts a local host: an agent on this machine already has a
+shell, so Linqode grants it nothing, and `linqode hosts` does not list one.
 
 ## Configuration
 
@@ -36,14 +58,23 @@ linqode tui status                 # explicit TUI when a host has a command name
 
 ```toml
 [hosts.myapp]
-host = "deploy@203.0.113.10"   # or an ~/.ssh/config alias
+host = "deploy@203.0.113.10"   # an ~/.ssh/config alias, or "local"
 compose_dir = "/srv/myapp"     # where compose.yaml lives on the server
 host_metrics = true            # optional: resource collection, on by default
 
 [hosts.myapp.scripts]          # optional server commands allowed by name
 disk = "df -h"
 mem = "free -m"
+
+[hosts.laptop]                 # `linqode laptop` watches this machine
+host = "local"
+compose_dir = "~/Dev/myapp"
 ```
+
+`host = "local"` gives the local target a project and scripts of its own.
+`localhost` is not the same thing and is not taken over: it means what it
+means to `ssh`, a connection through sshd. A `[hosts.local]` entry of your own
+wins over the keyword.
 
 `--config <path>` is available only to the TUI. Machine commands always use
 the default file above so their authorized hosts and scripts come from one

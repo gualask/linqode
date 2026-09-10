@@ -22,6 +22,10 @@ type transport struct {
 	executor operations.Executor
 	target   string
 	close    func()
+	// local is whether the machine being watched is this one. It gates the
+	// native reader, which must never be asked about a host reached over
+	// SSH: it would answer about the wrong machine, confidently.
+	local bool
 }
 
 // openTransport reaches the host, or the machine this is running on.
@@ -36,6 +40,7 @@ func openTransport(ctx context.Context, spec string, stderr io.Writer) (transpor
 			executor: local.New(),
 			target:   config.LocalSpec,
 			close:    func() {},
+			local:    true,
 		}, nil
 	}
 
@@ -125,18 +130,35 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 	// feature they feed out of the view: one host that wants no extra
 	// commands wants none of them. See `host_metrics` in the config format.
 	if sel.HostMetrics {
+		switch {
 		// The machine's own readings come off /proc and /sys and owe docker
 		// nothing, so they survive every finding the probe can make.
-		backend.Host = func() (host.Metrics, error) {
-			return operator.HostMetrics(ctx)
-		}
-		// The process table is /proc and nothing else, so on a host without
-		// one it is a panel that could only ever open empty. Every other
-		// reading here survives: `df` answers on any Unix, and the screen
-		// already declines to draw a meter it has no number for.
-		if capabilities.CanReadProc() {
+		case capabilities.CanReadProc():
+			backend.Host = func() (host.Metrics, error) {
+				return operator.HostMetrics(ctx)
+			}
 			backend.Processes = func() (host.ProcessSample, error) {
 				return operator.HostProcesses(ctx)
+			}
+		// No /proc, and the machine is this one: the readings are taken
+		// natively instead. This is the only branch in the program where a
+		// reading does not ride on the Executor, and the `local` guard is
+		// what keeps it honest — a Mac reached over SSH lands below, with
+		// the filesystems it can still answer for and nothing invented.
+		case link.local:
+			backend.Host = func() (host.Metrics, error) {
+				return host.Sample(ctx)
+			}
+			backend.Processes = func() (host.ProcessSample, error) {
+				return host.SampleProcesses(ctx)
+			}
+		// No /proc and not this machine. The batch still answers `df`, and
+		// the screen draws no meter it has no number for; the process table
+		// would be a panel that could only ever open empty, so it is left
+		// off.
+		default:
+			backend.Host = func() (host.Metrics, error) {
+				return operator.HostMetrics(ctx)
 			}
 		}
 		backend.GPUs = func() ([]host.GPU, error) {
