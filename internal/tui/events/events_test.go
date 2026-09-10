@@ -121,12 +121,35 @@ func TestSelectionFollowsTheFeedUntilItIsMoved(t *testing.T) {
 
 	m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	if m.cursor != 1 {
-		t.Fatalf("j moved the cursor to %d", m.cursor)
+		t.Fatalf("down moved the cursor to %d", m.cursor)
 	}
 	selected := m.entries[m.cursor]
 	m.Add(compose.Event{At: at, Action: "stop", Container: "app-web-1"}, at)
 	if m.entries[m.cursor] != selected {
 		t.Errorf("a new event moved the selection off what was being read")
+	}
+}
+
+// A hint is a promise. This panel kept advertising `j/k select` after the vim
+// aliases were removed from the application, so two of the keys on the footer
+// were answered by nothing at all. Moving the selection is the arrows,
+// `PgUp`/`PgDn` and `Home`/`End` — the same set as in every other list on the
+// screen, and what every terminal already sends is not worth a hint.
+func TestTheFeedPromisesNoKeyItDoesNotAnswer(t *testing.T) {
+	m := feed(died("app-web-1", "1"), died("app-worker-1", "0"))
+	for _, gone := range []string{"j", "k", "g", "G", "l"} {
+		before := m.cursor
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(gone)})
+		if m.cursor != before {
+			t.Errorf("%q still moves the cursor, and the aliases are gone", gone)
+		}
+	}
+	for _, hint := range m.Hints() {
+		for _, gone := range []string{"j/k", "g/G"} {
+			if strings.Contains(hint.Text, gone) {
+				t.Errorf("the footer offers %q, which nothing answers: %q", gone, hint.Text)
+			}
+		}
 	}
 }
 

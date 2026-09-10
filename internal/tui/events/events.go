@@ -112,12 +112,16 @@ func (m *Model) Title() string { return "events" }
 func (m *Model) SetSize(width, height int) { m.width, m.height = width, height }
 func (m *Model) SetFocus(focused bool)     { m.focused = focused }
 
+// Hints are the keys this panel answers to. Moving the selection is not among
+// them: it is the arrows, `PgUp`/`PgDn` and `Home`/`End`, the same set as in
+// every other list on the screen, and a line advertising what every terminal
+// already sends is a line spent teaching nothing. This one advertised `j/k`,
+// which the panel stopped answering when the vim aliases went — two keys
+// promised on the footer and answered by nothing at all.
 func (m *Model) Hints() []panel.Hint {
-	return []panel.Hint{{Text: "enter logs", Drop: 2}, {Text: "j/k select", Drop: 5}}
+	return []panel.Hint{{Text: "enter logs", Drop: 2}}
 }
 
-// Status is this panel's half of the footer: how much it holds, and whether
-// what feeds it is running.
 // Status is this panel's half of the footer, and there is nothing for it to
 // say: the footer is the keymap, and what this panel is showing belongs on its
 // own rule, where it is legible without focus.
