@@ -179,12 +179,17 @@ func TestMarkKeysChangesNothingButTheColour(t *testing.T) {
 		if focused {
 			key = theme.KeyFocus
 		}
-		if !strings.Contains(marked, key.Render("c")) {
-			t.Errorf("focused=%v: the key was not marked: %q", focused, marked)
+		// The key and its word as one substring, which is the assertion that
+		// survives KeyIdle setting no foreground at all: whatever the key is
+		// dressed in, the dim run must begin after it rather than around it.
+		if want := key.Render("c") + theme.Dim.Render(" actions"); !strings.Contains(marked, want) {
+			t.Errorf("focused=%v: the key was not set apart from its word: %q", focused, marked)
 		}
-		if !strings.Contains(marked, theme.Dim.Render(" actions")) {
-			t.Errorf("focused=%v: the word did not stay recessive: %q", focused, marked)
-		}
+	}
+	// The global key is the terminal's own text colour rather than one of
+	// ours: on a palette its owner chose, body text is what they chose.
+	if got := theme.KeyIdle.Render("q"); got != "q" {
+		t.Errorf("the global key paints its own foreground: %q", got)
 	}
 	// A hint that is one word is one key, not one word with no key.
 	if marked := MarkKeys("q", true); marked != theme.KeyFocus.Render("q") {

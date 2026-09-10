@@ -460,10 +460,10 @@ It is the last hint on its side: `enter` is what the region is for, `c` is what
 can then be done to what it selected. How readily it is given up on a narrow
 line did not change with the side it is on.
 
-**The key is marked, the word is not** — `c` is coloured and `actions` stays
+**The key is marked, the word is not** — `c` is lit and `actions` stays
 recessive — and the mark differs between the halves: the always-available keys
-take a grey one step above their words, the focused region's keys take the
-focus accent. Three levels, one colour.
+are body text, the focused region's keys take the focus accent. Three levels,
+one colour.
 
 This is what makes the split visible rather than merely true. Both halves used
 to be one flat grey, so `tab` swapped three phrases inside a row of nine and
@@ -475,12 +475,22 @@ two ends of the screen say the same thing, which is the only answer available
 to the real complaint here, that what lights up is at the top and its keys are
 at the bottom.
 
-The global keys are marked a step above their words rather than at body
-brightness. They are worth finding, but they are learned once, and a footer
-that reached the brightness of the table would be the second-loudest row on a
-screen whose subject *is* the table. The candidates were rendered and looked
-at side by side before choosing, which is the only way this kind of question
-gets settled here (see [tests.md](tests.md), "Looking at the UI").
+The global keys are body text, and **body text here is the terminal's own
+foreground rather than a colour of ours that resembles it**: nothing is set,
+so the key is whatever the operator's palette calls text, in a light theme, a
+dark one or a themed one. What makes it stand out is the dim receding from it,
+which is the same relationship everywhere.
+
+Marking them a step above their words instead — bright enough to find, quiet
+enough to stay furniture — was rendered alongside and was the more disciplined
+line on paper: it would have left the accent as the only lit thing down there.
+Looking at the two settled it the other way. The half that never changes is
+the half being read while learning the application, and a key spelled at the
+same brightness as the data is the one you find without hunting; the cost is
+that the footer carries a little more weight than it used to, which is a cost
+paid once per screen rather than once per glance. **These questions are
+settled by rendering the candidates and looking at them**, not by reasoning
+about them (see [tests.md](tests.md), "Looking at the UI").
 
 **The log view marks its keys the same way**, for the same reason a keymap
 spelled two ways is one learned twice. It has no divider — the whole screen is
