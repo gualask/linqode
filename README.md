@@ -136,7 +136,7 @@ are used, `SSH_AUTH_SOCK` which agent.
 | `Tab` / `Shift+Tab` | move focus around the header, the table and the feed; focus starts on the header |
 | `Enter` | open what has focus: logs, the system view, an event's container |
 | `Esc` | back out of a detail, a menu, or the `!` prompt; never quits |
-| `c` | act on the service: restart / stop / start |
+| `c` | act on the selected service: restart / stop / start — on the table and the feed, where there is one |
 | `x` | run a predefined script |
 | `!` | type a command to run on the host |
 | `a` | live panel: per-second CPU sparkline per container |

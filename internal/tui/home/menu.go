@@ -5,10 +5,13 @@ package home
 // under `x`), and the `!` prompt for a command Linqode did not write.
 //
 // Both belong to the screen rather than to a panel: they take every key while
-// they are open, and what they run is not the focused panel's business. The
-// menu shows the exact command before running it, which is the other half of
-// the keymap policy — related commands live behind a menu instead of behind
-// case-variant keys (docs/PROJECT.md, decided policies).
+// they are open, and neither is drawn by the region it was opened from. What
+// they run is another matter — a script and a typed command need nothing
+// selected, while a lifecycle action is about one service, and which service
+// is the focused panel's business (see actionsHere). The menu shows the exact
+// command before running it, which is the other half of the keymap policy —
+// related commands live behind a menu instead of behind case-variant keys
+// (docs/PROJECT.md, decided policies).
 
 import (
 	"fmt"
@@ -35,11 +38,10 @@ type menu struct {
 	key string
 }
 
-func (m *Model) openActionMenu() {
-	service, ok := m.services.SelectedService()
-	if !ok {
-		return
-	}
+// openActionMenu lists the lifecycle actions for one service. Which service
+// that is has already been decided by the caller, from whichever region the
+// key was pressed in.
+func (m *Model) openActionMenu(service string) {
 	actions := []operations.ServiceAction{
 		operations.ActionRestart, operations.ActionStop, operations.ActionStart,
 	}

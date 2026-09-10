@@ -94,16 +94,21 @@ func buildScreen(options screenOptions) (*Model, *status.Model) {
 	return screen, panel
 }
 
-// focusHeader puts focus on the header wherever the ring starts, so a test
-// about what the system view does is not also a test of where focus begins.
-func focusHeader(screen *Model) {
+// focusPanel walks the ring to the named region, so a test about what a key
+// does there is not also a test of where focus begins. It gives up rather
+// than looping on a screen that does not draw that region; a caller for whom
+// that matters asserts the title afterwards.
+func focusPanel(screen *Model, title string) {
 	for range len(screen.panels) {
-		if screen.focused().Title() == "system" {
+		if screen.focused().Title() == title {
 			return
 		}
 		screen.Update(tea.KeyMsg{Type: tea.KeyTab})
 	}
 }
+
+// focusHeader puts focus on the header wherever the ring starts.
+func focusHeader(screen *Model) { focusPanel(screen, "system") }
 
 // openSystemView focuses the header and descends into the machine's readings.
 func openSystemView(screen *Model) {
@@ -641,7 +646,9 @@ func TestEscBacksOutOfEveryLevel(t *testing.T) {
 		t.Error("esc did not cancel the command prompt")
 	}
 
-	// The action menu.
+	// The action menu, which is the table's key rather than the screen's:
+	// focus starts on the header, where there is no service to act on.
+	focusPanel(screen, "services")
 	screen.Update(key("c"))
 	if screen.menu == nil {
 		t.Fatal("the action menu did not open")
@@ -696,6 +703,7 @@ func TestQQuitsFromEveryLevel(t *testing.T) {
 		services: []compose.Service{{Service: "api", Name: "p-api-1", State: "running"}},
 		host:     &hostFeed{metrics: sampleMetrics()}})
 	sampleAll(menu)
+	focusPanel(menu, "services")
 	menu.Update(key("c"))
 	if menu.menu == nil {
 		t.Fatal("the action menu did not open")
@@ -780,7 +788,7 @@ func TestTheFooterSplitsWhatIsGlobalFromWhatIsNot(t *testing.T) {
 		host:     &hostFeed{metrics: sampleMetrics()}})
 	sampleAll(screen)
 
-	global := []string{"tab panels", "r refresh", "c actions", "x scripts", "! run", "q quit"}
+	global := []string{"tab panels", "r refresh", "x scripts", "! run", "q quit"}
 	onHeader := screen.View()
 	for _, want := range append(global, "enter system") {
 		if !strings.Contains(onHeader, want) {
@@ -789,6 +797,11 @@ func TestTheFooterSplitsWhatIsGlobalFromWhatIsNot(t *testing.T) {
 	}
 	if !strings.Contains(onHeader, "│") {
 		t.Error("the two halves are not divided")
+	}
+	// `c` acts on a selection, and the machine has none: it is not on this
+	// footer at all, on either side of the rule.
+	if strings.Contains(onHeader, "c actions") {
+		t.Error("the action key is advertised on a region with no service to act on")
 	}
 
 	screen.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -802,6 +815,11 @@ func TestTheFooterSplitsWhatIsGlobalFromWhatIsNot(t *testing.T) {
 	if strings.Contains(onTable, "enter system") {
 		t.Error("the header's own key survived focus moving off it")
 	}
+	// And `c` appeared with the region that answers it — on the right of the
+	// rule, which is where the keys that change under you live.
+	if !strings.Contains(footerRight(onTable), "c actions") {
+		t.Errorf("the action key is not on the contextual half: %q", onTable)
+	}
 	if before, after := footerLeft(onHeader), footerLeft(onTable); before != after {
 		t.Errorf("the global half changed with focus:\n%q\n%q", before, after)
 	}
@@ -809,9 +827,20 @@ func TestTheFooterSplitsWhatIsGlobalFromWhatIsNot(t *testing.T) {
 
 // footerLeft is everything before the divider on the footer line.
 func footerLeft(view string) string {
-	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
-	left, _, _ := strings.Cut(lines[len(lines)-1], "│")
+	left, _ := footerHalves(view)
 	return left
+}
+
+// footerRight is everything after it: the half that changes with focus.
+func footerRight(view string) string {
+	_, right := footerHalves(view)
+	return right
+}
+
+func footerHalves(view string) (left, right string) {
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	left, right, _ = strings.Cut(lines[len(lines)-1], "│")
+	return left, right
 }
 
 // The footer is the keymap and nothing else. Counts, uptime, core counts and

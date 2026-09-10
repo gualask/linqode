@@ -1,6 +1,6 @@
 # Operations
 
-_Last updated: 2026-09-09._
+_Last updated: 2026-09-10._
 
 What Linqode *does* to a host, as opposed to what it reads from one
 ([monitoring.md](monitoring.md)) or draws on the screen
@@ -33,7 +33,17 @@ the user's place.
 Restart, stop and start on the selected service build the corresponding
 `docker compose` command against the project directory.
 
-They live behind a menu (`c`) rather than on a key each, because of the
+**Which service is selected is the focused region's business.** `c` is offered
+by the regions of the home that have a service under the cursor — the table,
+and the events feed, where it acts on the container the selected event was
+about — and by no others. On the host band and inside the system view it is
+neither advertised nor answered: those have no selection, and a menu opened
+from them named whatever the table happened to be sitting on, which from the
+system view is not even on the screen. The rule and what it costs are in
+[interface.md](interface.md#the-footer); the menu itself still belongs to the
+screen, since it takes every key while it is open.
+
+The actions live behind a menu (`c`) rather than on a key each, because of the
 keymap rule: **no two keys in the application differ only by the shift key.**
 `s` for stop beside `S` for start puts a production service one mistyped
 capital away from the opposite outcome. Showing the exact command before
@@ -74,7 +84,8 @@ rather than to the table, so `q` types a `q` instead of quitting.
 
 - **Menus** (`c`, `x`) share one type: a list of entries, each a label plus
   the command it runs, navigated with the arrows and dismissed with `esc` or the
-  key that opened it.
+  key that opened it. `x` is always there; `c` is offered only where something
+  is selected for it to act on.
 - **The prompt** (`!`) is an inline footer input: every key edits the line.
 
 ## One feed for all of them

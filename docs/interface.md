@@ -1,6 +1,6 @@
 # Interface
 
-_Last updated: 2026-09-09._
+_Last updated: 2026-09-10._
 
 How the screen is put together: what is drawn, what takes focus, and what
 gives way when the terminal runs short. What is *read* to fill it is
@@ -20,7 +20,7 @@ gives way when the terminal runs short. What is *read* to fill it is
 ┌─ events ──────────────────────────────────────────────────── 6 events ──┐
 │ 12:04:31  worker   killed (137)                                         │
 └─────────────────────────────────────────────────────────────────────────┘
- tab panels · r refresh · c actions · x scripts · ! run · q quit │ enter logs
+ tab panels · r refresh · x scripts · ! run · q quit │ enter logs · c actions
 ```
 
 Three boxes and a **footer**. The first is the session and the machine it runs
@@ -219,8 +219,10 @@ table. `enter` was worse than surprising: it ran the descent a second time and
 re-read the whole on-demand tier, three SSH round trips for a keystroke that
 changed nothing.
 
-The screen's own commands do go on working there — `r`, `c`, `x`, `!` — because
-none of them is about which panel has focus.
+The screen's own commands do go on working there — `r`, `x`, `!` — because
+none of them is about which panel has focus. `c` is the exception, and for
+exactly that reason: what it acts on is a selection, and the region that has
+one is not the one on screen. See [the footer](#the-footer).
 
 ## The band
 
@@ -420,7 +422,7 @@ wherever you are** on the left, **what the region with focus answers to** on
 the right.
 
 ```
- tab panels · r refresh · c actions · x scripts · ! run · q quit  │  enter logs · a live
+ tab panels · r refresh · x scripts · ! run · q quit  │  enter logs · a live · c actions
 ```
 
 Before the split there were ten keys in one row and nothing to say which of
@@ -428,6 +430,31 @@ them would still work after pressing `tab`. Now the left half is the same on
 every screen — learn it once — and only the right half changes under you. A
 rule rather than another middle dot, because the two sides are different kinds
 of thing and a dot would read as one list of ten.
+
+**Which half a key belongs to is decided by what it acts on**: the session or
+the machine on the left, a selection on the right. `r` reads everything again,
+`x` runs a script the operator configured and `!` runs the line they typed —
+none of them needs anything selected anywhere, and none of them needs a
+daemon. `c` does: a lifecycle action is about one service. It sat on the left
+until it was noticed that what it opened was always the table's selection,
+whichever region had focus — a restart menu about a service chosen somewhere
+else from the band, and, from the system view, about a service that was not on
+the screen at all.
+
+So **`c` is offered by the regions that have a service under the cursor**, and
+by no others: the table, and the feed, where it acts on the container the
+selected event was about rather than on whatever the table is sitting on. On
+the band it is neither advertised nor answered, and inside the system view the
+same. The cost is one `tab` for an operator who is reading the meters and
+wants to restart something — the table is still on screen behind the band, and
+its selection still visible — and the rule that buys it is the one anybody can
+state after seeing the footer once. The alternative, "`c` works if the table
+is *drawn*", is harder to learn than that `tab` is to press, and falls apart on
+the host where the machine takes the body and there is no table at all.
+
+It is the last hint on its side: `enter` is what the region is for, `c` is what
+can then be done to what it selected. How readily it is given up on a narrow
+line did not change with the side it is on.
 
 **No reading appears here.** Service counts, event counts, uptime, core count,
 the watching flag — each of those is monitoring, and monitoring belongs to the

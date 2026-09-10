@@ -212,8 +212,12 @@ func TestUIShot(t *testing.T) {
 	systemView := shotScreen(150, 24, true, nil)
 	openSystem(systemView)
 
+	// Walked to rather than counted to: one `tab` from the header is the
+	// table, and this frame is about the region after it — where `enter`
+	// opens the same logs and `c` now acts on the container the event was
+	// about rather than on the table's selection.
 	onFeed := shotScreen(150, 24, true, nil)
-	onFeed.Update(tea.KeyMsg{Type: tea.KeyTab})
+	focusPanel(onFeed, "events")
 	onFeed.Update(tea.KeyMsg{Type: tea.KeyDown})
 
 	short := shotScreen(150, 14, true, nil)

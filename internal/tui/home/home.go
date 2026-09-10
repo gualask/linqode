@@ -523,6 +523,20 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	if m.menu != nil {
 		return m.handleMenuKey(msg)
 	}
+	// `c` is the one command on this screen whose object is a selection, and
+	// a selection belongs to a panel. So it is claimed here only where the
+	// region with focus has one; anywhere else the key is left alone and
+	// travels on to that region with everything else the screen does not
+	// claim. It used to sit in the switch below, beside `r` and `x`, and read
+	// the table's selection whoever had focus — a lifecycle menu about a
+	// service chosen somewhere else, and, from the system view, about a
+	// service that was not on the screen at all.
+	if msg.String() == "c" {
+		if service, offered := m.actionsHere(); offered && service != "" {
+			m.openActionMenu(service)
+			return nil
+		}
+	}
 
 	switch msg.String() {
 	case "esc":
@@ -570,8 +584,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		// Refresh is the screen's, not a panel's: what an operator means by
 		// it is "read everything again, now".
 		return m.Refresh()
-	case "c":
-		m.openActionMenu()
 	case "x":
 		m.openScriptMenu()
 	case "!":
@@ -621,6 +633,52 @@ func (m *Model) open() tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// actionsHere answers the two questions `c` raises: whether the region with
+// focus acts on services at all — which is what the footer advertises — and
+// which service is under its cursor, which is what the menu opens on.
+//
+// They are two questions rather than one because a table whose first `ps` has
+// not landed still answers to `c`, the same way it still says `enter logs`:
+// a hint that appeared a second into the session would be advertising the
+// arrival of the data rather than the keymap.
+//
+// The rule the split follows: a key belongs on the left of the footer when
+// what it acts on is the session or the machine, and to a panel when what it
+// acts on is a selection. `r`, `x` and `!` are the first kind — a refresh, a
+// configured script and a command the operator typed need nothing selected
+// anywhere. A lifecycle action is the second, and the band and the system
+// view have no selection to offer it.
+//
+// On identity rather than on index, like open(), and for the same reason.
+func (m *Model) actionsHere() (service string, offered bool) {
+	if m.detail != nil {
+		// The body is a detail, and the only one there is shows the machine.
+		// Nothing under it is a service, and the table whose selection this
+		// used to read is not even drawn.
+		return "", false
+	}
+	switch m.focused() {
+	case panel.Panel(m.services):
+		if m.services.Unavailable() != "" {
+			// A host with no compose lists no services, so there is nothing
+			// here to restart and no key to advertise. The reason is already
+			// standing where the table would be.
+			return "", false
+		}
+		service, _ = m.services.SelectedService()
+		return service, true
+	case panel.Panel(m.events):
+		// The feed's entries are containers too, and acting on the one an
+		// event was about is the second obvious question to ask of it after
+		// its logs. An event about a container the project no longer has
+		// names nothing to act on, and then the menu does not open — the
+		// same condition `enter` meets there.
+		service, _ = m.events.SelectedService()
+		return service, true
+	}
+	return "", false
 }
 
 // closeDetail returns to the home, and tells the panel it is a header again:

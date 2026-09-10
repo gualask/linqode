@@ -190,12 +190,9 @@ func (m *Model) globalHints() []panel.Hint {
 		hints = append(hints, panel.Hint{Text: "tab panels", Drop: 7})
 	}
 	hints = append(hints, panel.Hint{Text: "r refresh", Drop: 2})
-	// Service actions are the one global command that needs compose. On a
-	// host without it the key is not advertised, because everything it could
-	// open is a lifecycle action on a service that was never listed.
-	if m.services.Unavailable() == "" {
-		hints = append(hints, panel.Hint{Text: "c actions", Drop: 3})
-	}
+	// `c actions` used to be here, and was the one key on this side whose
+	// object was a selection rather than the session. It sits with the region
+	// that has the selection now — see focusedHints.
 	return append(hints,
 		panel.Hint{Text: "x scripts", Drop: 6},
 		panel.Hint{Text: "! run", Drop: 4},
@@ -205,10 +202,21 @@ func (m *Model) globalHints() []panel.Hint {
 // focusedHints are what the region with focus answers to — the half of the
 // line that changes as `tab` moves.
 func (m *Model) focusedHints() []panel.Hint {
-	if m.detail == nil {
-		return m.focused().Hints()
+	if m.detail != nil {
+		// Inside a detail the way out comes first: the panel's own way *in*
+		// says `enter`, which is what was just pressed.
+		return append([]panel.Hint{{Text: "esc back", Drop: 1}}, m.detail.Hints()...)
 	}
-	// Inside a detail the way out comes first: the panel's own way *in* says
-	// `enter`, which is what was just pressed.
-	return append([]panel.Hint{{Text: "esc back", Drop: 1}}, m.detail.Hints()...)
+	hints := m.focused().Hints()
+	// The action menu is the screen's, its target the panel's, so the key is
+	// offered wherever there is a service under the cursor to act on — the
+	// table and the feed — and nowhere else. After the keys the panel answers
+	// to on its own: `enter` is what the region is for, `c` is what can then
+	// be done to what it selected. Its Drop is unchanged from when it sat on
+	// the other side of the rule: the side it is on moved, how badly it is
+	// wanted on a narrow line did not.
+	if _, offered := m.actionsHere(); offered {
+		hints = append(hints, panel.Hint{Text: "c actions", Drop: 3})
+	}
+	return hints
 }
