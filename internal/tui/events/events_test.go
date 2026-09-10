@@ -153,6 +153,26 @@ func TestTheFeedPromisesNoKeyItDoesNotAnswer(t *testing.T) {
 	}
 }
 
+// A key on the footer is a promise, and the states where this panel has
+// nothing under its cursor are not moments — a feed with nothing in it is a
+// deployment where nothing has happened, which is the case an operator is in
+// most of the time.
+func TestAFeedWithNothingToOpenOffersNoKeys(t *testing.T) {
+	if hints := feed().Hints(); len(hints) != 0 {
+		t.Errorf("an empty feed offers %v", hints)
+	}
+	// An event about a container the project no longer has names nothing to
+	// open either, even though the feed has a row and a cursor.
+	gone := feed(died("app-gone-1", "0"))
+	if hints := gone.Hints(); len(hints) != 0 {
+		t.Errorf("an event about a container that is gone offers %v", hints)
+	}
+	// And they come back with something the project has.
+	if hints := feed(died("app-web-1", "0")).Hints(); len(hints) == 0 {
+		t.Error("a feed with a container to open offers nothing")
+	}
+}
+
 // The service behind the selected event is what `enter` opens.
 func TestSelectedService(t *testing.T) {
 	m := feed(died("app-worker-1", "137"))

@@ -118,7 +118,17 @@ func (m *Model) SetFocus(focused bool)     { m.focused = focused }
 // already sends is a line spent teaching nothing. This one advertised `j/k`,
 // which the panel stopped answering when the vim aliases went — two keys
 // promised on the footer and answered by nothing at all.
+//
+// Nor is anything offered when there is nothing under the cursor to open: an
+// empty feed, or an event about a container the project no longer has. Both
+// are states this panel sits in for hours rather than for a moment — an empty
+// feed is a deployment where nothing has happened, which is the good case —
+// so a key advertised in them is a key an operator presses and watches do
+// nothing.
 func (m *Model) Hints() []panel.Hint {
+	if _, ok := m.SelectedService(); !ok {
+		return nil
+	}
 	return []panel.Hint{{Text: "enter logs", Drop: 2}}
 }
 

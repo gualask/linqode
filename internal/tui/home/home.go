@@ -672,11 +672,15 @@ func (m *Model) actionsHere() (service string, offered bool) {
 	case panel.Panel(m.events):
 		// The feed's entries are containers too, and acting on the one an
 		// event was about is the second obvious question to ask of it after
-		// its logs. An event about a container the project no longer has
-		// names nothing to act on, and then the menu does not open — the
-		// same condition `enter` meets there.
-		service, _ = m.events.SelectedService()
-		return service, true
+		// its logs.
+		//
+		// Here the two questions collapse into one: the feed offers the key
+		// only when its cursor is on an event whose container the project
+		// still has. That is the difference from the table, whose rows are on
+		// their way and whose emptiness lasts a round trip — a feed with
+		// nothing in it is a deployment where nothing has happened, which is
+		// both the ordinary case and one that can last all day.
+		return m.events.SelectedService()
 	}
 	return "", false
 }

@@ -413,6 +413,9 @@ empty feed says the daemon is being watched, which is worth knowing, and a
 panel that appeared the first time a container died would move the table under
 the operator at the worst possible moment.
 
+**Its keys are offered only when there is something under the cursor**, which
+on this panel is most often not the case: see [the footer](#the-footer).
+
 **Its rule counts what it has caught, and says when nothing is listening.**
 Losing the stream is not a failure — the table falls back to its timer, which
 is a slower screen rather than a broken one — so `not watching` is dim, and it
@@ -449,7 +452,18 @@ So **`c` is offered by the regions that have a service under the cursor**, and
 by no others: the table, and the feed, where it acts on the container the
 selected event was about rather than on whatever the table is sitting on. On
 the band it is neither advertised nor answered, and inside the system view the
-same. The cost is one `tab` for an operator who is reading the meters and
+same.
+
+**Under the cursor, not merely in the region.** The feed offers its keys —
+`enter logs` as well as `c actions` — only while its cursor is on an event
+whose container the project still has, and offers nothing at all otherwise:
+its half of the line goes empty, divider included. An empty feed is not a
+panel waiting for data, it is a deployment where nothing has happened, which
+is the good case and the one an operator is in most of the time; an event
+about a container that was destroyed is a row and a cursor with nothing behind
+them. The table is the other way round — its rows are one round trip away, and
+its emptiness is a moment — so there `c` follows compose being available
+rather than a row being selected. The cost is one `tab` for an operator who is reading the meters and
 wants to restart something — the table is still on screen behind the band, and
 its selection still visible — and the rule that buys it is the one anybody can
 state after seeing the footer once. The alternative, "`c` works if the table

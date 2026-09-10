@@ -172,21 +172,42 @@ func TestActionsOnTheFeedTargetTheEventsContainer(t *testing.T) {
 	}
 }
 
-// An event about a container the project no longer has names nothing that can
-// be restarted, which is the condition `enter` already meets there.
-func TestActionsOnAnEventWithNoContainerOpenNothing(t *testing.T) {
+// The feed offers its keys only where its cursor is on a container the project
+// still has. Unlike the table, whose rows are a round trip away, a feed with
+// nothing in it is a deployment where nothing has happened — the ordinary
+// case, and one that lasts.
+func TestAFeedWithNothingToActOnOffersNothing(t *testing.T) {
 	stream := newWatchStream()
 	screen, _ := watched(t, stream)
 	screen.SetSize(150, 30)
 
-	stream.change("app-gone-1")
-	applyScreen(screen, screen.handleWatchTick())
+	// Before anything has happened at all: the feed is empty, and its half of
+	// the footer is too. This is the ordinary state of a quiet deployment,
+	// and it used to advertise two keys that did nothing when pressed.
 	focusPanel(screen, "events")
 	if title := screen.focused().Title(); title != "events" {
 		t.Fatalf("focus is on %q, want the feed", title)
 	}
+	for _, offered := range []string{"c actions", "enter logs"} {
+		if strings.Contains(screen.View(), offered) {
+			t.Errorf("an empty feed advertises %q:\n%s", offered, screen.View())
+		}
+	}
+	if cmd := screen.Update(key("c")); cmd != nil || screen.menu != nil {
+		t.Error("c opened a menu on an empty feed")
+	}
+
+	// And with an event about a container the project no longer has, which is
+	// a row and a cursor and still nothing to act on.
+	stream.change("app-gone-1")
+	applyScreen(screen, screen.handleWatchTick())
 	if service, ok := screen.events.SelectedService(); ok {
 		t.Fatalf("the feed named %q for a container the project does not have", service)
+	}
+	for _, offered := range []string{"c actions", "enter logs"} {
+		if strings.Contains(screen.View(), offered) {
+			t.Errorf("an event about a container that is gone advertises %q", offered)
+		}
 	}
 	if cmd := screen.Update(key("c")); cmd != nil || screen.menu != nil {
 		t.Error("c opened a menu for an event about a container that is gone")
