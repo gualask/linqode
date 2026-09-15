@@ -325,8 +325,13 @@ func TestUIShot(t *testing.T) {
 	// Focus on the band: its label lights up and the table's box goes quiet,
 	// which is the whole point of the ring having two stops.
 
-	systemView := shotScreen(150, 24, true, nil)
+	// Tall, as a terminal someone opened to look at a machine is: the view is
+	// meant to fill it, and a short frame shows none of that.
+	systemView := shotScreen(160, 46, true, nil)
 	openSystem(systemView)
+	for range 40 {
+		resample(systemView)
+	}
 
 	// Walked to rather than counted to: one `tab` from the header is the
 	// table, and this frame is about the region after it — where `enter`
@@ -345,19 +350,20 @@ func TestUIShot(t *testing.T) {
 	roomy := shotScreen(150, 36, true, nil)
 	roomy.Update(tea.KeyMsg{Type: tea.KeyTab})
 
-	byCPUView := shotScreen(150, 24, true, nil)
+	// Narrow enough for one list, which is where `s` has something to do.
+	byCPUView := shotScreen(100, 36, true, nil)
 	openSystem(byCPUView)
 	byCPUView.Update(key("s"))
 
 	// Wide, and sampled for long enough to have more history than the
 	// narrowest column draws: the strips take the room they are given.
-	wideSystem := shotScreen(250, 24, true, nil)
+	wideSystem := shotScreen(250, 60, true, nil)
 	openSystem(wideSystem)
 	for range 70 {
 		resample(wideSystem)
 	}
 
-	narrowSystem := shotScreen(100, 20, true, nil)
+	narrowSystem := shotScreen(100, 30, true, nil)
 	openSystem(narrowSystem)
 
 	narrow := shotScreen(100, 20, true, nil)
@@ -391,17 +397,17 @@ func TestUIShot(t *testing.T) {
 			Text: onHeader.View()},
 		{Name: "150 columns — one tab forward, the table with a row selected",
 			Text: wide.View()},
-		{Name: "150 columns — the system view, opened with enter on the band",
+		{Name: "160x46 — the system view, opened with enter on the band",
 			Text: systemView.View()},
-		{Name: "150 columns — the same view, ranked by CPU", Text: byCPUView.View()},
-		{Name: "250 columns — the system view with room: strips reach back further",
+		{Name: "100x36 — one list, switched to ranking by CPU", Text: byCPUView.View()},
+		{Name: "250x60 — the system view with room in both directions",
 			Text: wideSystem.View()},
 		{Name: "150x24 — focus on the feed, second event selected", Text: onFeed.View()},
 		{Name: "150x30 — the live panel, forty seconds into the stream", Text: live.View()},
 		{Name: "150x36 — room under the table: what docker holds on disk", Text: roomy.View()},
 		{Name: "150x14 — too short for both: the satellite gives its rows back",
 			Text: short.View()},
-		{Name: "100 columns — the system view, where the rows have to give something up",
+		{Name: "100x30 — the system view, where the rows have to give something up",
 			Text: narrowSystem.View()},
 		{Name: "100 columns — I/O columns dropped, gap narrowed", Text: narrow.View()},
 		{Name: "150 columns — before the first host sample", Text: noMetrics.View()},

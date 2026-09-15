@@ -19,22 +19,19 @@ import "time"
 // trend is one remembered sample: the readings worth a sparkline, and the
 // host's own clock so the window can say how long it covers.
 type trend struct {
-	uptime           float64
-	cpu, memory, net float64
+	uptime      float64
+	cpu, memory float64
+	// rx and tx are the machine's own throughput, bytes a second each way.
+	rx, tx float64
 	// disks is each filesystem's used kilobytes, by mount point.
 	disks map[string]uint64
 }
 
-// historyDepth is how many samples are kept. At the five-second cadence that
-// is ten minutes, which is more than any sparkline draws — the extra is
-// there so a stretched interval on a slow link still fills the strip.
-const historyDepth = 120
-
-// stripMinimum is the narrowest a strip column is drawn. Twenty-four cells is
-// two minutes at the usual cadence, the least that shows a climb; a terminal
-// with less room than that gives the column up. One with more widens it, up
-// to everything the history holds.
-const stripMinimum = 24
+// historyDepth is how many samples are kept: an hour at the five-second
+// cadence. A chart draws a sample a cell, so this is what lets one as wide as
+// a large terminal reach back as far as it has room to, and it is a few
+// hundred kilobytes at most.
+const historyDepth = 720
 
 // history is a ring of the last historyDepth samples, oldest first when
 // read back.

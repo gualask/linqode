@@ -1,18 +1,13 @@
 package system
 
-// Tests for the remembered samples and the strips they draw. What is being
-// pinned here is mostly the scaling: a strip drawn against the wrong window
-// is not wrong by a little, it says the opposite of what happened.
+// Tests for the remembered samples and what is projected from them.
 
 import (
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
-
 	"github.com/gualask/linqode/internal/host"
-	"github.com/gualask/linqode/internal/tui/spark"
 )
 
 // climbing is a model fed rounds samples five host-seconds apart, in which
@@ -64,14 +59,14 @@ func TestHistoryKeepsTheNewest(t *testing.T) {
 	for round := range historyDepth + 40 {
 		h.push(trend{uptime: float64(round), cpu: float64(round)})
 	}
-	samples, seconds := h.window(stripMinimum)
-	if len(samples) != stripMinimum {
-		t.Fatalf("window holds %d samples, want %d", len(samples), stripMinimum)
+	samples, seconds := h.window(24)
+	if len(samples) != 24 {
+		t.Fatalf("window holds %d samples, want %d", len(samples), 24)
 	}
 	if samples[0].cpu >= samples[len(samples)-1].cpu {
 		t.Errorf("window is not oldest first: %v … %v", samples[0], samples[len(samples)-1])
 	}
-	if want := float64(stripMinimum - 1); seconds != want {
+	if want := float64(24 - 1); seconds != want {
 		t.Errorf("window covers %v seconds, want %v", seconds, want)
 	}
 	if len(h.samples) > historyDepth {
@@ -83,79 +78,8 @@ func TestHistoryKeepsTheNewest(t *testing.T) {
 func TestHistoryNeedsTwoSamples(t *testing.T) {
 	var h history
 	h.push(trend{uptime: 1})
-	if samples, _ := h.window(stripMinimum); samples != nil {
+	if samples, _ := h.window(24); samples != nil {
 		t.Errorf("one sample yielded a window: %v", samples)
-	}
-}
-
-// The strips are a column: either all of them fit at the right edge or none
-// of them are drawn, because one appearing on a single row reads as data
-// about that row rather than as the width running out.
-func TestStripsAreAColumnOrNothing(t *testing.T) {
-	m := climbing(10)
-
-	m.SetSize(160, 24)
-	wide := m.View()
-	var columns []int
-	for _, line := range strings.Split(wide, "\n") {
-		if column := stripStart(line); column >= 0 {
-			columns = append(columns, column)
-		}
-	}
-	if len(columns) != 3 {
-		t.Fatalf("expected a strip on cpu, memory and net, got %d:\n%s", len(columns), wide)
-	}
-	// They also have to start at the same column to read as a column.
-	for _, column := range columns {
-		if column != columns[0] {
-			t.Errorf("strips start at different columns: %v", columns)
-			break
-		}
-	}
-
-	m.SetSize(90, 24)
-	for _, line := range strings.Split(m.View(), "\n") {
-		if stripStart(line) >= 0 {
-			t.Errorf("a strip survived a terminal with no room for the column:\n%q", line)
-		}
-	}
-}
-
-// stripStart is the column a trend strip begins at, or -1 for a line that
-// has none. A strip is the last thing on its line, which is what separates
-// it from the meter bars and the per-core row — both drawn from the same
-// glyphs, neither of them at the end.
-func stripStart(line string) int {
-	runes := []rune(line)
-	if len(runes) == 0 || !strings.ContainsRune(spark.Glyphs, runes[len(runes)-1]) {
-		return -1
-	}
-	start := len(runes)
-	for start > 0 && strings.ContainsRune(spark.Glyphs, runes[start-1]) {
-		start--
-	}
-	return lipgloss.Width(string(runes[:start]))
-}
-
-// A wide terminal reaches further back than a narrow one, and no further than
-// the history goes.
-func TestStripsWidenWithTheRoom(t *testing.T) {
-	m := climbing(historyDepth + 20)
-	lengths := map[int]int{}
-	for _, width := range []int{170, 260, 400} {
-		m.SetSize(width, 40)
-		for _, line := range strings.Split(m.View(), "\n") {
-			if column := stripStart(line); column >= 0 {
-				lengths[width] = lipgloss.Width(line) - column
-				break
-			}
-		}
-	}
-	if lengths[170] < stripMinimum || lengths[260] <= lengths[170] {
-		t.Errorf("strip lengths by terminal width: %v", lengths)
-	}
-	if lengths[400] > historyDepth {
-		t.Errorf("a strip of %d cells from a history of %d", lengths[400], historyDepth)
 	}
 }
 

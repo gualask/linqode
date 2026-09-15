@@ -95,7 +95,10 @@ bounded burst drain, filter commit/clear/errors, structured-rendering
 detection and override, the stats panel, the action and script menus
 (navigation, running the chosen entry, closing on esc or on the key that
 opened them), the RESTARTS column appearing only once counts exist, the
-system view's strips widening with the terminal up to the history they have,
+system view dividing its room between the charts and the processes and
+keeping the processes when only one fits, share charts drawn against their
+whole scale, the readings in two columns when wide, both rankings side by
+side with no key to switch them and no cap on the list,
 a filesystem's fill time said only on enough evidence and within its reach,
 the live panel opening on the trend the sampled counters built,
 docker's disk drawn under the table only in rows the table leaves empty and

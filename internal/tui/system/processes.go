@@ -27,11 +27,6 @@ import (
 	"github.com/gualask/linqode/internal/tui/theme"
 )
 
-// processRows is the most the list will ever draw. Past this it stops being
-// a summary and starts being a worse version of the table above it; what an
-// operator wants from this block is the handful at the top.
-const processRows = 12
-
 // The columns of the process list.
 const (
 	processNameWidth = 20
@@ -81,13 +76,13 @@ func (m *Model) toggleRanking() {
 	m.ranking = byMemory
 }
 
-// ranked is the processes worth showing, in the order asked for. Sorting is
-// done here rather than on the server because the field the server would sort
-// on is not reliably where it counts: see host.ProcessCommand.
-func (m *Model) ranked() []host.ProcessUsage {
+// ranked is the processes in the order asked for. Sorting is done here rather
+// than on the server because the field the server would sort on is not
+// reliably where it counts: see host.ProcessCommand.
+func (m *Model) ranked(order ranking) []host.ProcessUsage {
 	entries := slices.Clone(m.processes)
 	slices.SortFunc(entries, func(a, b host.ProcessUsage) int {
-		if m.ranking == byCPU && a.CPUPercent != b.CPUPercent {
+		if order == byCPU && a.CPUPercent != b.CPUPercent {
 			// Descending, so the answer is the first line rather than the
 			// last.
 			if a.CPUPercent > b.CPUPercent {
@@ -112,34 +107,68 @@ func (m *Model) ranked() []host.ProcessUsage {
 // the block and the row naming its columns.
 const blockHeadings = 2
 
-// processBlock is the heading and the rows, given the space left under the
-// readings. It returns nothing when there is no room for the headings and a
-// couple of processes: half a list is worse than none, because the thing it
-// is read for is the top of it.
-func (m *Model) processBlock(rows int) []row {
-	if len(m.processes) == 0 || rows < blockHeadings+2 {
+// processListWidth is one list: the name, its two readings and the pid.
+const processListWidth = 2 + processNameWidth + 1 + processNumWidth + 1 + processNumWidth + 3 + 7
+
+// processMinRows is the least the lists are drawn in: the headings and three
+// processes. Fewer is worse than none, because the thing a list is read for
+// is the top of it.
+const processMinRows = blockHeadings + 3
+
+// bothRankings reports whether the two rankings fit side by side. Neither
+// order answers the other's question — memory is who is holding the machine's
+// RAM, CPU is who is burning it right now — so where there is room for both
+// there is no reason to make an operator switch between them.
+func (m *Model) bothRankings() bool {
+	return m.width >= 2*processListWidth+columnGap
+}
+
+// processLines is the process lists in the rows the view has left for them,
+// with no limit of their own. The list used to stop at twelve on the grounds
+// that past that it was a worse version of a table; what it was in practice
+// was twelve rows over an empty screen, and the reading behind it had
+// already fetched every process there is.
+func (m *Model) processLines(rows int) []string {
+	if len(m.processes) == 0 || rows < processMinRows {
 		return nil
 	}
-	entries := m.ranked()
-	shown := min(min(rows-blockHeadings, processRows), len(entries))
+	listRows := rows
+	if m.processesStale {
+		listRows--
+	}
+	var lines []string
+	if m.bothRankings() {
+		half := (m.width - columnGap) / 2
+		lines = besideEachOther(m.processList(byMemory, listRows),
+			m.processList(byCPU, listRows), half)
+	} else {
+		lines = m.processList(m.ranking, listRows)
+	}
+	if m.processesStale {
+		lines = append(lines, theme.Dim.Render(
+			"  the last process reading failed — this list is the one before it"))
+	}
+	return lines
+}
 
+// processList is one ranking: its heading, the row naming its columns, and as
+// many processes as rows allows.
+func (m *Model) processList(order ranking, rows int) []string {
+	entries := m.ranked(order)
+	shown := min(max(rows-blockHeadings, 0), len(entries))
 	heading := fmt.Sprintf("  %s %s %s   %s",
 		pad("process", processNameWidth),
 		right("RSS", processNumWidth), right("CPU", processNumWidth),
 		theme.Dim.Render("pid"))
-	block := []row{{text: " " + theme.Bold.Render("processes") +
-		theme.Dim.Render("  "+m.ranking.String()+
-			fmt.Sprintf("   %d running", len(m.processes)))},
-		{text: theme.Dim.Render(heading)}}
-
+	lines := []string{
+		" " + theme.Bold.Render("processes") + theme.Dim.Render("  "+order.String()+
+			fmt.Sprintf("   %d running", len(m.processes))),
+		theme.Dim.Render(heading),
+	}
 	for _, entry := range entries[:shown] {
-		block = append(block, row{text: m.processLine(entry)})
+		lines = append(lines, m.processLine(entry))
 	}
-	if m.processesStale {
-		block = append(block, row{text: theme.Dim.Render(
-			"  the last process reading failed — this list is the one before it")})
-	}
-	return block
+	return lines
 }
 
 func (m *Model) processLine(entry host.ProcessUsage) string {
@@ -215,8 +244,8 @@ func (m *Model) SetGPUs(gpus []host.GPU, err error) {
 // stops work starting. Where the driver reports no utilisation — some older
 // amdgpu kernels — the meter falls back to memory and the text says which
 // number it is drawing.
-func (m *Model) gpuRows(column int) []row {
-	rows := make([]row, 0, len(m.gpus))
+func (m *Model) gpuRows(g grid) []string {
+	rows := make([]string, 0, len(m.gpus))
 	for index, gpu := range m.gpus {
 		label := "gpu"
 		if len(m.gpus) > 1 {
@@ -248,8 +277,7 @@ func (m *Model) gpuRows(column int) []row {
 		}
 		tail = append(tail, gpu.Name)
 		text += theme.Dim.Render("   " + strings.Join(tail, "   "))
-		rows = append(rows, row{
-			text: m.meterRow(column, label, percent, theme.Usage(percent), text)})
+		rows = append(rows, m.meterRow(g, label, percent, theme.Usage(percent), text))
 	}
 	return rows
 }

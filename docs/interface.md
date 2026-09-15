@@ -279,46 +279,54 @@ all — a stale number that looks current is worse than a missing one.
 ## The system view
 
 `enter` on the band opens it. The same sample with the room to print what one
-row has to leave out, plus the readings that are only taken while it is open.
+row has to leave out, the history of the readings that move, and what the
+machine is running — the last two read only while it is open.
+
+It is **about the machine and nothing else**. What docker holds on disk was a
+row here until September 2026, and is under the services table now, with the
+rest of what is about docker.
+
+**It fills the screen in both directions**: the readings at the top, in two
+columns where the terminal is wide enough; a row of charts under them, as tall
+as the readings leave room for; and the processes in whatever is left, both
+rankings side by side where the width allows.
 
 ```
- cpu      [▇▇▇▇░░░░░░]  28% busy   load 7.21  5.98  4.55   over 8 cores   1m ▁▂▅▇▃▂
- cores    ▇▅▁▁▂▁▁▁   busiest cpu0 at 98%
- memory   [▇▇▇▇▇▇▇░░░]  24.6G used   6.7G available of 31.3G              1m ▃▄▅▆▇█
- swap     [▇▇▇░░░░░░░]  3.2G used   4.8G free of 8.0G
- /        [▇▇▇▇▇▇▇▇▇░]  89.0G used   107G free of 196G   /dev/nvme0n1p2
- /var     [▇▇▇▇▇▇▇▇▇▇]  372G used   27.6G free of 400G   /dev/sdb1
- net                    283K/s down   70.8K/s up   busiest eth0 at 354K/s   1m ▂▇▃▁▄
- pressure               cpu 24.5%   io 8.3% (full 2.1%)   mem 0.0%   stalled 10s
- temp     [▇▇▇▇▇▇▇▇░░]  74°C Composite of 85°C   71°C Package id 0   44°C acpitz
- gpu      [▇▇▇▇▇▇▇▇▇░]  91% busy   20.9G/22.5G   74°C   149W   NVIDIA A10
- uptime                 42d7h
- system                 Debian GNU/Linux 12 (bookworm)
+ cpu      [▇▇▇░░░░░░░]  28% busy   load 7.21  5.98  4.55   over 8 cores     net                    283K/s down   70.8K/s up   busiest eth0 at 354K/s
+ cores    ▇▅▁▁▂▁▁▁   busiest cpu0 at 98%                                    pressure               cpu 24.5%   io 8.3% (full 2.1%)   mem 0.0%   stalled 10s
+ memory   [▇▇▇▇▇▇▇░░░]  24.6G used   6.7G available of 31.3G                 temp     [▇▇▇▇▇▇▇▇░░]  74°C Composite of 85°C   71°C Package id 0
+ swap     [▇▇▇░░░░░░░]  3.2G used   4.8G free of 8.0G                       gpu      [▇▇▇▇▇▇▇▇▇░]  91% busy   20.9G/22.5G   74°C   149W   NVIDIA A10
+ /        [▇▇▇▇▇▇▇▇▇░]  89.0G used   107G free of 196G   /dev/nvme0n1p2      uptime                 42d7h
+ /var     [▇▇▇▇▇▇▇▇▇▇]  372G used   27.6G free of 400G   full in ~1h         system                 Debian GNU/Linux 12 (bookworm)
 
- processes  by memory   9 running
-  process                    RSS       CPU   pid
-  postgres                  11.0G     8.0%   9821
+ cpu  28% busy                   memory  79% used                net down  283K/s   peak 354K/s     net up  70.8K/s   peak 96.1K/s
+         ▃  ▅▆█▇▅▃                          ▃▃▄▄▅▅▆▆▇▇█▇█                 ▂▇▃ ▄▂▇▃▁▄                      ▁▂▁ ▃▁▂▁
+   ▅▅▆▇████████████▆              ▅▅▆▆███████████████████         ▃▄████▆███████▅                  ▂▅████▆████▅
+ -12m                     now    -12m                     now    -12m                     now    -12m                     now
+
+ processes  by memory   312 running                                     processes  by cpu   312 running
+  process                    RSS       CPU   pid                         process                    RSS       CPU   pid
+  postgres                  11.0G     8.0%   9821                        java                       3.2G     41.2%   2214
 ```
 
-Rows are ordered by how much they answer "what is wrong with this machine",
-because a short terminal truncates the box from the bottom. Every reading a
-later feature adds lands here rather than in a new box on the home, which is
-what keeps the home cheap to draw and cheap to sample.
+### The readings
+
+Two columns from 196 cells, one below that. **The first column is what fills
+up** — processors, memory, swap, disks — and the second what the machine is
+doing and what it is: network, pressure, temperatures, cards, uptime, its
+name. Read top to bottom, one column is the order the view always had, which
+is by how much a row answers "what is wrong with this machine", because a
+short terminal truncates the box from the bottom.
 
 - **The per-core strip** is one cell per core, not a labelled bar each: a
   labelled bar each stops fitting somewhere around sixteen cores, and the
   shape of the strip is what the row is read for. One pinned core among eight
   idle ones is a machine with a problem and an average that says twelve
   percent, so the busiest is named beside it.
-- **The gauges shrink so the widest row fits.** The pressure row is the
-  longest and the one with no gauge to give up, so the bars reserve what its
-  text needs — which costs a wide terminal nothing, since the cap is reached
-  either way.
-- **The process list takes whatever is left** and draws nothing at all when
-  there is room for fewer than two entries, since what it is read for is the
-  top of it. `s` switches its ranking between memory and CPU: neither order
-  answers the other's question — memory is who is holding the machine's RAM,
-  CPU is who is burning it right now.
+- **The gauges shrink so the widest row fits** its column. The pressure row
+  is the longest and the one with no gauge to give up, so the bars reserve
+  what its text needs — which costs a wide column nothing, since the cap is
+  reached either way.
 - **A card gets a row per card**, metered on utilisation with memory spelled
   out beside it, since on a card it is memory that stops work starting. Where
   a driver reports no utilisation the meter falls back to memory and the row
@@ -331,43 +339,73 @@ what keeps the home cheap to draw and cheap to sample.
   ```
 - **The last row is what the machine calls itself**, established once by the
   [connect-time probe](monitoring.md) rather than sampled — it does not change
-  and it never goes stale. It is last because the order is by urgency and the
-  box truncates from the bottom: a host's name answers no question about what
-  is wrong with it, so it is the row worth losing first. A host that reports
-  no name draws no row, and nothing above it moves.
+  and it never goes stale. It is last because the order is by urgency: a
+  host's name answers no question about what is wrong with it, so it is the
+  row worth losing first. A host that reports no name draws no row, and
+  nothing above it moves.
 
-### Trend strips
+### The charts
 
-Beside the CPU, memory and network rows runs a column of sparklines drawn from
-samples already fetched — the one thing on the screen that costs the server
-nothing, and the difference between "memory is at 88%" and "memory has been
-climbing for ten minutes".
+CPU, memory, and the machine's throughput each way, drawn from samples already
+fetched — the one thing on the screen that costs the server nothing, and the
+difference between "memory is at 88%" and "memory has been climbing for ten
+minutes".
 
-Each is scaled against **its own window**, not against 0–100. The meter beside
-it already says the level; on a fixed scale, memory between 78% and 88% draws
-as eight solid blocks and the climb inside it — the whole reason the strip is
-there — disappears. The window is widened to a floor so a reading that never
-moves is not drawn as if it had swung end to end, and colour still comes from
-the raw value: **height says how it moved, colour says how bad.** Throughput
-has no natural full and is scaled against the busiest moment in its window
-instead.
+They used to be **a column of strips one row high** beside the readings. One
+row is eight heights to draw a history with; the column vanished altogether
+wherever the widest reading left fewer than twenty-four cells, which on a
+host with a GPU row was most terminals; and the screen under the process list
+stayed empty. The charts take that room instead.
 
-The strips appear as a column or not at all. One showing up on a single row
-would read as data about that row rather than as the terminal running out of
-width, and they are the part the next sample can reconstruct — so they are what
-a narrow screen gives up rather than the numbers. Their label says how much
-host time they cover, measured from the samples that arrived rather than the
-cadence that was asked for.
+**Height is what lets a chart use the reading's own scale.** A share is drawn
+from nought to a hundred, so the height is the level, as it is on the meter
+above: ten rows are eighty heights, and memory going from 78% to 88% is eight
+of them. A one-row strip could only show that climb by scaling against its own
+window, which made a reading that barely moved look as if it had swung. A rate
+has no natural full and is drawn against the busiest moment the chart holds,
+which its title names as the peak.
 
-**The column takes the room it is given.** It is as wide as the widest row
-leaves, from twenty-four cells — two minutes, the least that shows a climb —
-up to the whole ten minutes the history holds. It used to be twenty-four
-cells on every terminal, so a wide one left the space beside the numbers
-empty while eight minutes of samples it already had went undrawn.
+**Colour says how bad**: a share's columns are coloured by their own reading,
+so a climbing memory chart turns yellow where the reading did. Throughput is
+one colour, because the top of a rate chart is only the top of what happened.
 
-The shapes and the windows are `internal/tui/spark`, shared with the live
-panel under the table and the timeline in the log view, so the rule is the
-same wherever a reading is drawn over time.
+Four charts share a row where each gets 36 cells, wrap into two rows of two
+where they do not, and into one column below that — never three over one,
+which reads as a fourth that did not fit. A chart draws **a sample a cell**,
+newest on the right, and its axis starts under the oldest one drawn, so it
+says how far back the chart actually reaches. The history holds an hour, so a
+wide terminal reaches further back than a narrow one.
+
+Nothing is retained across sessions. History while nobody is connected is what
+an agent would buy, and that is a non-goal.
+
+### The processes
+
+**Both rankings are on screen where the width allows it**: by memory on the
+left, by CPU on the right. Neither order answers the other's question —
+memory is who is holding the machine's RAM, CPU is who is burning it right
+now — so where there is room for both there is no reason to make an operator
+switch. Below that width it is one list, and `s` switches its ranking; with
+both on screen `s` is neither offered nor answered.
+
+**The list has no limit of its own.** It stopped at twelve on the grounds that
+past that it was a worse version of a table; what it was in practice was
+twelve rows over an empty screen, and the reading behind it had already
+fetched every process there is.
+
+### What gives way
+
+The readings are drawn first, and what they leave is divided between the
+charts and the processes in one place. When both fit at their least — a chart
+row of a title, three rows of history and an axis; the headings and three
+processes — the charts take 45% of the room, between five and fourteen rows
+each, and the processes the rest; rows the processes cannot fill go back to
+the charts.
+
+When only one fits, **it is the processes**. The numbers before the shapes:
+the next sample reconstructs a chart, and nothing reconstructs which process
+was on top. Below that there is neither, and below the height of the readings
+themselves it is the panel's box that cuts them, from the bottom.
 
 ### When a disk will be full
 
@@ -389,9 +427,6 @@ green: a projection appears only when there is something to say.
 
 It sits before the device name, which is the part of the row a narrow
 terminal can best spare.
-
-Nothing is retained across sessions. History while nobody is connected is what
-an agent would buy, and that is a non-goal.
 
 ## The services table
 

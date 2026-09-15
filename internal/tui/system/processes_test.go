@@ -4,6 +4,7 @@ package system
 // and the space it is allowed to use.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -30,7 +31,9 @@ func running() host.ProcessSample {
 func measuredProcesses() *Model {
 	m := sampled(richMetrics())
 	m.SetOpen(true)
-	m.SetSize(120, 24)
+	// Narrow enough for one list: most of these tests are about the one
+	// ranking the key switches.
+	m.SetSize(100, 24)
 
 	before := running()
 	m.SetProcesses(before, nil)
@@ -130,12 +133,12 @@ func TestTheBandDoesNotAnswerToTheViewsKey(t *testing.T) {
 func TestTheListTakesWhatIsLeftAndNoMore(t *testing.T) {
 	m := measuredProcesses()
 
-	m.SetSize(120, 40)
+	m.SetSize(100, 40)
 	if got := strings.Count(m.View(), "\n"); got == 0 {
 		t.Fatal("nothing rendered")
 	}
 	tall := strings.Count(m.View(), "sshd")
-	m.SetSize(120, 11)
+	m.SetSize(100, 11)
 	short := strings.Count(m.View(), "sshd")
 	if tall != 1 {
 		t.Errorf("a tall view showed the smallest process %d times", tall)
@@ -146,7 +149,7 @@ func TestTheListTakesWhatIsLeftAndNoMore(t *testing.T) {
 
 	// And a view with no room for the headings and a couple of rows shows
 	// none.
-	m.SetSize(120, 9)
+	m.SetSize(100, 9)
 	if strings.Contains(m.View(), "processes") {
 		t.Errorf("a list was drawn with no room for one:\n%s", m.View())
 	}
@@ -251,5 +254,45 @@ func TestACardThatReportsNoUtilisation(t *testing.T) {
 	}
 	if strings.Contains(view, "busy") {
 		t.Errorf("a utilisation nobody reported was drawn:\n%s", view)
+	}
+}
+
+// Where there is room for both rankings they are both on screen, and there is
+// no key to offer for switching between them.
+func TestBothRankingsSideBySideWhenThereIsRoom(t *testing.T) {
+	m := measuredProcesses()
+	m.SetSize(160, 30)
+	view := m.View()
+	together := false
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "by memory") && strings.Contains(line, "by cpu") {
+			together = true
+		}
+	}
+	if !together {
+		t.Errorf("the two rankings are not side by side:\n%s", view)
+	}
+	if len(m.Hints()) != 0 {
+		t.Errorf("a key to switch rankings is offered with both on screen: %+v", m.Hints())
+	}
+	m.Update(key("s"))
+	if m.ranking != byMemory {
+		t.Error("an invisible ranking was switched")
+	}
+}
+
+// The list has no limit of its own: it takes every row the view gives it.
+func TestTheListIsNotCapped(t *testing.T) {
+	m := sampled(richMetrics())
+	m.SetOpen(true)
+	m.SetSize(100, 70)
+	sample := host.ProcessSample{UptimeSeconds: 1000, ClockTck: 100}
+	for index := range 40 {
+		sample.Processes = append(sample.Processes, host.Process{
+			PID: 1000 + index, Name: fmt.Sprintf("worker%02d", index), RSSKB: uint64(1000 + index)})
+	}
+	m.SetProcesses(sample, nil)
+	if got := strings.Count(m.View(), "worker"); got != 40 {
+		t.Errorf("the list drew %d of 40 processes in a view with room for all:\n%s", got, m.View())
 	}
 }

@@ -15,6 +15,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/tui/panel"
@@ -97,7 +98,8 @@ func (m *Model) SetSample(metrics host.Metrics, err error) {
 				uptime: metrics.UptimeSeconds,
 				cpu:    usage.CPUPercent,
 				memory: metrics.MemUsedPercent(),
-				net:    usage.RxRate + usage.TxRate,
+				rx:     usage.RxRate,
+				tx:     usage.TxRate,
 				disks:  disks,
 			})
 		}
@@ -131,6 +133,10 @@ func (m *Model) labelStyle() lipgloss.Style {
 // inside it.
 func (m *Model) Hints() []panel.Hint {
 	if m.open {
+		// With both rankings on screen there is nothing to switch to.
+		if m.bothRankings() {
+			return nil
+		}
 		next := byCPU
 		if m.ranking == byCPU {
 			next = byMemory
@@ -151,7 +157,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	if !ok {
 		return nil
 	}
-	if m.open && key.String() == "s" {
+	if m.open && key.String() == "s" && !m.bothRankings() {
 		m.toggleRanking()
 	}
 	return nil
@@ -171,48 +177,122 @@ const labelWidth = 8
 // instead of eating the width the gauges are drawn in.
 const labelMax = 16
 
-// row is one line of the view: its text, and the trend that belongs to the
-// right of it when there is room for a column of them.
-type row struct {
-	text  string
-	trend *trendLine
-}
-
-// trendLine is what a row's strip is drawn from: which reading, the window it
-// is scaled against, and the colour each raw value is judged by. It is drawn
-// only once the column's width is known, which depends on every row.
-type trendLine struct {
-	of    func(trend) float64
-	scale func([]float64) (float64, float64)
-	style func(float64) lipgloss.Style
-}
-
-// View is the system view: everything the batch reads, with the room to
-// print what the band has to leave out — the other load averages, the cores
-// behind the average, what is available rather than only what is used, and
-// the readings the band has no row for at all.
+// View is the system view: the machine's readings, its recent history drawn
+// tall, and what it is running, from the top.
 //
-// The order is what a short terminal keeps: the box truncates from the
-// bottom, so the readings that answer "what is wrong with this machine" come
-// before the ones that answer "how long has it been up".
+// It fills the screen in both directions. The readings take two columns
+// where the terminal is wide enough for two; the history is a row of charts
+// as tall as the readings leave room for; and the processes take the rest,
+// both rankings side by side where the width allows. What gives way on a
+// short terminal is room's to decide: the charts first, because the next
+// sample reconstructs them, then the processes.
 //
-// Temperatures, GPU and the processes behind these numbers arrive in the
-// phases after this one, as rows here rather than as boxes on the home.
+// It is about the machine and nothing else. What docker holds on disk used to
+// be a row here, and is under the services table now, with the rest of what
+// is about docker.
 func (m *Model) View() string {
 	if !m.loaded {
 		return theme.Dim.Render("  (waiting for the first host sample…)")
 	}
-	metrics := m.metrics
-	column := m.labelColumn()
-	var rows []row
-
+	var lines []string
 	if m.unavailable != "" {
-		rows = append(rows,
-			row{text: "  " + theme.Yellow.Render("compose is unavailable on this host")},
-			row{text: "  " + theme.Dim.Render(m.unavailable)},
-			row{})
+		lines = append(lines,
+			"  "+theme.Yellow.Render("compose is unavailable on this host"),
+			"  "+theme.Dim.Render(m.unavailable),
+			"")
 	}
+	lines = append(lines, m.readingLines()...)
+	if m.stale {
+		lines = append(lines, "", theme.Dim.Render(
+			"  the last sample failed — these readings are the ones before it"))
+	}
+	chartHeight, processRows := m.room(m.height - len(lines))
+	if chartHeight > 0 {
+		lines = append(lines, "")
+		lines = append(lines, m.chartLines(chartHeight)...)
+	}
+	if processRows > 0 {
+		lines = append(lines, "")
+		lines = append(lines, m.processLines(processRows)...)
+	}
+	return strings.Join(lines, "\n")
+}
 
+// readingColumnMin is the narrowest a column of readings is laid out at: the
+// label, a gauge, and the longest text a row carries — the pressure row's.
+// Below twice that the readings are one column, as they always were.
+const readingColumnMin = 96
+
+// columnGap separates two columns of anything in this view.
+const columnGap = 4
+
+// grid is where a row's parts go: how wide the label column is, and how wide
+// the column of readings the row sits in.
+type grid struct {
+	label, width int
+}
+
+// gauge is the bar every row draws, or leaves blank where it has none, so all
+// of them start their text under the same column.
+func (g grid) gauge() int {
+	if g.width <= 0 {
+		return detailBar
+	}
+	return min(max(g.width-g.label-rowTextReserve, meterMinBar), detailBar)
+}
+
+// readingLines lays the readings out: side by side in two columns where there
+// is room for two, one under the other otherwise. Either way the first
+// column is what fills up — processors, memory, disks — and the second what
+// the machine is doing and what it is, so read top to bottom the single
+// column is the order it always had.
+func (m *Model) readingLines() []string {
+	label := m.labelColumn()
+	if m.width >= 2*readingColumnMin+columnGap {
+		width := (m.width - columnGap) / 2
+		capacity, activity := m.readingRows(grid{label: label, width: width})
+		return besideEachOther(capacity, activity, width)
+	}
+	capacity, activity := m.readingRows(grid{label: label, width: m.width})
+	return append(capacity, activity...)
+}
+
+// besideEachOther joins two columns of lines, the left one cut or padded to
+// width so the right one starts in the same place on every line.
+func besideEachOther(left, right []string, width int) []string {
+	lines := make([]string, max(len(left), len(right)))
+	for index := range lines {
+		var l, r string
+		if index < len(left) {
+			l = fit(left[index], width)
+		}
+		if index < len(right) {
+			r = fit(right[index], width)
+		}
+		if r == "" {
+			lines[index] = l
+			continue
+		}
+		lines[index] = l + strings.Repeat(" ", width-lipgloss.Width(l)+columnGap) + r
+	}
+	return lines
+}
+
+// fit cuts a line that is wider than its column, rather than letting it run
+// into the column beside it.
+func fit(line string, width int) string {
+	if width <= 0 || lipgloss.Width(line) <= width {
+		return line
+	}
+	return ansi.Truncate(line, width, "…")
+}
+
+// readingRows is every reading the batch has, as the two halves readingLines
+// lays out. Each half is in the order a short terminal keeps: the box
+// truncates from the bottom, so the readings that answer "what is wrong with
+// this machine" come before the ones that answer "how long has it been up".
+func (m *Model) readingRows(g grid) (capacity, activity []string) {
+	metrics := m.metrics
 	load := ""
 	if metrics.HasLoad() {
 		load = theme.Dim.Render(fmt.Sprintf("   load %.2f  %.2f  %.2f   over %d cores",
@@ -220,48 +300,37 @@ func (m *Model) View() string {
 	}
 	if m.hasUsage {
 		percent := m.usage.CPUPercent
-		rows = append(rows, row{
-			text: m.meterRow(column, "cpu", percent, theme.Usage(percent),
-				fmt.Sprintf("%.0f%% busy", percent)+load),
-			trend: &trendLine{func(t trend) float64 { return t.cpu }, spark.Percent, theme.Usage},
-		})
-		if strip := m.coreRow(column); strip != "" {
-			rows = append(rows, row{text: strip})
+		capacity = append(capacity, m.meterRow(g, "cpu", percent, theme.Usage(percent),
+			fmt.Sprintf("%.0f%% busy", percent)+load))
+		if strip := m.coreRow(g); strip != "" {
+			capacity = append(capacity, strip)
 		}
 	} else if metrics.HasLoad() {
 		// The first sample after connecting cannot say what the CPU is
 		// doing — a percentage is a difference — so the load average
 		// stands in until the second one arrives.
 		perCPU := metrics.LoadPerCPU()
-		rows = append(rows, row{text: m.meterRow(column, "load", perCPU*100, loadStyle(perCPU),
+		capacity = append(capacity, m.meterRow(g, "load", perCPU*100, loadStyle(perCPU),
 			fmt.Sprintf("%.2f  %.2f  %.2f", metrics.Load1, metrics.Load5, metrics.Load15)+
-				theme.Dim.Render(fmt.Sprintf("   over %d cores", metrics.CPUs)))})
+				theme.Dim.Render(fmt.Sprintf("   over %d cores", metrics.CPUs))))
 	}
-
 	if metrics.MemTotalKB > 0 {
 		percent := metrics.MemUsedPercent()
-		// Memory is the reading a trend changes most: 88% in use says
-		// nothing about whether it has been there for a week or arrived in
-		// the last two minutes, and those are different problems.
-		rows = append(rows, row{
-			text: m.meterRow(column, "memory", percent, theme.Usage(percent),
-				fmt.Sprintf("%s used", formatKB(metrics.MemUsedKB()))+
-					theme.Dim.Render(fmt.Sprintf("   %s available of %s",
-						formatKB(metrics.MemAvailableKB), formatKB(metrics.MemTotalKB)))),
-			trend: &trendLine{func(t trend) float64 { return t.memory }, spark.Percent, theme.Usage},
-		})
+		capacity = append(capacity, m.meterRow(g, "memory", percent, theme.Usage(percent),
+			fmt.Sprintf("%s used", formatKB(metrics.MemUsedKB()))+
+				theme.Dim.Render(fmt.Sprintf("   %s available of %s",
+					formatKB(metrics.MemAvailableKB), formatKB(metrics.MemTotalKB)))))
 	}
 	// A machine with no swap configured is not a machine with empty swap,
 	// and drawing an empty meter for it would say the opposite.
 	if metrics.SwapTotalKB > 0 {
 		percent := metrics.SwapUsedPercent()
-		rows = append(rows, row{text: m.meterRow(column, "swap", percent, theme.Usage(percent),
+		capacity = append(capacity, m.meterRow(g, "swap", percent, theme.Usage(percent),
 			fmt.Sprintf("%s used", formatKB(metrics.SwapUsedKB()))+
 				theme.Dim.Render(fmt.Sprintf("   %s free of %s",
 					formatKB(metrics.SwapTotalKB-metrics.SwapUsedKB()),
-					formatKB(metrics.SwapTotalKB))))})
+					formatKB(metrics.SwapTotalKB)))))
 	}
-
 	for _, filesystem := range m.filesystems() {
 		percent := filesystem.UsedPercent()
 		free := filesystem.TotalKB - min(filesystem.UsedKB, filesystem.TotalKB)
@@ -275,118 +344,35 @@ func (m *Model) View() string {
 			text += "   " + fillStyle(eta).Render("full in "+formatETA(eta))
 		}
 		text += theme.Dim.Render("   " + filesystem.Device)
-		rows = append(rows, row{text: m.meterRow(column, filesystem.Mount, percent,
-			theme.Usage(percent), text)})
+		capacity = append(capacity, m.meterRow(g, filesystem.Mount, percent,
+			theme.Usage(percent), text))
 	}
 
 	if m.hasUsage && len(m.usage.Interfaces) > 0 {
-		// A throughput is not a share of anything, so its strip is scaled
-		// against the busiest moment in the window and drawn in one color:
-		// coloring it by height would read as "this is bad" where it only
-		// means "this is the top of what happened".
-		rows = append(rows, row{
-			text: m.textRow(column, "net", m.networkText()),
-			trend: &trendLine{func(t trend) float64 { return t.net }, spark.Rate,
-				func(float64) lipgloss.Style { return theme.Cyan }},
-		})
+		activity = append(activity, m.textRow(g, "net", m.networkText()))
 	}
 	if metrics.HasPressure() {
-		rows = append(rows, row{text: m.textRow(column, "pressure", m.pressureText())})
+		activity = append(activity, m.textRow(g, "pressure", m.pressureText()))
 	}
 	if hottest, ok := metrics.Hottest(); ok {
 		// The meter is the hottest sensor's share of its own limit, which is
 		// the only honest way to compare two of them: an NVMe at 71 degrees
 		// is closer to trouble than a CPU at 80.
 		share := hottest.Share()
-		rows = append(rows, row{text: m.meterRow(column, "temp", share,
-			theme.Usage(share), m.temperatureText(hottest))})
+		activity = append(activity, m.meterRow(g, "temp", share,
+			theme.Usage(share), m.temperatureText(hottest)))
 	}
-	rows = append(rows, m.gpuRows(column)...)
+	activity = append(activity, m.gpuRows(g)...)
 	if metrics.Uptime > 0 {
-		rows = append(rows, row{text: m.textRow(column, "uptime", formatUptime(metrics.Uptime))})
+		activity = append(activity, m.textRow(g, "uptime", formatUptime(metrics.Uptime)))
 	}
 	// Last, because it is the row that answers no question about what is
-	// wrong: the list is ordered by urgency and the box truncates from the
-	// bottom, so what the machine calls itself is what should go last.
+	// wrong: the order is by urgency and the box truncates from the bottom,
+	// so what the machine calls itself is what should go last.
 	if m.os != "" {
-		rows = append(rows, row{text: m.textRow(column, "system", theme.Dim.Render(m.os))})
+		activity = append(activity, m.textRow(g, "system", theme.Dim.Render(m.os)))
 	}
-	if m.stale {
-		rows = append(rows, row{}, row{text: theme.Dim.Render(
-			"  the last sample failed — these readings are the ones before it")})
-	}
-	// Whatever is left under the readings goes to the process list, which is
-	// the one thing here that can use any amount of room and is worth
-	// nothing at all in two lines.
-	if m.height > 0 {
-		if block := m.processBlock(m.height - len(rows) - 1); len(block) > 0 {
-			rows = append(rows, row{})
-			rows = append(rows, block...)
-		}
-	}
-	return m.assemble(rows)
-}
-
-// assemble lays the rows out, putting the trend strips in a column at the
-// right edge when there is room for one.
-//
-// The column is as wide as the room the widest row leaves, up to everything
-// the history holds: a wide terminal reaches back ten minutes rather than
-// leaving the space beside the numbers empty. It is drawn only when that room
-// is at least stripMinimum, and then on every row that has a trend.
-//
-// All or none, deliberately: a strip that appears on one row and not the
-// next reads as data about that row rather than as the width running out.
-// The strips are also the part that can be inferred from the next sample,
-// so they are what a narrow terminal gives up rather than the numbers.
-func (m *Model) assemble(rows []row) string {
-	widest, trends := 0, false
-	for _, entry := range rows {
-		widest = max(widest, lipgloss.Width(entry.text))
-		trends = trends || entry.trend != nil
-	}
-	cells := 0
-	if trends && m.width > 0 {
-		cells = min(m.width-widest-2-spanLabelWidth, historyDepth)
-	}
-	lines := make([]string, len(rows))
-	for index, entry := range rows {
-		lines[index] = entry.text
-		if entry.trend == nil || cells < stripMinimum {
-			continue
-		}
-		strip := m.trendOf(*entry.trend, cells)
-		if strip == "" {
-			continue
-		}
-		gap := m.width - lipgloss.Width(entry.text) - lipgloss.Width(strip)
-		lines[index] = entry.text + strings.Repeat(" ", gap) + strip
-	}
-	return strings.Join(lines, "\n")
-}
-
-// spanLabelWidth is the most a strip's span label takes, "45s " included.
-const spanLabelWidth = 4
-
-// trendOf draws one reading's history as a strip of at most cells samples,
-// prefixed with the stretch of host time it covers. Every strip covers the
-// same window, so the label is on all of them rather than printed once: the
-// strips have to start at the same column to read as a column.
-func (m *Model) trendOf(line trendLine, cells int) string {
-	samples, seconds := m.history.window(cells)
-	if len(samples) == 0 {
-		return ""
-	}
-	values := make([]float64, len(samples))
-	for index, sample := range samples {
-		values[index] = line.of(sample)
-	}
-	floor, ceiling := line.scale(values)
-	// Height says how the reading moved and colour says how bad it is, so
-	// each cell is coloured by its own raw value rather than by its height
-	// in the window: a memory strip stays yellow while it climbs.
-	return theme.Dim.Render(spark.Span(seconds)+" ") + spark.Strip(values, floor, ceiling,
-		func(index int) lipgloss.Style { return line.style(values[index]) })
+	return capacity, activity
 }
 
 // filesystems is the mount list, falling back to the root reading alone on a
@@ -444,28 +430,19 @@ func (m *Model) labelColumn() int {
 // cut mid-word.
 const rowTextReserve = 64
 
-// gaugeWidth is the bar every row draws, or leaves blank where it has none,
-// so all of them start their text under the same column.
-func (m *Model) gaugeWidth(column int) int {
-	if m.width <= 0 {
-		return detailBar
-	}
-	return min(max(m.width-column-rowTextReserve, meterMinBar), detailBar)
-}
-
 // meterRow is one reading: its name, its gauge, and the numbers the gauge
 // cannot carry. The bar shows the percentage, so no row prints one twice —
 // except the CPU, whose reading has no absolute amount to print instead.
-func (m *Model) meterRow(column int, label string, percent float64, style lipgloss.Style, text string) string {
-	return fmt.Sprintf(" %s [%s]  %s", pad(label, column),
-		styledBar(percent, m.gaugeWidth(column), style), text)
+func (m *Model) meterRow(g grid, label string, percent float64, style lipgloss.Style, text string) string {
+	return fmt.Sprintf(" %s [%s]  %s", pad(label, g.label),
+		styledBar(percent, g.gauge(), style), text)
 }
 
 // textRow is a reading with no meter, aligned so its text starts where the
 // gauges do rather than under their labels.
-func (m *Model) textRow(column int, label, text string) string {
-	return fmt.Sprintf(" %s %s  %s", pad(label, column),
-		strings.Repeat(" ", m.gaugeWidth(column)+2), text)
+func (m *Model) textRow(g grid, label, text string) string {
+	return fmt.Sprintf(" %s %s  %s", pad(label, g.label),
+		strings.Repeat(" ", g.gauge()+2), text)
 }
 
 // coreRow is one cell per core, tallest for the busiest. It is the row that
@@ -476,7 +453,7 @@ func (m *Model) textRow(column int, label, text string) string {
 // each stops fitting somewhere around sixteen cores and the shape of the
 // strip is what the row is read for. The number that matters is called out
 // beside it.
-func (m *Model) coreRow(column int) string {
+func (m *Model) coreRow(g grid) string {
 	if len(m.usage.Cores) == 0 {
 		return ""
 	}
@@ -490,7 +467,7 @@ func (m *Model) coreRow(column int) string {
 	}
 	text := strip.String() + theme.Dim.Render(
 		fmt.Sprintf("   busiest cpu%d at %.0f%%", index, busiest))
-	return fmt.Sprintf(" %s %s", pad("cores", column), text)
+	return fmt.Sprintf(" %s %s", pad("cores", g.label), text)
 }
 
 // networkText is the machine's throughput and the interface carrying most of

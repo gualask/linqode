@@ -166,8 +166,10 @@ it is in use, and a temperature where the hardware reports one.
 
 The session opens with the header focused, so `Enter` goes straight into the
 **system view**: per-core CPU, load, swap, every filesystem with its device,
-network throughput, kernel pressure, temperatures, graphics cards, and the
-top processes — `s` switches those between ranking by memory and by CPU.
+network throughput, kernel pressure, temperatures and graphics cards; charts
+of CPU, memory and network over the last minutes, as tall as the terminal
+allows; and the processes, ranked by memory and by CPU side by side — on a
+narrow terminal it is one list, and `s` switches its ranking.
 
 **The events feed** under the table is what the daemon reported happening,
 newest first: restarts, health changes, OOM kills, with the exit code read
