@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/gualask/linqode/internal/compose"
+	"github.com/gualask/linqode/internal/tui/spark"
 	"github.com/gualask/linqode/internal/tui/theme"
 )
 
@@ -121,7 +124,7 @@ func (m *Model) renderLiveRow(service compose.Service, nameWidth, sparkWidth int
 	}
 	line := fmt.Sprintf(" %-*s  %s", nameWidth, service.Service, cpuText)
 	if sparkWidth > 0 {
-		line += "  " + theme.Cyan.Render(sparkline(series, sparkWidth))
+		line += "  " + liveStrip(series, sparkWidth)
 	}
 	line += fmt.Sprintf("  %*s", memWidth, stats.MemAmount())
 	if peak := peakOf(series); peak > 0 {
@@ -130,41 +133,25 @@ func (m *Model) renderLiveRow(service compose.Service, nameWidth, sparkWidth int
 	return line
 }
 
-var sparkRunes = []rune("▁▂▃▄▅▆▇█")
-
-const flatBand = 0.05
-
-func sparkline(values []float64, width int) string {
+// liveStrip draws the newest width samples of a container's CPU, right-aligned
+// so the right-hand end means "just now" on every row however much history
+// each has.
+//
+// It is scaled against its own window and coloured by each reading, like
+// every other strip (internal/tui/spark): height says how the reading moved,
+// colour says how bad it is. The window is not clamped at a hundred, because
+// a container's CPU is not a share of anything finite — two busy cores read
+// as 200%, which is docker's convention and the table's.
+func liveStrip(values []float64, width int) string {
 	if width <= 0 {
 		return ""
 	}
 	if len(values) > width {
 		values = values[len(values)-width:]
 	}
-	peak := peakOf(values)
-	flat := peak <= 0 || peak-lowOf(values) <= peak*flatBand
-	var b strings.Builder
-	b.WriteString(strings.Repeat(" ", width-len(values)))
-	for _, value := range values {
-		level := 0
-		if !flat {
-			level = int(value/peak*float64(len(sparkRunes)-1) + 0.5)
-			level = min(max(level, 0), len(sparkRunes)-1)
-		}
-		b.WriteRune(sparkRunes[level])
-	}
-	return b.String()
-}
-
-func lowOf(values []float64) float64 {
-	if len(values) == 0 {
-		return 0
-	}
-	low := values[0]
-	for _, value := range values {
-		low = min(low, value)
-	}
-	return low
+	floor, ceiling := spark.Window(values, spark.MinimumSpan)
+	return strings.Repeat(" ", width-len(values)) + spark.Strip(values, floor, ceiling,
+		func(index int) lipgloss.Style { return theme.Usage(values[index]) })
 }
 
 func peakOf(values []float64) float64 {

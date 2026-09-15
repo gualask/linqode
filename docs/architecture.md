@@ -69,6 +69,7 @@ Four principles shape the design:
 | `internal/tui/system` | the machine: the header band, and the system view an `enter` on it opens — meters, trend strips, processes, temperatures, cards |
 | `internal/tui/events` | the feed of what the daemon reported happening, fed by the stream the refresh already runs |
 | `internal/tui/follow` | the full-screen view for a log, action, script, or ad-hoc command |
+| `internal/tui/spark` | the shapes readings are drawn as — a strip of one cell per sample, a fractional bar, a histogram a few rows tall — and the windows they are scaled against. The colour stays with the caller, which is the one that knows what a reading means |
 | `internal/tui/panel` | the chrome a focusable region wears: a titled box that occupies exactly the cells it was given, the focus tokens, the footer hints, and the capability a region declares when its cursor sits on a service |
 | `internal/tui/theme` | the visual tokens every view shares: named adaptive colors rather than the terminal's ANSI slots, so what an operator sees does not depend on their color scheme |
 

@@ -19,6 +19,7 @@ import (
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/tui/panel"
+	"github.com/gualask/linqode/internal/tui/spark"
 	"github.com/gualask/linqode/internal/tui/theme"
 )
 
@@ -214,7 +215,7 @@ func (m *Model) View() string {
 		rows = append(rows, row{
 			text: m.meterRow(column, "cpu", percent, theme.Usage(percent),
 				fmt.Sprintf("%.0f%% busy", percent)+load),
-			strip: m.trendOf(func(t trend) float64 { return t.cpu }, percentScale, theme.Usage),
+			strip: m.trendOf(func(t trend) float64 { return t.cpu }, spark.Percent, theme.Usage),
 		})
 		if strip := m.coreRow(column); strip != "" {
 			rows = append(rows, row{text: strip})
@@ -239,7 +240,7 @@ func (m *Model) View() string {
 				fmt.Sprintf("%s used", formatKB(metrics.MemUsedKB()))+
 					theme.Dim.Render(fmt.Sprintf("   %s available of %s",
 						formatKB(metrics.MemAvailableKB), formatKB(metrics.MemTotalKB)))),
-			strip: m.trendOf(func(t trend) float64 { return t.memory }, percentScale, theme.Usage),
+			strip: m.trendOf(func(t trend) float64 { return t.memory }, spark.Percent, theme.Usage),
 		})
 	}
 	// A machine with no swap configured is not a machine with empty swap,
@@ -277,7 +278,7 @@ func (m *Model) View() string {
 		// means "this is the top of what happened".
 		rows = append(rows, row{
 			text: m.textRow(column, "net", m.networkText()),
-			strip: m.trendOf(func(t trend) float64 { return t.net }, rateScale,
+			strip: m.trendOf(func(t trend) float64 { return t.net }, spark.Rate,
 				func(float64) lipgloss.Style { return theme.Cyan }),
 		})
 	}
@@ -363,7 +364,11 @@ func (m *Model) trendOf(of func(trend) float64, scale func([]float64) (float64, 
 		values[index] = of(sample)
 	}
 	floor, ceiling := scale(values)
-	return theme.Dim.Render(sparkSpan(seconds)+" ") + sparkline(values, floor, ceiling, style)
+	// Height says how the reading moved and colour says how bad it is, so
+	// each cell is coloured by its own raw value rather than by its height
+	// in the window: a memory strip stays yellow while it climbs.
+	return theme.Dim.Render(spark.Span(seconds)+" ") + spark.Strip(values, floor, ceiling,
+		func(index int) lipgloss.Style { return style(values[index]) })
 }
 
 // filesystems is the mount list, falling back to the root reading alone on a
@@ -438,7 +443,7 @@ func (m *Model) coreRow(column int) string {
 	var strip strings.Builder
 	busiest, index := 0.0, 0
 	for core, percent := range m.usage.Cores {
-		strip.WriteString(theme.Usage(percent).Render(sparkCell(percent)))
+		strip.WriteString(theme.Usage(percent).Render(spark.Cell(percent / 100)))
 		if percent > busiest {
 			busiest, index = percent, core
 		}
@@ -537,16 +542,6 @@ func pressureStyle(percent float64) lipgloss.Style {
 	default:
 		return theme.Green
 	}
-}
-
-// sparkCells are the eight heights a single cell can draw, which is what a
-// per-core strip and (from C3) a history sparkline are both made of.
-var sparkCells = []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
-
-// sparkCell is one percentage as one cell.
-func sparkCell(percent float64) string {
-	index := int(percent / 100 * float64(len(sparkCells)))
-	return sparkCells[min(max(index, 0), len(sparkCells)-1)]
 }
 
 // pad left-aligns a label in a fixed column, truncating one too long rather

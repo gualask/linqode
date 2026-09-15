@@ -9,6 +9,7 @@ import (
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/operations"
+	"github.com/gualask/linqode/internal/tui/spark"
 )
 
 // While the stream runs the panel says so, which is the screen's cue to stop
@@ -200,7 +201,7 @@ func TestLivePanelShowsSeriesPerContainer(t *testing.T) {
 	if !hasHint(m, "a live off") {
 		t.Errorf("hint did not flip while the stream is open: %+v", m.Hints())
 	}
-	if !strings.ContainsAny(view, string(sparkRunes)) {
+	if !strings.ContainsAny(view, spark.Glyphs) {
 		t.Errorf("no sparkline drawn:\n%s", view)
 	}
 }
@@ -242,28 +243,28 @@ func TestLivePanelLeavesTheTableOnScreen(t *testing.T) {
 	}
 }
 
-func TestSparkline(t *testing.T) {
-	line := sparkline([]float64{1, 2, 4}, 3)
-	if got, want := []rune(line)[2], sparkRunes[len(sparkRunes)-1]; got != want {
-		t.Errorf("peak drawn as %q, want %q (line %q)", got, want, line)
+// The live strip is right-aligned at a fixed width, so the right-hand end
+// means "just now" on every row, and it is not clamped at a hundred: two busy
+// cores are not drawn as one.
+func TestLiveStrip(t *testing.T) {
+	if got := liveStrip([]float64{1}, 4); len([]rune(got)) != 4 || !strings.HasPrefix(got, "   ") {
+		t.Errorf("short series not right-aligned at its width: %q", got)
 	}
-	if got := []rune(line)[0]; got == sparkRunes[len(sparkRunes)-1] {
-		t.Errorf("smallest value drawn at full height: %q", line)
+	if got := liveStrip([]float64{9, 9, 9, 1}, 2); len([]rune(got)) != 2 {
+		t.Errorf("strip wider than asked: %q", got)
 	}
-	if got := sparkline([]float64{1}, 4); !strings.HasPrefix(got, "   ") {
-		t.Errorf("short series not right-aligned: %q", got)
-	}
-	if got := sparkline([]float64{9, 9, 9, 1}, 2); len([]rune(got)) != 2 {
-		t.Errorf("sparkline wider than asked: %q", got)
-	}
-	if got := sparkline(nil, 3); got != "   " {
+	if got := liveStrip(nil, 3); got != "   " {
 		t.Errorf("empty series drew %q", got)
 	}
-	if got := sparkline([]float64{1, 2}, 0); got != "" {
+	if got := liveStrip([]float64{1, 2}, 0); got != "" {
 		t.Errorf("zero width drew %q", got)
 	}
-	if got := sparkline([]float64{0, 0}, 2); got != string([]rune{sparkRunes[0], sparkRunes[0]}) {
-		t.Errorf("idle series drew %q", got)
+	if got := []rune(liveStrip([]float64{150, 250}, 2)); got[1] != '█' || got[0] == '█' {
+		t.Errorf("a climb past a hundred drew %q", string(got))
+	}
+	// An idle container jittering by a fraction of a point is not a swing.
+	if got := []rune(liveStrip([]float64{0.1, 0.4}, 2)); got[1] == '█' {
+		t.Errorf("an idle jitter drew %q", string(got))
 	}
 }
 

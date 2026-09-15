@@ -20,6 +20,7 @@ package home
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -146,6 +147,52 @@ func shotUnavailable(width, height int, reason string) *Model {
 	return screen
 }
 
+// shotLive is the table with the live panel open, forty seconds into the
+// stream: an api burning more than a core and leaking memory while it does,
+// a cache that comes and goes, and two containers doing nothing much — which
+// is the frame that shows whether a strip coloured by its reading reads as
+// shape and severity at once, or as noise.
+func shotLive(width, height int) *Model {
+	screen := shotScreen(width, height, true, nil)
+	focusPanel(screen, "services")
+	cmd := screen.Update(key("a"))
+	if cmd == nil {
+		return screen
+	}
+	request, ok := cmd().(status.OpenStatsMsg)
+	if !ok {
+		return screen
+	}
+	events := make(chan operations.Event, 256)
+	for round := 1; round <= 40; round++ {
+		wave := shotWave(round)
+		for _, reading := range []struct {
+			name     string
+			cpu, mem float64
+		}{
+			{"myapp-api-1", 70 + 70*wave, 1240 + float64(round)*4},
+			{"myapp-cache-1", 20 + 75*shotWave(round+5), 29_600},
+			{"myapp-postgres-1", 2 + 4*wave, 845},
+			{"myapp-nginx-1", 0.1 + 0.2*wave, 12.3},
+		} {
+			events <- operations.Event{Kind: operations.EventStats, Stats: compose.ContainerStats{
+				Name:     reading.name,
+				CPUPerc:  fmt.Sprintf("%.2f%%", reading.cpu),
+				MemUsage: fmt.Sprintf("%.1fMiB / 31.31GiB", reading.mem),
+				MemPerc:  fmt.Sprintf("%.2f%%", reading.mem/32_061*100),
+			}}
+		}
+	}
+	tick, _ := screen.UpdateBackground(status.StatsFeedMsg{RequestID: request.RequestID,
+		Feed: operations.Feed{Events: events, Stop: func() {}}})
+	if tick != nil {
+		// The drain tick sleeps a quarter of a second before it asks to be
+		// applied, which is a price an opt-in viewer can pay once.
+		screen.UpdateBackground(tick())
+	}
+	return screen
+}
+
 // openSystem walks into the system view the way an operator does, and takes
 // the second process reading a CPU share needs to exist. Opening it is what
 // asks for the first: the source is gated on being there.
@@ -222,6 +269,8 @@ func TestUIShot(t *testing.T) {
 
 	short := shotScreen(150, 14, true, nil)
 
+	live := shotLive(150, 30)
+
 	byCPUView := shotScreen(150, 24, true, nil)
 	openSystem(byCPUView)
 	byCPUView.Update(key("s"))
@@ -259,6 +308,7 @@ func TestUIShot(t *testing.T) {
 			Text: systemView.View()},
 		{Name: "150 columns — the same view, ranked by CPU", Text: byCPUView.View()},
 		{Name: "150x24 — focus on the feed, second event selected", Text: onFeed.View()},
+		{Name: "150x30 — the live panel, forty seconds into the stream", Text: live.View()},
 		{Name: "150x14 — too short for both: the satellite gives its rows back",
 			Text: short.View()},
 		{Name: "100 columns — the system view, where the rows have to give something up",
