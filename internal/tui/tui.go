@@ -72,8 +72,9 @@ type Backend struct {
 	// about 220 bytes per process and answers a question nobody has asked
 	// until they are looking at it.
 	Processes func() (host.ProcessSample, error)
-	// DiskUsage asks the daemon what it is holding. Same tier as Processes,
-	// and the one reading here that is genuinely slow on a real host.
+	// DiskUsage asks the daemon what it is holding. It is drawn under the
+	// services table, read once a minute while it is, and the one reading
+	// here that is genuinely slow on a real host.
 	DiskUsage func() ([]compose.DiskUsage, error)
 	// GPUs reads the graphics cards, on the same tier for the same reason.
 	GPUs      func() ([]host.GPU, error)

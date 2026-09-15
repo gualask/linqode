@@ -105,6 +105,10 @@ func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 	for range shotRounds {
 		resample(screen)
 	}
+	// Docker's disk is gated on the table having room for it, and the first
+	// pass above ran before there was a table: a real session's next beat
+	// is what reads it, and this is that beat.
+	applyScreen(screen, screen.sampler.read(sourceDiskUsage))
 	if hostErr != nil {
 		failing = true
 		resample(screen)
@@ -336,6 +340,11 @@ func TestUIShot(t *testing.T) {
 
 	live := shotLive(150, 30)
 
+	// Tall enough that the table leaves rows empty, which is where docker's
+	// disk goes.
+	roomy := shotScreen(150, 36, true, nil)
+	roomy.Update(tea.KeyMsg{Type: tea.KeyTab})
+
 	byCPUView := shotScreen(150, 24, true, nil)
 	openSystem(byCPUView)
 	byCPUView.Update(key("s"))
@@ -389,6 +398,7 @@ func TestUIShot(t *testing.T) {
 			Text: wideSystem.View()},
 		{Name: "150x24 — focus on the feed, second event selected", Text: onFeed.View()},
 		{Name: "150x30 — the live panel, forty seconds into the stream", Text: live.View()},
+		{Name: "150x36 — room under the table: what docker holds on disk", Text: roomy.View()},
 		{Name: "150x14 — too short for both: the satellite gives its rows back",
 			Text: short.View()},
 		{Name: "100 columns — the system view, where the rows have to give something up",

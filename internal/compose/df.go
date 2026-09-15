@@ -8,10 +8,10 @@ package compose
 // nobody is running any more. Only the daemon knows that, because only the
 // daemon knows which layers are shared and which are dangling.
 //
-// It is an on-demand reading. Unlike everything else here it is genuinely
-// slow on a real host — the daemon walks the image store, the volumes and
-// the build cache to answer — so it is never on the home, and it is asked
-// for at a cadence measured in tens of seconds rather than in seconds.
+// Unlike everything else here it is genuinely slow on a real host — the
+// daemon walks the image store, the volumes and the build cache to answer —
+// so it is asked for once a minute rather than every few seconds, and only
+// while the section that draws it is on screen.
 
 import (
 	"strconv"
@@ -102,6 +102,19 @@ func (u DiskUsage) Idle() int { return max(u.Total-u.Active, 0) }
 func (u DiskUsage) HasReclaimable() bool {
 	amount, _, _ := strings.Cut(u.Reclaimable, " ")
 	return amount != "" && amount != "0B"
+}
+
+// Bytes is the row's size and reclaimable amount read back as numbers, for a
+// share that can be drawn as a meter. ok is false when the size did not
+// parse; an unreadable reclaimable amount reads as none.
+func (u DiskUsage) Bytes() (size, reclaimable uint64, ok bool) {
+	size, ok = parseSize(u.Size)
+	if !ok {
+		return 0, 0, false
+	}
+	amount, _, _ := strings.Cut(u.Reclaimable, " ")
+	reclaimable, _ = parseSize(amount)
+	return size, min(reclaimable, size), true
 }
 
 // Totals is what the daemon is holding and how much of it it would give

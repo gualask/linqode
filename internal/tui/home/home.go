@@ -62,12 +62,14 @@ const (
 	// because this is the tier that is asked for: the second reading is the
 	// first with a CPU share on it.
 	processesRefresh = 3 * time.Second
-	// diskUsageRefresh is `docker system df`, on the same gate and a much
-	// slower clock. It is the one reading here that is genuinely slow on a
-	// real host — the daemon walks the image store, the volumes and the
-	// build cache to answer — and it is also the one that changes least, so
-	// asking twice a minute is asking often enough.
-	diskUsageRefresh = 30 * time.Second
+	// diskUsageRefresh is `docker system df`, read while the services panel
+	// has room to draw it and not otherwise. It is the one reading here that
+	// is genuinely slow on a real host — the daemon walks the image store,
+	// the volumes and the build cache to answer — and it is also the one that
+	// changes least, so once a minute is often enough. The sampler's stretch
+	// rule is the guard for a host where it takes seconds: a read that fills
+	// a quarter of this interval widens it.
+	diskUsageRefresh = time.Minute
 	// gpuRefresh is the graphics cards', on the same gate as the process
 	// table. Five seconds rather than three because one of the two vendors
 	// answers only through a tool that initialises a driver context, and
@@ -144,7 +146,8 @@ type Config struct {
 	// system view, and opening that view is what asks for it.
 	Processes func() (host.ProcessSample, error)
 	// DiskUsage asks the daemon what it is holding — images, containers,
-	// volumes, build cache. Same gate, much slower clock: it is the one
+	// volumes, build cache. Read while the services panel draws it, on a
+	// much slower clock than anything else: it is the one
 	// reading that is genuinely slow on a real host.
 	DiskUsage func() ([]compose.DiskUsage, error)
 	// GPUs reads the graphics cards. Same gate again, and for the same
@@ -247,8 +250,11 @@ func New(config Config, services *status.Model) *Model {
 				func(sample host.ProcessSample, err error) tea.Msg {
 					return processSampleMsg{sample: sample, err: err}
 				})},
+		// What docker holds on disk is about docker, not about the machine, so
+		// it is drawn under the table rather than among the machine's
+		// readings — and it is read while that section is drawn.
 		sourceDiskUsage: {every: diskUsageRefresh,
-			gate: m.systemShown,
+			gate: m.diskUsageShown,
 			start: read(config.DiskUsage,
 				func(usage []compose.DiskUsage, err error) tea.Msg {
 					return diskUsageMsg{usage: usage, err: err}
@@ -331,6 +337,14 @@ func (m *Model) focused() panel.Panel { return m.panels[m.focus] }
 func (m *Model) systemShown() bool {
 	return m.detail == panel.Panel(m.system) ||
 		(m.detail == nil && m.panels[m.anchor] == panel.Panel(m.system))
+}
+
+// diskUsageShown reports whether the services panel is on screen with room for
+// what docker holds on disk. The section only takes rows the table leaves
+// empty, so a project long enough to fill the panel pays nothing for it.
+func (m *Model) diskUsageShown() bool {
+	return m.detail == nil && m.panels[m.anchor] == panel.Panel(m.services) &&
+		m.services.DiskUsageRoom()
 }
 
 // applyFocus tells every panel whether it currently holds focus, so a
@@ -507,7 +521,7 @@ func (m *Model) applySample(msg tea.Msg) tea.Cmd {
 		m.system.SetProcesses(msg.sample, msg.err)
 		m.sampler.finished(sourceProcesses)
 	case diskUsageMsg:
-		m.system.SetDiskUsage(msg.usage, msg.err)
+		m.services.SetDiskUsage(msg.usage, msg.err)
 		m.sampler.finished(sourceDiskUsage)
 	case gpuSampleMsg:
 		m.system.SetGPUs(msg.gpus, msg.err)
@@ -624,8 +638,7 @@ func (m *Model) open() tea.Cmd {
 			// Opening the view is what asks for the readings it alone
 			// shows: they are gated on being here, so waiting for the next
 			// beat would be waiting for nothing.
-			return tea.Batch(m.sampler.read(sourceProcesses),
-				m.sampler.read(sourceDiskUsage), m.sampler.read(sourceGPU))
+			return tea.Batch(m.sampler.read(sourceProcesses), m.sampler.read(sourceGPU))
 		}
 		return nil
 	}

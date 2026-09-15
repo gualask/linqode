@@ -113,12 +113,14 @@ func (m *Model) Status() string {
 func (m *Model) View() string {
 	live := ""
 	tableHeight := m.height
-	if m.liveActive() {
-		liveHeight := min(m.liveHeight(), max(m.height-3, 0))
-		if liveHeight > 0 {
-			tableHeight = m.height - liveHeight
-			live = "\n" + m.renderLivePanel(m.width)
-		}
+	if liveHeight := m.liveShare(); liveHeight > 0 {
+		tableHeight = m.height - liveHeight
+		live = "\n" + m.renderLivePanel(m.width)
+	}
+	disk := ""
+	if len(m.diskUsage) > 0 && m.DiskUsageRoom() {
+		tableHeight -= m.diskHeight()
+		disk = "\n" + m.renderDisk(m.width)
 	}
 	var b strings.Builder
 	switch {
@@ -139,5 +141,14 @@ func (m *Model) View() string {
 	default:
 		m.renderTable(&b, m.width, tableHeight)
 	}
-	return strings.TrimRight(b.String(), "\n") + live
+	return strings.TrimRight(b.String(), "\n") + live + disk
+}
+
+// liveShare is the rows the live panel takes from the table while it is open:
+// what it wants, leaving the table at least its heading and two rows.
+func (m *Model) liveShare() int {
+	if !m.liveActive() {
+		return 0
+	}
+	return min(m.liveHeight(), max(m.height-3, 0))
 }

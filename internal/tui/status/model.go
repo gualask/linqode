@@ -52,6 +52,10 @@ type Model struct {
 	// when now is.
 	now func() time.Time
 
+	// diskUsage is what the daemon holds on disk, drawn under the table when
+	// the table leaves room for it.
+	diskUsage []compose.DiskUsage
+
 	services []compose.Service
 	selected int
 	// errText is the last refresh failure; the previous service list stays

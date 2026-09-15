@@ -288,7 +288,6 @@ row has to leave out, plus the readings that are only taken while it is open.
  swap     [▇▇▇░░░░░░░]  3.2G used   4.8G free of 8.0G
  /        [▇▇▇▇▇▇▇▇▇░]  89.0G used   107G free of 196G   /dev/nvme0n1p2
  /var     [▇▇▇▇▇▇▇▇▇▇]  372G used   27.6G free of 400G   /dev/sdb1
- docker   [▇▇▇▇▇▇░░░░]  37.94GB of 64.44GB reclaimable   images 48.21GB (25 idle)
  net                    283K/s down   70.8K/s up   busiest eth0 at 354K/s   1m ▂▇▃▁▄
  pressure               cpu 24.5%   io 8.3% (full 2.1%)   mem 0.0%   stalled 10s
  temp     [▇▇▇▇▇▇▇▇░░]  74°C Composite of 85°C   71°C Package id 0   44°C acpitz
@@ -407,6 +406,26 @@ Container readings arrive as columns — CPU, MEM, NET RX/TX, IO R/W — and
 their sizes are printed as docker prints them. This is the daemon's own
 accounting, and one screen showing two roundings of the same number is worse
 than either.
+
+**What docker holds on disk is under the table**, when the table leaves room:
+the share the daemon would give back on the section's rule, and a row per kind
+with a meter for its reclaimable share, the amount, and how many are idle.
+
+```
+ ── docker disk · 37.94GB of 64.44GB reclaimable ──────────────────────────
+ images         48.21GB  [██████████████░░░░░░]    31.42GB reclaimable   25 idle of 31
+ containers     1.204GB  [███████░░░░░░░░░░░░░]    402.7MB reclaimable   8 idle of 12
+ volumes        8.914GB                         nothing to reclaim   all 4 in use
+ build cache    6.117GB  [████████████████████]    6.117GB reclaimable   118 idle of 118
+```
+
+It used to be a row of the system view, which put a question about docker in
+a view about the machine. Here it is with the project's other docker
+readings, and it takes **only rows the table leaves empty**: a project long
+enough to fill the panel keeps every row, and the section — and the reading
+behind it — waits for a terminal with room. A volume store entirely in use
+says so rather than showing an idle count of nothing, because a store that is
+all in use must not read as one waiting to be cleaned.
 
 **The service counts ride on its own rule**, set into the right end:
 `4 running · 1 restarting · 1 exited · 1 unhealthy`, in lifecycle order rather

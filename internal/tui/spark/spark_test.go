@@ -158,3 +158,22 @@ func TestSpan(t *testing.T) {
 		}
 	}
 }
+
+// A meter keeps its width, clamps a reading past either end, and fills in
+// proportion.
+func TestMeter(t *testing.T) {
+	for _, percent := range []float64{-20, 0, 37, 100, 250} {
+		if got := lipgloss.Width(Meter(percent, 10, lipgloss.NewStyle())); got != 10 {
+			t.Errorf("Meter(%v, 10) is %d cells wide", percent, got)
+		}
+	}
+	if got := strings.Count(Meter(50, 10, lipgloss.NewStyle()), "█"); got != 5 {
+		t.Errorf("half a meter filled %d cells of 10", got)
+	}
+	if got := strings.Count(Meter(250, 10, lipgloss.NewStyle()), "█"); got != 10 {
+		t.Errorf("a reading past a hundred filled %d cells of 10", got)
+	}
+	if got := Meter(50, 0, lipgloss.NewStyle()); got != "" {
+		t.Errorf("zero width drew %q", got)
+	}
+}

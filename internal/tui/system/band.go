@@ -30,6 +30,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/gualask/linqode/internal/tui/spark"
 	"github.com/gualask/linqode/internal/tui/theme"
 )
 
@@ -234,23 +235,8 @@ func (m *Model) renderBand(width int) string {
 	return line
 }
 
-// barFill is how many cells of a bar of this width are filled. It is clamped
-// at both ends, so an over-100% reading — load above one per core — fills the
-// gauge rather than overflowing it.
-func barFill(percent float64, width int) int {
-	filled := int(percent/100*float64(width) + 0.5)
-	return min(max(filled, 0), width)
-}
-
-// styledBar colors only the filled part. Rendering the whole bar in the
-// reading's color turned the empty track into a field of bright speckle —
-// the `░` cells took the same saturated yellow or red as the fill — so the
-// part that means "unused" shouted as loudly as the part that means "used".
+// styledBar is the gauge every meter here is drawn with; see spark.Meter for
+// why only its filled part takes the reading's colour.
 func styledBar(percent float64, width int, style lipgloss.Style) string {
-	if width <= 0 {
-		return ""
-	}
-	filled := barFill(percent, width)
-	return style.Render(strings.Repeat("█", filled)) +
-		theme.Dim.Render(strings.Repeat("░", width-filled))
+	return spark.Meter(percent, width, style)
 }

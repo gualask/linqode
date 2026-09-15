@@ -25,8 +25,9 @@ A source carries four things beyond its fetch:
   another.
 - **A gate.** A source nobody is looking at is never due at all. The
   container counters stand down while the live stream fills the same
-  columns; the process table, the graphics cards and `docker system df` are
-  not read while the system view is closed.
+  columns; the process table and the graphics cards are not read while the
+  system view is closed, and `docker system df` is not read unless the
+  services panel has room to draw it.
 - **A stretch.** A read that occupies more than a quarter of its own interval
   widens it. On a link where `ps` takes a second, asking every five keeps a
   command in flight most of the time, and the honest response is to ask less
@@ -43,7 +44,8 @@ since no answer is coming back to say it finished.
 | ---- | ------- | -------- |
 | Event-driven | when the daemon says so, 60 s safety net | the service list |
 | Always on | 5 s | the host batch, the container counters |
-| On demand | only while the system view is open | the process table (3 s), graphics cards (5 s), `docker system df` (30 s) |
+| Drawn | only while the services panel has room for it | `docker system df` (60 s) |
+| On demand | only while the system view is open | the process table (3 s), graphics cards (5 s) |
 
 The on-demand tier is read the *moment* its view opens rather than at the
 next beat: the source was not due a moment earlier, so waiting would be
@@ -299,7 +301,7 @@ two seconds to it.
 
 ## The on-demand tier
 
-Three readings are never taken for the home screen. They are what the panel
+Two readings are never taken for the home screen. They are what the panel
 model was built for.
 
 ### The process table
@@ -370,18 +372,31 @@ read as a second card and double every number. Card names are matched exactly.
 An AMD card's temperature appears twice — in the temperature row and in its
 own — and that is correct: the driver registers its hwmon like any other chip.
 
-### What the daemon is holding
+## What the daemon is holding
 
-`docker system df`, on the same gate at a thirty-second cadence. It answers
+`docker system df`, once a minute, drawn under the services table. It answers
 the question the filesystem rows raise and cannot: a `/var` at 93% says
 nothing about how much of it is images nobody is running, and only the daemon
 knows which layers are shared and which are dangling.
 
+It was a row of the system view, on that view's gate, until September 2026.
+It moved because it is a reading about docker, and the system view is about
+the machine: a view that shows the host's meters beside the daemon's
+accounting is answering two questions at once. Under the table it sits with
+the project's other docker readings.
+
+**The gate is the room, not a view.** The section takes only rows the table
+leaves empty, so a project long enough to fill the panel keeps every row and
+pays nothing for a section it cannot see. Where the table does leave room the
+section is on screen whenever the home is, which is the rent this reading now
+pays — and why the cadence went from thirty seconds to sixty rather than
+staying where it was. It changes least of anything here.
+
 It is the one reading whose cost the fixture cannot demonstrate. Its 65 ms
 here is a store of two images and no build cache; on a real host what the
-daemon spends is the walk over the ones it does have. That uncertainty is
-itself the reason it is on the on-demand tier rather than measured onto a
-faster one.
+daemon spends is the walk over the ones it does have. The sampler's stretch
+rule is what bounds that: a read that fills a quarter of its interval widens
+it, so a daemon that takes twenty seconds to answer is asked every eighty.
 
 It is not scoped to the project and cannot be — images, volumes and build
 cache are the daemon's, shared with everything else on the host — which is
@@ -463,7 +478,7 @@ go test -tags e2e ./tests/e2e/ -run TestRemoteCommandCost -cost.measure
 | process table (`/proc/<pid>/stat`, on demand) | 3 ms | 200 B per process |
 | graphics cards (on demand, no card here) | 2 ms | 23 B |
 | `compose ps --all --format json` | 65 ms | 6.2 KB |
-| `docker system df` (on demand) | 65 ms | 116 B |
+| `docker system df` (once a minute, while drawn) | 65 ms | 116 B |
 | `docker stats --no-stream` | 2.02 s | 973 B |
 
 All measured **over loopback** against the e2e fixture, which is why they say

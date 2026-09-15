@@ -16,6 +16,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/gualask/linqode/internal/tui/theme"
 )
 
 // cells are the eight heights a single cell can draw, lowest first.
@@ -71,6 +73,22 @@ func Bar(fraction float64, width int) string {
 		bar += widths[part-1]
 	}
 	return bar + strings.Repeat(" ", width-full-min(part, 1))
+}
+
+// Meter draws a percentage as a gauge width cells wide, clamped at both ends
+// so a reading past a hundred fills it rather than overflowing.
+//
+// Only the filled part takes the reading's style. Rendering the whole bar in
+// it turned the empty track into a field of bright speckle — the `░` cells
+// took the same saturated yellow or red as the fill — so the part that means
+// "unused" shouted as loudly as the part that means "used".
+func Meter(percent float64, width int, style lipgloss.Style) string {
+	if width <= 0 {
+		return ""
+	}
+	filled := min(max(int(percent/100*float64(width)+0.5), 0), width)
+	return style.Render(strings.Repeat("█", filled)) +
+		theme.Dim.Render(strings.Repeat("░", width-filled))
 }
 
 // Columns draws one value per column as a histogram rows cells tall, top row

@@ -97,7 +97,9 @@ detection and override, the stats panel, the action and script menus
 opened them), the RESTARTS column appearing only once counts exist, the
 system view's strips widening with the terminal up to the history they have,
 a filesystem's fill time said only on enough evidence and within its reach,
-the live panel opening on the trend the sampled counters built, the log
+the live panel opening on the trend the sampled counters built,
+docker's disk drawn under the table only in rows the table leaves empty and
+read only while it is drawn, the log
 view's timeline and shares and its panel never taller than the log, and the
 `!` prompt (keys type instead of acting while it is open, empty input runs
 nothing, esc cancels, and it reopens on the last command). Views receive
