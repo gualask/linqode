@@ -62,6 +62,9 @@ func TestLogControlsCannotEscapeThroughStatsOrStderrFooter(t *testing.T) {
 	)
 	m.showStats = true
 	m.topField = "source"
+	// Tall enough for the panel to reach its top values: it is cut to the
+	// log's height, and the value under test is the last thing in it.
+	m.SetSize(80, 24)
 	view := m.View()
 	assertSafeTerminalOutput(t, view, true)
 	for _, want := range []string{"worker", "failure", "exit 1"} {

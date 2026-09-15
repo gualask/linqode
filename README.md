@@ -189,7 +189,7 @@ it is open.
 | `/` then `n`/`N` | search, next/previous match |
 | `f` | filter JSONL logs by field (`level=error app!=web`) |
 | `s` | toggle structured rendering (auto-detected for JSONL) |
-| `a` | toggle the live stats panel |
+| `a` | toggle the stats panel: when the lines were written, and how they divide by level and by a field |
 | `t` | choose the field the stats panel counts |
 | `Esc` | back to the status view |
 | `q` | quit |

@@ -20,6 +20,10 @@ const (
 	// many top values it lists.
 	statsWidth = 28
 	topValues  = 8
+	// statsBar is how wide a count's bar is drawn: eight cells hold sixty-four
+	// widths, which is finer than anybody reads a share at, and leaves the
+	// names beside them most of the panel.
+	statsBar = 8
 )
 
 type drainTickMsg struct{}
@@ -65,6 +69,11 @@ type Model struct {
 	structured *bool
 	showStats  bool
 	topField   string
+
+	// now is the clock lines are stamped with as they arrive and the
+	// timeline ends at. A field rather than a call so a test can say when
+	// now is.
+	now func() time.Time
 }
 
 // New creates a followed-feed model.
@@ -77,6 +86,7 @@ func New(target, title string, feed operations.Feed) *Model {
 		follow:    true,
 		exitCode:  -1,
 		matchLine: -1,
+		now:       time.Now,
 	}
 }
 
@@ -138,10 +148,10 @@ func (m *Model) drainNextEvent() bool {
 func (m *Model) applyFeedEvent(event operations.Event) {
 	switch event.Kind {
 	case operations.EventLog, operations.EventStdout:
-		m.adjustForDroppedLines(m.store.Push(event.Text))
+		m.adjustForDroppedLines(m.store.PushAt(event.Text, m.now()))
 	case operations.EventStderr:
 		m.stderrNotice = event.Text
-		m.adjustForDroppedLines(m.store.Push(event.Text))
+		m.adjustForDroppedLines(m.store.PushAt(event.Text, m.now()))
 	case operations.EventExit:
 		m.ended = true
 		m.exitCode = event.ExitCode

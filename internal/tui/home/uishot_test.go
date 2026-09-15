@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -232,6 +233,70 @@ func shotFollow(width int, structured, ended bool) string {
 	return m.View()
 }
 
+// shotFollowStats is a JSONL log with its statistics open: twelve minutes of
+// requests arriving in waves, a warning now and then, a burst of errors four
+// minutes ago, and the route field chosen. filter, when set, is typed into
+// the filter prompt afterwards.
+//
+// The timestamps are written relative to the moment the frame is rendered,
+// because the timeline ends at now — which is also what makes this the frame
+// that shows whether "when" reads at a glance.
+func shotFollowStats(width, height int, filter string) string {
+	now := time.Now()
+	routes := []string{"/api/orders", "/api/users", "/healthz", "/api/orders/:id/items", "/api/login"}
+	events := make(chan operations.Event, 512)
+	for i := range 360 {
+		// Denser some minutes than others.
+		if i%5 < int(shotWave(i/24%14+1)*5) {
+			continue
+		}
+		level := "info"
+		switch {
+		case i >= 236 && i < 246:
+			level = "error"
+		case i%41 == 0:
+			level = "warn"
+		}
+		at := now.Add(-time.Duration(720-2*i) * time.Second).UTC().Format(time.RFC3339Nano)
+		events <- operations.Event{Kind: operations.EventLog, Text: fmt.Sprintf(
+			`{"time":%q,"level":%q,"msg":"request served","route":%q}`, at, level, routes[i*7%len(routes)])}
+	}
+	return shotFollowWith(width, height, events, "route", filter)
+}
+
+// shotFollowPlain is a plain-text log with its statistics open, the whole
+// backlog having arrived in the one burst a follow starts with — which is the
+// case the timeline has to own up to rather than draw as if it knew better.
+func shotFollowPlain(width, height int) string {
+	events := make(chan operations.Event, 128)
+	for i := range 80 {
+		events <- operations.Event{Kind: operations.EventLog,
+			Text: fmt.Sprintf("GET /api/orders/%d 200 %dms", 1000+i, 12+i%9)}
+	}
+	return shotFollowWith(width, height, events, "", "")
+}
+
+func shotFollowWith(width, height int, events chan operations.Event, field, filter string) string {
+	m := follow.New("deploy@app-prod-01", "logs: api", operations.Feed{Events: events, Stop: func() {}})
+	m.SetSize(width, height)
+	m.Update(m.Init()())
+	m.Update(key("a"))
+	typed := func(prompt, text string) {
+		m.Update(key(prompt))
+		for _, r := range text {
+			m.Update(key(string(r)))
+		}
+		m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	}
+	if field != "" {
+		typed("t", field)
+	}
+	if filter != "" {
+		typed("f", filter)
+	}
+	return m.View()
+}
+
 func TestUIShot(t *testing.T) {
 	path := os.Getenv("LINQODE_UI_SHOT")
 	if path == "" {
@@ -297,6 +362,11 @@ func TestUIShot(t *testing.T) {
 	bare.SetSize(150, 20)
 
 	frames := []shotFrame{
+		{Name: "140x32 — log statistics: when, by log time, and how it divides",
+			Text: shotFollowStats(140, 32, "")},
+		{Name: "140x32 — the same log filtered to its errors", Text: shotFollowStats(140, 32, "level=error")},
+		{Name: "120x16 — plain text on a short terminal, placed by arrival",
+			Text: shotFollowPlain(120, 16)},
 		{Name: "120 columns — running script with stdout and stderr", Text: shotFollow(120, false, false)},
 		{Name: "120 columns — structured script output with terminal controls removed", Text: shotFollow(120, true, false)},
 		{Name: "80 columns — failed script retains the traceback", Text: shotFollow(80, false, true)},

@@ -263,6 +263,8 @@ func TestStructuredRenderingShowsLevelAndFields(t *testing.T) {
 func TestStatsPanelShowsLevelsAndTopField(t *testing.T) {
 	events := append(jsonlEvents(2, "error"), jsonlEvents(1, "info")...)
 	m := newTestModel(events...)
+	// The panel is cut to the log's height, and the top field is at its foot.
+	m.SetSize(80, 24)
 
 	m.Update(key("a"))
 	view := m.View()

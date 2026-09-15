@@ -1,5 +1,7 @@
 package logs
 
+import "time"
+
 // Store is the log engine's state for one followed stream: a bounded tail
 // of parsed lines, an optional field filter narrowing the visible view,
 // and search over the visible view.
@@ -30,10 +32,17 @@ func NewStore(capacity int) *Store {
 	return &Store{buffer: NewTailBuffer[LogLine](capacity)}
 }
 
-// Push parses and appends one raw line; it returns how many lines left the
-// visible view from the top (0 or 1), for scroll compensation.
+// Push parses and appends one raw line that arrived just now; it returns how
+// many lines left the visible view from the top (0 or 1), for scroll
+// compensation.
 func (s *Store) Push(raw string) int {
+	return s.PushAt(raw, time.Now())
+}
+
+// PushAt is Push for a line that arrived at a given moment.
+func (s *Store) PushAt(raw string, arrived time.Time) int {
 	line := ParseLine(raw)
+	line.Arrived = arrived
 	if line.Record != nil {
 		s.parsed++
 	}
