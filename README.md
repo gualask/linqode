@@ -139,7 +139,7 @@ are used, `SSH_AUTH_SOCK` which agent.
 | `c` | act on the selected service: restart / stop / start — on the table and the feed, where there is one |
 | `x` | run a predefined script |
 | `!` | type a command to run on the host |
-| `a` | live panel: per-second CPU sparkline per container |
+| `a` | live panel: a sample a second, with each container's CPU and memory over the last ten minutes |
 | `r` | refresh everything now |
 | `q` | quit, from wherever you are |
 
@@ -178,7 +178,8 @@ opens that container's logs.
 The per-container columns — CPU, MEM, NET RX/TX and IO R/W — are sampled
 while the table is on screen. To watch resources move rather than glance at
 them, `a` opens a live panel that streams a sample per second for as long as
-it is open.
+it is open. Its strips reach back further than that: the sampled readings are
+remembered too, so a memory leak is already a climb when the panel opens.
 
 **Log view** — follow mode with scrollback:
 

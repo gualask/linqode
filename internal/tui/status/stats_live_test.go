@@ -2,8 +2,10 @@ package status
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -56,6 +58,9 @@ func TestClosingLiveKeepsReadingsOnlyWhenPolled(t *testing.T) {
 	view := unpolled.View()
 	if strings.Contains(view, "12.34%") || strings.Contains(view, "CPU") {
 		t.Errorf("stale live readings survived without a poller:\n%s", view)
+	}
+	if unpolled.trends != nil {
+		t.Errorf("a trend nothing will extend survived the stream: %v", unpolled.trends)
 	}
 }
 
@@ -145,7 +150,7 @@ func TestLiveStreamEndingStopsTicking(t *testing.T) {
 			t.Error("kept ticking after the stream ended")
 		}
 	}
-	if !strings.Contains(m.View(), "12.34%") || m.history != nil {
+	if !strings.Contains(m.View(), "12.34%") || len(m.trends["app-web-1"]) == 0 {
 		t.Errorf("ended stream state was not retained correctly:\n%s", m.View())
 	}
 }
@@ -183,7 +188,7 @@ func TestStatsTickWithoutStreamIsInert(t *testing.T) {
 func TestLivePanelShowsSeriesPerContainer(t *testing.T) {
 	m := withStatsFetch()
 	m.SetServices(services("web"), nil)
-	if strings.Contains(m.View(), "samples") {
+	if strings.Contains(m.View(), "live ·") {
 		t.Errorf("live panel on screen before it was opened:\n%s", m.View())
 	}
 	stream := openLive(t, m)
@@ -191,7 +196,7 @@ func TestLivePanelShowsSeriesPerContainer(t *testing.T) {
 	stream.events <- liveReading("web", "6.00%", "150MiB")
 	m.Update(statsTickMsg{})
 	view := m.View()
-	for _, text := range []string{"2 samples", "peak  12.3%"} {
+	for _, text := range []string{"live · 1s", "peak  12.3%"} {
 		if !strings.Contains(view, text) {
 			t.Errorf("%q missing from panel:\n%s", text, view)
 		}
@@ -243,37 +248,116 @@ func TestLivePanelLeavesTheTableOnScreen(t *testing.T) {
 	}
 }
 
-// The live strip is right-aligned at a fixed width, so the right-hand end
-// means "just now" on every row, and it is not clamped at a hundred: two busy
-// cores are not drawn as one.
-func TestLiveStrip(t *testing.T) {
-	if got := liveStrip([]float64{1}, 4); len([]rune(got)) != 4 || !strings.HasPrefix(got, "   ") {
-		t.Errorf("short series not right-aligned at its width: %q", got)
+// A strip keeps its width, starting beside its number; it is not clamped at a
+// hundred, since two busy cores are not one; and an idle container's jitter is
+// not drawn as a swing.
+func TestTrendStrip(t *testing.T) {
+	at := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	cpu := func(values ...float64) []point {
+		points := make([]point, len(values))
+		for i, value := range values {
+			points[i] = point{at: at.Add(time.Duration(i) * 5 * time.Second), cpu: value, hasCPU: true}
+		}
+		return points
 	}
-	if got := liveStrip([]float64{9, 9, 9, 1}, 2); len([]rune(got)) != 2 {
-		t.Errorf("strip wider than asked: %q", got)
+	if got, _ := trendStrip(cpu(1), 4, cpuReading, cpuScale); len([]rune(got)) != 4 || !strings.HasSuffix(got, "   ") {
+		t.Errorf("short series not left-aligned at its width: %q", got)
 	}
-	if got := liveStrip(nil, 3); got != "   " {
+	got, seconds := trendStrip(cpu(9, 9, 9, 1), 2, cpuReading, cpuScale)
+	if len([]rune(got)) != 2 || seconds != 5 {
+		t.Errorf("strip %q covering %vs, want two cells over the last 5s", got, seconds)
+	}
+	if got, _ := trendStrip(nil, 3, cpuReading, cpuScale); got != "   " {
 		t.Errorf("empty series drew %q", got)
 	}
-	if got := liveStrip([]float64{1, 2}, 0); got != "" {
+	if got, _ := trendStrip(cpu(1, 2), 0, cpuReading, cpuScale); got != "" {
 		t.Errorf("zero width drew %q", got)
 	}
-	if got := []rune(liveStrip([]float64{150, 250}, 2)); got[1] != '█' || got[0] == '█' {
-		t.Errorf("a climb past a hundred drew %q", string(got))
+	if got, _ := trendStrip(cpu(150, 250), 2, cpuReading, cpuScale); []rune(got)[1] != '█' || []rune(got)[0] == '█' {
+		t.Errorf("a climb past a hundred drew %q", got)
 	}
-	// An idle container jittering by a fraction of a point is not a swing.
-	if got := []rune(liveStrip([]float64{0.1, 0.4}, 2)); got[1] == '█' {
-		t.Errorf("an idle jitter drew %q", string(got))
+	if got, _ := trendStrip(cpu(0.1, 0.4), 2, cpuReading, cpuScale); []rune(got)[1] == '█' {
+		t.Errorf("an idle jitter drew %q", got)
+	}
+	// A point without the reading is skipped, not drawn as zero.
+	mixed := []point{{at: at, hasMemory: true}, {at: at, cpu: 50, hasCPU: true}}
+	if got, _ := trendStrip(mixed, 2, cpuReading, cpuScale); !strings.HasSuffix(got, " ") {
+		t.Errorf("a point with no CPU was drawn: %q", got)
 	}
 }
 
-func TestHistoryIsBounded(t *testing.T) {
+// ticking is a clock that moves on by step every time it is read.
+func ticking(step time.Duration) func() time.Time {
+	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	return func() time.Time {
+		now = now.Add(step)
+		return now
+	}
+}
+
+// The sampled counters feed the trend while the panel is closed, so it opens
+// on minutes of shape rather than on an empty strip — a leak is a slow climb.
+func TestSampledReadingsGiveTheLivePanelAHistory(t *testing.T) {
 	m := withStatsFetch()
-	for range historyLen + 50 {
+	m.now = ticking(5 * time.Second)
+	m.SetServices(services("web"), nil)
+	for round := range 24 {
+		m.SetStats([]compose.ContainerStats{{
+			Name:     "app-web-1",
+			CPUPerc:  "12.00%",
+			MemUsage: fmt.Sprintf("%dMiB / 31.31GiB", 400+round*4),
+			MemPerc:  "1.30%",
+		}}, nil)
+	}
+	openLive(t, m)
+	view := m.View()
+	if !strings.Contains(view, "live · 1s · 2m") {
+		t.Errorf("the panel does not say its strips reach back two minutes:\n%s", view)
+	}
+	var row string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "peak") {
+			row = line
+		}
+	}
+	// The CPU never moved, so its strip is flat at the middle of its window;
+	// memory climbed, so its strip ends at the top.
+	if !strings.Contains(row, strings.Repeat("▅", 8)) || !strings.HasSuffix(strings.TrimRight(strings.SplitN(row, "peak", 2)[0], " "), "█") {
+		t.Errorf("flat CPU beside climbing memory not drawn so:\n%s", row)
+	}
+}
+
+// A trend is kept for ten minutes and no more than trendDepth samples.
+func TestTrendsAreBoundedByAgeAndCount(t *testing.T) {
+	m := withStatsFetch()
+	m.now = ticking(time.Second)
+	for range trendDepth + 50 {
 		m.record(compose.ContainerStats{Name: "app-web-1", CPUPerc: "1.00%"})
 	}
-	if got := len(m.history["app-web-1"]); got != historyLen {
-		t.Errorf("history holds %d samples, want %d", got, historyLen)
+	if got := len(m.trends["app-web-1"]); got != trendDepth {
+		t.Errorf("trend holds %d samples, want %d", got, trendDepth)
+	}
+	m.now = ticking(time.Minute)
+	for range 30 {
+		m.record(compose.ContainerStats{Name: "app-web-1", CPUPerc: "1.00%"})
+	}
+	series := m.trends["app-web-1"]
+	if span := series[len(series)-1].at.Sub(series[0].at); span > trendAge {
+		t.Errorf("trend reaches back %v, more than %v", span, trendAge)
+	}
+}
+
+// A container the project no longer has takes its trend with it.
+func TestTrendsForgetContainersThatLeft(t *testing.T) {
+	m := withStatsFetch()
+	m.SetServices(services("web", "db"), nil)
+	m.SetStats([]compose.ContainerStats{
+		{Name: "app-web-1", CPUPerc: "1.00%"}, {Name: "app-db-1", CPUPerc: "2.00%"}}, nil)
+	m.SetServices(services("web"), nil)
+	if _, kept := m.trends["app-db-1"]; kept {
+		t.Error("the departed container's trend was kept")
+	}
+	if len(m.trends["app-web-1"]) != 1 {
+		t.Error("the remaining container's trend was lost")
 	}
 }

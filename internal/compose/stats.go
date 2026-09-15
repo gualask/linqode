@@ -86,6 +86,42 @@ func (s ContainerStats) MemAmount() string {
 	return strings.TrimSpace(used)
 }
 
+// MemBytes is the used half of MemUsage read back as a number, for a caller
+// that needs to compare two readings rather than print one: "153.6MiB / 1GiB"
+// is 161061273 bytes. It reads both of docker's ladders, binary for the
+// stream and the cgroup samples alike, decimal in case a release prints one.
+func (s ContainerStats) MemBytes() (uint64, bool) {
+	used, _, _ := strings.Cut(s.MemUsage, "/")
+	return parseMemory(used)
+}
+
+// memoryUnits are longest first, so `MiB` is not read as a `B` with `Mi` in
+// front of it.
+var memoryUnits = []struct {
+	suffix string
+	scale  float64
+}{
+	{"KiB", 1 << 10}, {"MiB", 1 << 20}, {"GiB", 1 << 30}, {"TiB", 1 << 40}, {"PiB", 1 << 50},
+	{"kB", 1e3}, {"MB", 1e6}, {"GB", 1e9}, {"TB", 1e12}, {"PB", 1e15},
+	{"B", 1},
+}
+
+func parseMemory(text string) (uint64, bool) {
+	text = strings.TrimSpace(text)
+	for _, unit := range memoryUnits {
+		if len(text) <= len(unit.suffix) ||
+			!strings.EqualFold(text[len(text)-len(unit.suffix):], unit.suffix) {
+			continue
+		}
+		value, err := strconv.ParseFloat(strings.TrimSpace(text[:len(text)-len(unit.suffix)]), 64)
+		if err != nil || value < 0 {
+			return 0, false
+		}
+		return uint64(value * unit.scale), true
+	}
+	return 0, false
+}
+
 // NetAmount and BlockAmount are the received/sent and read/written pairs
 // with docker's spacing tightened ("1.2kB / 640B" → "1.2kB/640B"). Both
 // halves carry information, unlike memory's limit, so neither is dropped;

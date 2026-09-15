@@ -73,12 +73,11 @@ func (m *Model) handleStatsTick() tea.Cmd {
 		return statsTick()
 	}
 
-	// The stream stopped on its own. Keep the last samples on screen, let
-	// the screen's sampling take the columns back, and end the discontinuous
-	// history.
+	// The stream stopped on its own. Keep the last samples on screen and let
+	// the screen's sampling take the columns back — and the trends with them,
+	// which carry on from where the stream left off.
 	m.statsFeed.Stop()
 	m.statsFeed = nil
-	m.history = nil
 	return nil
 }
 

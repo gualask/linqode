@@ -10,6 +10,8 @@ package status
 // open something belong to internal/tui/home.
 
 import (
+	"time"
+
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/operations"
 	"github.com/gualask/linqode/internal/tui/panel"
@@ -39,10 +41,16 @@ type Model struct {
 	statsFeed     *operations.Feed
 	statsStarting bool
 	statsRequest  uint64
-	// history is the CPU series per container, filled only by the live
-	// stream: its samples are a second apart, which is what makes a
-	// sparkline mean anything.
-	history map[string][]float64
+	// trends are what each container's readings have been, kept from every
+	// sample either source delivers: the sampled counters every few seconds
+	// while the table is on screen, the stream every second while the live
+	// panel is open. Keeping the first is what lets the panel open with ten
+	// minutes of shape instead of an empty strip — a leak is a slow climb,
+	// visible over minutes and not over the minute a panel has been open.
+	trends map[string][]point
+	// now stamps each point. A field rather than a call so a test can say
+	// when now is.
+	now func() time.Time
 
 	services []compose.Service
 	selected int
@@ -62,6 +70,7 @@ func New(config Config) *Model {
 	return &Model{
 		softStats: config.Stats, liveStats: config.LiveStats,
 		unavailable: config.Unavailable,
+		now:         time.Now,
 	}
 }
 
@@ -106,6 +115,7 @@ func (m *Model) SetServices(services []compose.Service, err error) {
 	// stay at the same position, clamped into range.
 	m.selected = selectedServiceIndex(m.selected, m.services, services)
 	m.services = services
+	m.forgetDeparted()
 	m.selected = min(m.selected, max(0, len(m.services)-1))
 	m.errText = ""
 }

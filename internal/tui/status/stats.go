@@ -2,16 +2,16 @@ package status
 
 // Container resource usage, in the two modes the status view offers.
 //
-// Soft: one `docker stats --no-stream` sample every statsPollInterval,
-// feeding the table's CPU and MEM columns. A sample costs ~2 s on the
-// server regardless of container count — the daemon reads the cgroups
-// twice, a second apart, to derive a CPU percentage — so it runs on its own
-// slow interval instead of alongside the ~60 ms `compose ps`.
+// Sampled: the screen reads each container's cgroup counters on its own
+// cadence (internal/tui/home) and hands every derived sample to SetStats,
+// which fills the table's CPU, MEM, NET and IO columns.
 //
-// Live: the streaming form, started on request, which emits a block per
-// second into a panel below the table with a per-container sparkline. While
-// it runs the soft poll stands down: the stream already delivers fresher
-// numbers for the same columns.
+// Live: `docker stats` in its streaming form, started on request, a block a
+// second into a panel below the table. While it runs the sampled source
+// stands down: the stream already delivers fresher numbers for the same
+// columns.
+//
+// Both feed one trend per container, which is what the live panel draws.
 
 import (
 	"time"
@@ -30,10 +30,14 @@ const (
 	// maxStatsPerTick bounds one drain, like the log view's, so a burst
 	// cannot starve input handling.
 	maxStatsPerTick = 1_000
-	// historyLen is how many live samples are kept per container: four
-	// minutes at docker's one-per-second cadence, more than any sparkline
-	// can show, so a widening terminal reveals history instead of blanks.
-	historyLen = 240
+	// trendAge is how far back a container's trend reaches: ten minutes, the
+	// same as the machine's, which is long enough for a leak to read as a
+	// climb.
+	trendAge = 10 * time.Minute
+	// trendDepth bounds it by count as well, for the stream's one sample a
+	// second: ten minutes of those, more than any strip draws, so a widening
+	// terminal reveals history instead of blanks.
+	trendDepth = 600
 	// liveMaxRows caps the live panel so it cannot crowd out the table on a
 	// project with many services.
 	liveMaxRows = 8
@@ -56,6 +60,9 @@ func (m *Model) applySample(sample []compose.ContainerStats) {
 	}
 	m.stats = stats
 	m.statsLoaded = true
+	for _, s := range sample {
+		m.record(s)
+	}
 }
 
 // liveActive reports whether the streaming mode is on, including the window
@@ -92,20 +99,20 @@ func (m *Model) toggleLive() tea.Cmd {
 	return func() tea.Msg { return OpenStatsMsg{RequestID: requestID} }
 }
 
-// stopLive tears the stream down and forgets its history. The readings
-// themselves survive only if the soft poll is there to refresh them;
-// otherwise they would freeze on screen, and stale numbers read as live.
+// stopLive tears the stream down. The readings and their trends survive only
+// if the sampled source is there to go on filling them; otherwise they would
+// freeze, and stale numbers read as live.
 func (m *Model) stopLive() {
 	if m.statsFeed != nil {
 		m.statsFeed.Stop()
 		m.statsFeed = nil
 	}
 	m.statsStarting = false
-	m.history = nil
 	m.statsErr = ""
 	if !m.softStats {
 		m.stats = nil
 		m.statsLoaded = false
+		m.trends = nil
 	}
 }
 
@@ -137,19 +144,54 @@ func (m *Model) drainStats() bool {
 	return false
 }
 
-// record appends a container's CPU reading to its history, dropping the
-// oldest once the window is full.
+// point is one moment of a container's trend. Either reading can be
+// missing: the first cgroup sample has no CPU percentage, which needs two,
+// and a container being torn down reports neither.
+type point struct {
+	at            time.Time
+	cpu           float64
+	hasCPU        bool
+	memory        float64 // bytes
+	memoryPercent float64
+	hasMemory     bool
+}
+
+// record appends a container's readings to its trend, dropping what is older
+// than trendAge or beyond trendDepth.
 func (m *Model) record(stats compose.ContainerStats) {
-	percent, ok := stats.CPUPercent()
-	if !ok {
+	sample := point{at: m.now()}
+	sample.cpu, sample.hasCPU = stats.CPUPercent()
+	if bytes, ok := stats.MemBytes(); ok {
+		sample.memory, sample.hasMemory = float64(bytes), true
+		sample.memoryPercent, _ = stats.MemPercent()
+	}
+	if !sample.hasCPU && !sample.hasMemory {
 		return
 	}
-	if m.history == nil {
-		m.history = map[string][]float64{}
+	if m.trends == nil {
+		m.trends = map[string][]point{}
 	}
-	series := append(m.history[stats.Name], percent)
-	if len(series) > historyLen {
-		series = series[len(series)-historyLen:]
+	series := append(m.trends[stats.Name], sample)
+	cutoff := sample.at.Add(-trendAge)
+	first := 0
+	for first < len(series)-1 && series[first].at.Before(cutoff) {
+		first++
 	}
-	m.history[stats.Name] = series
+	first = max(first, len(series)-trendDepth)
+	m.trends[stats.Name] = series[first:]
+}
+
+// forgetDeparted drops the trends of containers the service list no longer
+// names. A recreated container keeps its name and therefore its trend, which
+// is right: the service is the thing being watched, not the container id.
+func (m *Model) forgetDeparted() {
+	names := make(map[string]bool, len(m.services))
+	for _, service := range m.services {
+		names[service.Name] = true
+	}
+	for name := range m.trends {
+		if !names[name] {
+			delete(m.trends, name)
+		}
+	}
 }

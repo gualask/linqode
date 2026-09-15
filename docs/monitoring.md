@@ -272,9 +272,22 @@ previous sample, which the client already has. Two modes follow:
   arrives while they are still looking.
 - **Live**, on request (`a`): `docker stats` in its streaming form, a sample
   per second, for as long as the panel is open. Streaming is the one form
-  where docker's own sampling is not a tax, and it stays the source of the
-  sparklines. The sampled source stands down while it runs — that is what its
-  gate is for — and the remote command is terminated when it closes.
+  where docker's own sampling is not a tax. The sampled source stands down
+  while it runs — that is what its gate is for — and the remote command is
+  terminated when it closes.
+
+**Both sources feed one trend per container**, kept on the client for ten
+minutes: CPU, and memory in bytes. It used to be filled by the stream alone
+and forgotten when the panel closed, which made the panel's strips a record
+of the minute it had been open — and a memory leak is a climb over minutes,
+not over the minute somebody thought to look. Kept from the sampled counters
+too, the panel opens on the shape of the last ten minutes, at five seconds a
+cell on the left and one on the right, and says how much time its strips
+cover rather than how many samples they hold. Like every other trend here it
+costs the server nothing, and like every other one it is gone with the
+session. A trend goes with its container when the service list stops naming
+it, and with the stream on a host where the sampled source is off, since
+nothing would extend it.
 
 Both are scoped to the project's containers, since a bare `docker stats`
 would report every container on the host. Docker wraps its output in
