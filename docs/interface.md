@@ -1,6 +1,6 @@
 # Interface
 
-_Last updated: 2026-09-10._
+_Last updated: 2026-09-15._
 
 How the screen is put together: what is drawn, what takes focus, and what
 gives way when the terminal runs short. What is *read* to fill it is
@@ -359,6 +359,37 @@ width, and they are the part the next sample can reconstruct — so they are wha
 a narrow screen gives up rather than the numbers. Their label says how much
 host time they cover, measured from the samples that arrived rather than the
 cadence that was asked for.
+
+**The column takes the room it is given.** It is as wide as the widest row
+leaves, from twenty-four cells — two minutes, the least that shows a climb —
+up to the whole ten minutes the history holds. It used to be twenty-four
+cells on every terminal, so a wide one left the space beside the numbers
+empty while eight minutes of samples it already had went undrawn.
+
+The shapes and the windows are `internal/tui/spark`, shared with the live
+panel under the table and the timeline in the log view, so the rule is the
+same wherever a reading is drawn over time.
+
+### When a disk will be full
+
+A filesystem row says **`full in ~40m`** when the history says it is filling
+fast enough for that to matter. The meter says how full a disk is; what it
+cannot say is whether 93% is where `/var` has sat for a year or where it
+arrived this morning, and only the second one is the deployment about to
+stop.
+
+The rate is a least-squares slope over the remembered samples rather than the
+difference between the first and the last, so one large write at either end
+does not decide it. The sentence is said only on evidence that can carry it:
+six samples across at least a minute, growth beyond what `df`'s kilobytes
+could mis-round, and a fill time within a hundred times the window it was
+measured over and never past a day. Ten minutes of growth say something about
+the next few hours and nothing about next week, when a log rotation will have
+happened. It is red inside the hour and yellow beyond it, and there is no
+green: a projection appears only when there is something to say.
+
+It sits before the device name, which is the part of the row a narrow
+terminal can best spare.
 
 Nothing is retained across sessions. History while nobody is connected is what
 an agent would buy, and that is a non-goal.

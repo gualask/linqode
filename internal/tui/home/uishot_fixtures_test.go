@@ -33,7 +33,9 @@ func busyHost(round int) host.Metrics {
 		Filesystems: []host.Filesystem{
 			{Device: "/dev/nvme0n1p2", Mount: "/", TotalKB: 205520896, UsedKB: 93323264},
 			{Device: "/dev/nvme0n1p1", Mount: "/boot", TotalKB: 1046528, UsedKB: 314572},
-			{Device: "/dev/sdb1", Mount: "/var", TotalKB: 419430400, UsedKB: 390455296},
+			// Filling at a rate that will stop the deployment this afternoon,
+			// which is what the projection on its row is there to say.
+			{Device: "/dev/sdb1", Mount: "/var", TotalKB: 419430400, UsedKB: 390455296 + uint64(round)*27_000},
 		},
 		Pressure: host.PressureSet{
 			CPU:     host.Pressure{Some10: 24.5},
@@ -51,7 +53,9 @@ func busyHost(round int) host.Metrics {
 	}
 	// Memory climbing towards trouble rather than sitting there, which is
 	// the difference the trend beside it exists to show.
-	m.MemAvailableKB = 12_000_000 - uint64(round)*260_000
+	// Capped, because the widest frame samples for long enough that an
+	// unsigned subtraction would wrap and draw sixteen million petabytes.
+	m.MemAvailableKB = 12_000_000 - uint64(min(round, 40))*260_000
 
 	// One core pinned, one busy, the rest idling — which is the case a load
 	// average of 7.21 over eight cores cannot distinguish from six cores at

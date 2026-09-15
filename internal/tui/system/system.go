@@ -95,11 +95,16 @@ func (m *Model) SetSample(metrics host.Metrics, err error) {
 	if m.loaded {
 		if usage, ok := metrics.Since(m.metrics); ok {
 			m.usage, m.hasUsage = usage, true
+			disks := map[string]uint64{}
+			for _, filesystem := range filesystemsOf(metrics) {
+				disks[filesystem.Mount] = filesystem.UsedKB
+			}
 			m.history.push(trend{
 				uptime: metrics.UptimeSeconds,
 				cpu:    usage.CPUPercent,
 				memory: metrics.MemUsedPercent(),
 				net:    usage.RxRate + usage.TxRate,
+				disks:  disks,
 			})
 		}
 	}
@@ -172,11 +177,20 @@ const labelWidth = 8
 // instead of eating the width the gauges are drawn in.
 const labelMax = 16
 
-// row is one line of the view: its text, and the trend strip that belongs to
-// the right of it when there is room for a column of them.
+// row is one line of the view: its text, and the trend that belongs to the
+// right of it when there is room for a column of them.
 type row struct {
 	text  string
-	strip string
+	trend *trendLine
+}
+
+// trendLine is what a row's strip is drawn from: which reading, the window it
+// is scaled against, and the colour each raw value is judged by. It is drawn
+// only once the column's width is known, which depends on every row.
+type trendLine struct {
+	of    func(trend) float64
+	scale func([]float64) (float64, float64)
+	style func(float64) lipgloss.Style
 }
 
 // View is the system view: everything the batch reads, with the room to
@@ -215,7 +229,7 @@ func (m *Model) View() string {
 		rows = append(rows, row{
 			text: m.meterRow(column, "cpu", percent, theme.Usage(percent),
 				fmt.Sprintf("%.0f%% busy", percent)+load),
-			strip: m.trendOf(func(t trend) float64 { return t.cpu }, spark.Percent, theme.Usage),
+			trend: &trendLine{func(t trend) float64 { return t.cpu }, spark.Percent, theme.Usage},
 		})
 		if strip := m.coreRow(column); strip != "" {
 			rows = append(rows, row{text: strip})
@@ -240,7 +254,7 @@ func (m *Model) View() string {
 				fmt.Sprintf("%s used", formatKB(metrics.MemUsedKB()))+
 					theme.Dim.Render(fmt.Sprintf("   %s available of %s",
 						formatKB(metrics.MemAvailableKB), formatKB(metrics.MemTotalKB)))),
-			strip: m.trendOf(func(t trend) float64 { return t.memory }, spark.Percent, theme.Usage),
+			trend: &trendLine{func(t trend) float64 { return t.memory }, spark.Percent, theme.Usage},
 		})
 	}
 	// A machine with no swap configured is not a machine with empty swap,
@@ -257,11 +271,18 @@ func (m *Model) View() string {
 	for _, filesystem := range m.filesystems() {
 		percent := filesystem.UsedPercent()
 		free := filesystem.TotalKB - min(filesystem.UsedKB, filesystem.TotalKB)
+		text := fmt.Sprintf("%s used", formatKB(filesystem.UsedKB)) +
+			theme.Dim.Render(fmt.Sprintf("   %s free of %s",
+				formatKB(free), formatKB(filesystem.TotalKB)))
+		// Before the device, which is the part of this row a narrow
+		// terminal can best spare: when the disk will be full is the thing
+		// the meter cannot say.
+		if eta, ok := m.history.fillTime(filesystem.Mount, filesystem.UsedKB, filesystem.TotalKB); ok {
+			text += "   " + fillStyle(eta).Render("full in "+formatETA(eta))
+		}
+		text += theme.Dim.Render("   " + filesystem.Device)
 		rows = append(rows, row{text: m.meterRow(column, filesystem.Mount, percent,
-			theme.Usage(percent),
-			fmt.Sprintf("%s used", formatKB(filesystem.UsedKB))+
-				theme.Dim.Render(fmt.Sprintf("   %s free of %s   %s",
-					formatKB(free), formatKB(filesystem.TotalKB), filesystem.Device)))})
+			theme.Usage(percent), text)})
 	}
 
 	// Under the filesystems, because it is the answer to the question they
@@ -278,8 +299,8 @@ func (m *Model) View() string {
 		// means "this is the top of what happened".
 		rows = append(rows, row{
 			text: m.textRow(column, "net", m.networkText()),
-			strip: m.trendOf(func(t trend) float64 { return t.net }, spark.Rate,
-				func(float64) lipgloss.Style { return theme.Cyan }),
+			trend: &trendLine{func(t trend) float64 { return t.net }, spark.Rate,
+				func(float64) lipgloss.Style { return theme.Cyan }},
 		})
 	}
 	if metrics.HasPressure() {
@@ -320,69 +341,101 @@ func (m *Model) View() string {
 }
 
 // assemble lays the rows out, putting the trend strips in a column at the
-// right edge when every one of them fits.
+// right edge when there is room for one.
+//
+// The column is as wide as the room the widest row leaves, up to everything
+// the history holds: a wide terminal reaches back ten minutes rather than
+// leaving the space beside the numbers empty. It is drawn only when that room
+// is at least stripMinimum, and then on every row that has a trend.
 //
 // All or none, deliberately: a strip that appears on one row and not the
 // next reads as data about that row rather than as the width running out.
 // The strips are also the part that can be inferred from the next sample,
 // so they are what a narrow terminal gives up rather than the numbers.
 func (m *Model) assemble(rows []row) string {
-	widest, strips := 0, false
+	widest, trends := 0, false
 	for _, entry := range rows {
 		widest = max(widest, lipgloss.Width(entry.text))
-		strips = strips || entry.strip != ""
+		trends = trends || entry.trend != nil
 	}
-	stripWidth := 0
-	for _, entry := range rows {
-		stripWidth = max(stripWidth, lipgloss.Width(entry.strip))
+	cells := 0
+	if trends && m.width > 0 {
+		cells = min(m.width-widest-2-spanLabelWidth, historyDepth)
 	}
-	room := m.width > 0 && widest+2+stripWidth <= m.width
 	lines := make([]string, len(rows))
 	for index, entry := range rows {
 		lines[index] = entry.text
-		if !strips || !room || entry.strip == "" {
+		if entry.trend == nil || cells < stripMinimum {
 			continue
 		}
-		gap := m.width - lipgloss.Width(entry.text) - lipgloss.Width(entry.strip)
-		lines[index] = entry.text + strings.Repeat(" ", gap) + entry.strip
+		strip := m.trendOf(*entry.trend, cells)
+		if strip == "" {
+			continue
+		}
+		gap := m.width - lipgloss.Width(entry.text) - lipgloss.Width(strip)
+		lines[index] = entry.text + strings.Repeat(" ", gap) + strip
 	}
 	return strings.Join(lines, "\n")
 }
 
-// trendOf draws one reading's history as a strip, prefixed with the stretch
-// of host time it covers. Every strip covers the same window, so the label
-// is padded onto all of them rather than printed once: the strips have to
-// start at the same column to read as a column.
-func (m *Model) trendOf(of func(trend) float64, scale func([]float64) (float64, float64),
-	style func(float64) lipgloss.Style) string {
-	samples, seconds := m.history.window(sparkWidth)
+// spanLabelWidth is the most a strip's span label takes, "45s " included.
+const spanLabelWidth = 4
+
+// trendOf draws one reading's history as a strip of at most cells samples,
+// prefixed with the stretch of host time it covers. Every strip covers the
+// same window, so the label is on all of them rather than printed once: the
+// strips have to start at the same column to read as a column.
+func (m *Model) trendOf(line trendLine, cells int) string {
+	samples, seconds := m.history.window(cells)
 	if len(samples) == 0 {
 		return ""
 	}
 	values := make([]float64, len(samples))
 	for index, sample := range samples {
-		values[index] = of(sample)
+		values[index] = line.of(sample)
 	}
-	floor, ceiling := scale(values)
+	floor, ceiling := line.scale(values)
 	// Height says how the reading moved and colour says how bad it is, so
 	// each cell is coloured by its own raw value rather than by its height
 	// in the window: a memory strip stays yellow while it climbs.
 	return theme.Dim.Render(spark.Span(seconds)+" ") + spark.Strip(values, floor, ceiling,
-		func(index int) lipgloss.Style { return style(values[index]) })
+		func(index int) lipgloss.Style { return line.style(values[index]) })
 }
 
 // filesystems is the mount list, falling back to the root reading alone on a
 // host whose full `df` did not answer — which is what the guard around it
 // exists to survive.
-func (m *Model) filesystems() []host.Filesystem {
-	if len(m.metrics.Filesystems) > 0 {
-		return m.metrics.Filesystems
+func (m *Model) filesystems() []host.Filesystem { return filesystemsOf(m.metrics) }
+
+func filesystemsOf(metrics host.Metrics) []host.Filesystem {
+	if len(metrics.Filesystems) > 0 {
+		return metrics.Filesystems
 	}
-	if m.metrics.DiskTotalKB == 0 {
+	if metrics.DiskTotalKB == 0 {
 		return nil
 	}
 	return []host.Filesystem{{
-		Mount: "/", TotalKB: m.metrics.DiskTotalKB, UsedKB: m.metrics.DiskUsedKB}}
+		Mount: "/", TotalKB: metrics.DiskTotalKB, UsedKB: metrics.DiskUsedKB}}
+}
+
+// formatETA writes a fill time the way it deserves to be read, roughly: to
+// the minute inside the hour, to the hour beyond it.
+func formatETA(eta time.Duration) string {
+	if eta < time.Hour {
+		return fmt.Sprintf("~%dm", max(int(eta.Round(time.Minute)/time.Minute), 1))
+	}
+	return fmt.Sprintf("~%dh", int(eta.Round(time.Hour)/time.Hour))
+}
+
+// fillStyle colours a fill time: red inside the hour, which is a disk that
+// will stop the deployment before anybody has finished investigating, and
+// yellow otherwise. There is no green, because a projection is only shown
+// when there is something to say.
+func fillStyle(eta time.Duration) lipgloss.Style {
+	if eta <= time.Hour {
+		return theme.Red
+	}
+	return theme.Yellow
 }
 
 // labelColumn is wide enough for every label this render will draw, so the

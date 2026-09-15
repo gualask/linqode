@@ -340,6 +340,14 @@ func TestUIShot(t *testing.T) {
 	openSystem(byCPUView)
 	byCPUView.Update(key("s"))
 
+	// Wide, and sampled for long enough to have more history than the
+	// narrowest column draws: the strips take the room they are given.
+	wideSystem := shotScreen(250, 24, true, nil)
+	openSystem(wideSystem)
+	for range 70 {
+		resample(wideSystem)
+	}
+
 	narrowSystem := shotScreen(100, 20, true, nil)
 	openSystem(narrowSystem)
 
@@ -377,6 +385,8 @@ func TestUIShot(t *testing.T) {
 		{Name: "150 columns — the system view, opened with enter on the band",
 			Text: systemView.View()},
 		{Name: "150 columns — the same view, ranked by CPU", Text: byCPUView.View()},
+		{Name: "250 columns — the system view with room: strips reach back further",
+			Text: wideSystem.View()},
 		{Name: "150x24 — focus on the feed, second event selected", Text: onFeed.View()},
 		{Name: "150x30 — the live panel, forty seconds into the stream", Text: live.View()},
 		{Name: "150x14 — too short for both: the satellite gives its rows back",

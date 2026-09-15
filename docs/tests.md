@@ -1,6 +1,6 @@
 # Testing
 
-_Last updated: 2026-09-08._
+_Last updated: 2026-09-15._
 
 How Linqode is tested, what each layer covers, and how to extend it. The
 strategy in short: pure logic is unit-tested against captured fixtures with
@@ -94,7 +94,11 @@ table, follow/scroll transitions, search cycling with wrap-around, the
 bounded burst drain, filter commit/clear/errors, structured-rendering
 detection and override, the stats panel, the action and script menus
 (navigation, running the chosen entry, closing on esc or on the key that
-opened them), the RESTARTS column appearing only once counts exist, and the
+opened them), the RESTARTS column appearing only once counts exist, the
+system view's strips widening with the terminal up to the history they have,
+a filesystem's fill time said only on enough evidence and within its reach,
+the live panel opening on the trend the sampled counters built, the log
+view's timeline and shares and its panel never taller than the log, and the
 `!` prompt (keys type instead of acting while it is open, empty input runs
 nothing, esc cancels, and it reopens on the last command). Views receive
 hand-built `operations.Feed` channels — no SSH involved.
