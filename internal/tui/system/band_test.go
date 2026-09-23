@@ -284,13 +284,32 @@ func TestSwapMeterAppearsOnlyWhenSwapIsFilling(t *testing.T) {
 // above it whatever the machine has: with room to spare a core takes several
 // cells, and past that a cell carries the busiest of the ones it covers.
 func TestCoreCellsFillTheGaugeWhateverTheCoreCount(t *testing.T) {
-	cells := coreCells([]float64{100, 0, 0, 0}, 12)
-	if len(cells) != 12 {
-		t.Fatalf("four cores over twelve cells drew %d: %v", len(cells), cells)
+	cells := coreCells([]float64{100, 0, 0, 0}, 15)
+	if len(cells) != 15 {
+		t.Fatalf("four cores over fifteen cells drew %d: %v", len(cells), cells)
 	}
-	// Three cells each, the pinned one first.
-	if cells[0] != 100 || cells[2] != 100 || cells[3] != 0 {
+	// Three cells a core and one of track between each two: twelve for the
+	// cores and three between them, the pinned one first.
+	if cells[0] != 100 || cells[2] != 100 || cells[3] != coreGap || cells[4] != 0 || cells[14] != 0 {
 		t.Errorf("a core did not take its share of the cells: %v", cells)
+	}
+	gaps := 0
+	for _, cell := range cells {
+		if cell == coreGap {
+			gaps++
+		}
+	}
+	if gaps != 3 {
+		t.Errorf("four cores drew %d gaps, want 3: %v", gaps, cells)
+	}
+
+	// Where a gap each does not fit, there are none: seven cores over ten
+	// cells would be thirteen.
+	for _, cell := range coreCells(make([]float64, 7), 10) {
+		if cell == coreGap {
+			t.Errorf("seven cores over ten cells drew a gap")
+			break
+		}
 	}
 
 	// Sixty-four cores over ten cells: the pinned one is what the row is

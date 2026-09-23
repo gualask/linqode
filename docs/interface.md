@@ -346,7 +346,10 @@ until the share exists.
   idle ones is a machine with a problem and an average that says twelve
   percent, so the busiest is named beside it. It stands in the same track as
   the gauges and is as wide as they are — with room to spare a core takes
-  several cells, and on a machine with more cores than cells each cell
+  several cells, with a cell of track between one core and the next so two
+  neighbours under the same load stay two cores rather than one wide bar;
+  where a gap each does not fit there are none, and on a machine with more
+  cores than cells each cell
   carries the busiest of the ones it covers, since a strip that showed every
   other core would be the one way to lose the reading. It was one cell per
   core on the bare background until September 2026, which left it the single

@@ -499,20 +499,53 @@ func (m *Model) coreRow(g grid) string {
 		}
 	}
 	cells := coreCells(m.usage.Cores, g.gauge())
-	strip := spark.Strip(cells, 0, 100,
-		func(cell int) lipgloss.Style { return theme.Usage(cells[cell]) }, theme.Track)
-	return fmt.Sprintf(" %s %s  %s", pad("cores", g.label), strip,
+	var strip strings.Builder
+	for first := 0; first < len(cells); {
+		if cells[first] == coreGap {
+			strip.WriteString(theme.Track.Render(" "))
+			first++
+			continue
+		}
+		last := first
+		for last < len(cells) && cells[last] != coreGap {
+			last++
+		}
+		run := cells[first:last]
+		strip.WriteString(spark.Strip(run, 0, 100,
+			func(cell int) lipgloss.Style { return theme.Usage(run[cell]) }, theme.Track))
+		first = last
+	}
+	return fmt.Sprintf(" %s %s  %s", pad("cores", g.label), strip.String(),
 		theme.Dim.Render(fmt.Sprintf("busiest cpu%d at %.0f%%", index, busiest)))
 }
 
+// coreGap marks a cell of coreCells that is the track between two cores
+// rather than a reading.
+const coreGap = -1
+
 // coreCells spreads the cores over the cells a gauge is wide. With room to
-// spare each core takes several cells and the row reads as a bar per core;
-// past that each cell carries the busiest of the cores it covers, which is
+// spare each core takes several cells, with a cell of track between one
+// core and the next: without it two neighbours under the same load are one
+// bar twice as wide, and the row stops saying how many cores there are.
+// Past that each cell carries the busiest of the cores it covers, which is
 // what the row is for — a pinned core among sixty-four is the reading, and
 // showing every other core would be the one way to lose it.
 func coreCells(cores []float64, width int) []float64 {
 	if width <= 0 || len(cores) == 0 {
 		return nil
+	}
+	if gaps := len(cores) - 1; gaps > 0 && width >= len(cores)+gaps {
+		cells := make([]float64, 0, width)
+		room := width - gaps
+		for core, percent := range cores {
+			if core > 0 {
+				cells = append(cells, coreGap)
+			}
+			for range (core+1)*room/len(cores) - core*room/len(cores) {
+				cells = append(cells, percent)
+			}
+		}
+		return cells
 	}
 	cells := make([]float64, width)
 	for cell := range cells {
