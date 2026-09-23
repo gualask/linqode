@@ -201,6 +201,10 @@ LINQODE_UI_SHOT=/tmp/shot.html go test ./internal/tui/home/ -run TestUIShot
 open /tmp/shot.html
 ```
 
+Add `LINQODE_UI_SHOT_LIGHT=1` for the same frames on a light terminal. Every
+colour in the palette has a light variant, and a change that only ever gets
+looked at on a dark page ships its light half unseen.
+
 Without the environment variable the test skips, so a normal run pays
 nothing for it. It asserts nothing and nothing depends on its output: it is
 a viewer, and the assertions stay in the tests beside it. When a view grows

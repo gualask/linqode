@@ -317,6 +317,16 @@ func TestUIShot(t *testing.T) {
 	// which is the whole reason this file exists.
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
+	// LINQODE_UI_SHOT_LIGHT renders the frames as a light terminal would,
+	// with the palette's Light variants on a white page. Every adaptive
+	// token has two values and only one of them is looked at otherwise.
+	if os.Getenv("LINQODE_UI_SHOT_LIGHT") != "" {
+		dark := lipgloss.HasDarkBackground()
+		lipgloss.SetHasDarkBackground(false)
+		defer lipgloss.SetHasDarkBackground(dark)
+		defaultFG, defaultBG = "#1f1f1f", "#ffffff"
+		defer func() { defaultFG, defaultBG = "#d4d4d4", "#1e1e1e" }()
+	}
 
 	// Focus starts on the header. This is the table holding it instead, one
 	// tab forward, with a row selected.

@@ -21,7 +21,9 @@ var base16 = [16]string{
 	"#666666", "#f14c4c", "#23d18b", "#f5f543", "#3b8eea", "#d670d6", "#29b8db", "#f5f5f5",
 }
 
-const (
+// The terminal's own colours, which a frame shows wherever it sets none.
+// They are variables because a light-background shot swaps them.
+var (
 	defaultFG = "#d4d4d4"
 	defaultBG = "#1e1e1e"
 )
