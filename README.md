@@ -199,7 +199,7 @@ remembered too, so a memory leak is already a climb when the panel opens.
 | `↑`/`↓`, `Enter` (panel) | move over the counts; add the row to the filter, or take it out |
 | `t` | count by the next field (the panel picks the first itself) |
 | `f` | type a filter (`level=error route!=/healthz msg="a b"`) |
-| `x` | clear the filter, all of it |
+| `x` | reset: clear the filter and the search |
 | `s` | toggle structured rendering, when detection gets it wrong |
 | `Esc` | back to the status view (from the panel: back to the log) |
 | `q` | quit |

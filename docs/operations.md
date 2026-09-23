@@ -129,7 +129,7 @@ object becomes a record whose nested fields are flattened to dotted paths
 - **Filters** narrow the view to matching records; plain-text lines are
   hidden while one is active. They are **picked from the stats panel**:
   `enter` on a level or a value adds it, again takes it out, and a dot marks
-  what the filter holds; `x` clears all of it. Values of one field are alternatives (`error` or
+  what the filter holds; `x` clears it, and the search with it. Values of one field are alternatives (`error` or
   `warn`); different fields must all hold. `f` types one instead, for what
   the panel cannot pick — a negation, a field it is not counting:
   `key=value`, `key!=value`, `key="a b"`, case-insensitive; `level` finds

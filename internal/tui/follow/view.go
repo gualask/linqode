@@ -319,55 +319,59 @@ func (m *Model) endedFooter() string {
 	return out
 }
 
+// activeFooter is the dashboard's footer, built by the same function: what
+// works wherever the keys are on the left, a rule, then what the view is
+// showing and what the region with the keys answers to. A keymap laid out
+// one way on one screen and another way on the next is one an operator
+// reads twice.
 func (m *Model) activeFooter() string {
-	var out string
+	status := fmt.Sprintf("%d lines", m.store.Len())
 	if m.store.Filter() != nil {
-		out = fmt.Sprintf(" %d/%d lines", m.store.Len(), m.store.Total())
-		out += theme.Cyan.Render("  f:" + terminalText(m.store.Filter().Expr()))
-	} else {
-		out = fmt.Sprintf(" %d lines", m.store.Len())
+		status = fmt.Sprintf("%d/%d lines", m.store.Len(), m.store.Total()) +
+			theme.Cyan.Render("  f:"+terminalText(m.store.Filter().Expr()))
 	}
 	if m.query != "" {
-		out += theme.Yellow.Render("  /" + terminalText(m.query))
+		status += theme.Yellow.Render("  /" + terminalText(m.query))
 	}
-	// The keys are marked here the way they are on the home: the character to
-	// press in the accent, the word recessive. A keymap spelled one way on
-	// one screen and another way on the next is one an operator reads twice.
-	// The prompts above are left alone — `empty clears` is not a key.
-	//
-	// `q quit` keeps the global grey for the same reason. This view has no
-	// divider to separate the two kinds — it is one region, and everything
-	// else here is its own — but the colour still means what it means
-	// everywhere else, and a key that works from anywhere must not change
-	// colour depending on which screen it is read from.
-	return out + theme.Dim.Render("  ·  ") + panel.MarkKeys(m.footerKeys(), true) +
-		theme.Dim.Render(" · ") + panel.MarkKeys("q quit", false)
+	return panel.Footer(m.globalHints(), status, m.focusedHints(), m.width)
 }
 
-// footerKeys is the keymap for where the keys are going. The log's is short
-// on purpose: search, and the panel the filter is picked from. Editing and
-// clearing a filter are offered only once there is one; `s` is not offered
-// at all, since detection gets it right and the key is a correction for when
-// it does not.
-func (m *Model) footerKeys() string {
-	filtered := m.store.Filter() != nil
-	if m.statsFocus {
-		keys := "↑↓ move · enter filter"
-		if filtered {
-			keys += " · x clear"
-		}
-		return keys + " · t field · tab log · a close"
-	}
-	keys := "/ search"
-	if filtered {
-		keys += " · f filter · x clear"
-	}
+// globalHints work wherever the keys are, the panel's cursor included. `tab`
+// is offered only while there is a panel to move the keys to, as on the
+// dashboard.
+func (m *Model) globalHints() []panel.Hint {
+	var hints []panel.Hint
 	if m.showStats {
-		keys += " · tab stats"
-	} else {
-		keys += " · a stats"
+		hints = append(hints, panel.Hint{Text: "tab panels", Drop: 7})
 	}
-	return keys + " · esc back"
+	return append(hints,
+		panel.Hint{Text: "/ search", Drop: 3},
+		panel.Hint{Text: "a stats", Drop: 2},
+		panel.Hint{Text: "q quit", Drop: 0})
+}
+
+// focusedHints are what the log or the panel answers to. Editing the filter
+// and resetting are offered only once there is something to edit or reset;
+// `s` is not offered at all, since detection gets it right and the key is a
+// correction for when it does not.
+func (m *Model) focusedHints() []panel.Hint {
+	var hints []panel.Hint
+	if m.statsFocus {
+		hints = []panel.Hint{{Text: "esc log", Drop: 5},
+			{Text: "↑↓ move", Drop: 4}, {Text: "enter filter", Drop: 1}, {Text: "t field", Drop: 6}}
+	} else {
+		hints = []panel.Hint{{Text: "esc back", Drop: 1}}
+		if m.query != "" {
+			hints = append(hints, panel.Hint{Text: "n/N next", Drop: 6})
+		}
+		if m.store.Filter() != nil {
+			hints = append(hints, panel.Hint{Text: "f filter", Drop: 5})
+		}
+	}
+	if m.store.Filter() != nil || m.query != "" {
+		hints = append(hints, panel.Hint{Text: "x reset", Drop: 4})
+	}
+	return hints
 }
 
 func levelStyle(level string) lipgloss.Style {

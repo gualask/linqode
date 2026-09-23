@@ -242,7 +242,7 @@ func TestStatsFocusMovesWithTabAndEsc(t *testing.T) {
 	if m.statsFocus || !m.showStats {
 		t.Fatal("esc from the panel did not hand the keys to the log")
 	}
-	if !strings.Contains(m.View(), "tab stats") {
+	if !strings.Contains(m.View(), "tab panels") {
 		t.Errorf("the footer does not say how to reach the panel:\n%s", m.View())
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -255,18 +255,19 @@ func TestStatsFocusMovesWithTabAndEsc(t *testing.T) {
 	}
 }
 
-// x clears the whole filter at once, from the panel or from the log, and is
-// offered only while there is one to clear.
-func TestClearFilterAtOnce(t *testing.T) {
+// x resets the view at once — the whole filter and the search — from the
+// panel or from the log, and is offered only while there is something to
+// reset.
+func TestResetClearsFilterAndSearch(t *testing.T) {
 	m := statsModel(t, 30, stamped(3, "error"), stamped(2, "warn"), stamped(1, "info"))
-	if strings.Contains(m.View(), "x clear") {
-		t.Errorf("clearing offered with no filter set:\n%s", m.View())
+	if strings.Contains(m.View(), "x reset") {
+		t.Errorf("reset offered with nothing to reset:\n%s", m.View())
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if !strings.Contains(m.View(), "x clear") {
-		t.Errorf("clearing not offered with a filter set:\n%s", m.View())
+	if !strings.Contains(m.View(), "x reset") {
+		t.Errorf("reset not offered with a filter set:\n%s", m.View())
 	}
 	m.Update(key("x"))
 	if m.store.Filter() != nil || m.store.Len() != 3 {
@@ -275,8 +276,36 @@ func TestClearFilterAtOnce(t *testing.T) {
 
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m.Update(tea.KeyMsg{Type: tea.KeyEsc}) // keys to the log
+	m.Update(key("/"))
+	typeText(m, "warn")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m.Update(key("x"))
-	if m.store.Filter() != nil {
-		t.Errorf("x from the log left %q", m.store.Filter().Expr())
+	if m.store.Filter() != nil || m.query != "" || m.matchLine != -1 {
+		t.Errorf("x from the log left filter %q and search %q", m.store.Filter().Expr(), m.query)
+	}
+}
+
+// The footer is the dashboard's: the keys that work anywhere on the left, a
+// rule, then the view's status and the focused region's keys.
+func TestFooterSplitsGlobalFromFocused(t *testing.T) {
+	m := statsModel(t, 30, stamped(1, "info"))
+	footer := m.footer()
+	left, right, found := strings.Cut(footer, "│")
+	if !found {
+		t.Fatalf("no rule in the footer: %q", footer)
+	}
+	for _, key := range []string{"tab panels", "/ search", "a stats", "q quit"} {
+		if !strings.Contains(left, key) {
+			t.Errorf("%q not on the left: %q", key, footer)
+		}
+	}
+	for _, key := range []string{"1 lines", "esc log", "enter filter"} {
+		if !strings.Contains(right, key) {
+			t.Errorf("%q not on the right: %q", key, footer)
+		}
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if _, right, _ := strings.Cut(m.footer(), "│"); !strings.Contains(right, "esc back") {
+		t.Errorf("the log's keys are not on the right: %q", m.footer())
 	}
 }

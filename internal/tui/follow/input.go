@@ -94,10 +94,11 @@ func (m *Model) handleToolKey(key string) {
 	case "f":
 		m.openFilterInput()
 	case "x":
-		// The whole filter at once: one picked from the panel is taken out a
-		// row at a time, and a filter of five rows should not cost five.
-		if m.store.Filter() != nil {
+		// Everything that narrows or marks the view, at once: the filter,
+		// which the panel takes out only a row at a time, and the search.
+		if m.store.Filter() != nil || m.query != "" {
 			m.store.SetFilter(nil)
+			m.query = ""
 			m.matchLine = -1
 			m.follow = true
 		}

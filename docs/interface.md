@@ -672,6 +672,16 @@ the only thing left on the global side, with the menu's own keys on the other.
 The `!` prompt has nothing global at all — every key types — so it has no
 divider.
 
+**The log view's footer is built the same way**, by the same function: `tab
+panels`, `/ search`, `a stats` and `q quit` on the left; on the right the line
+count, the filter and the search in force, then the log's keys or the stats
+panel's. `x reset` appears there only while a filter or a search is set, and
+clears both at once.
+
+```
+ tab panels · / search · a stats · q quit  │  5/190 lines  f:level=error  ·  esc log · ↑↓ move · enter filter · t field · x reset
+```
+
 ## Looking at it
 
 The test suite runs without a TTY, where lipgloss drops every colour. That
