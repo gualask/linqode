@@ -299,7 +299,7 @@ func TestFooterSplitsGlobalFromFocused(t *testing.T) {
 			t.Errorf("%q not on the left: %q", key, footer)
 		}
 	}
-	for _, key := range []string{"1 lines", "esc log", "enter filter"} {
+	for _, key := range []string{"esc log", "enter filter"} {
 		if !strings.Contains(right, key) {
 			t.Errorf("%q not on the right: %q", key, footer)
 		}

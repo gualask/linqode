@@ -673,13 +673,13 @@ The `!` prompt has nothing global at all — every key types — so it has no
 divider.
 
 **The log view's footer is built the same way**, by the same function: `tab
-panels`, `/ search`, `a stats` and `q quit` on the left; on the right the line
-count, the filter and the search in force, then the log's keys or the stats
-panel's. `x reset` appears there only while a filter or a search is set, and
+panels`, `/ search`, `a stats` and `q quit` on the left; on the right the
+filter and the search in force, then the log's keys or the stats panel's. The
+line count is not repeated here: it is the stats panel's first row. `x reset` appears there only while a filter or a search is set, and
 clears both at once.
 
 ```
- tab panels · / search · a stats · q quit  │  5/190 lines  f:level=error  ·  esc log · ↑↓ move · enter filter · t field · x reset
+ tab panels · / search · a stats · q quit  │  f:level=error  ·  esc log · ↑↓ move · enter filter · t field · x reset
 ```
 
 ## Looking at it

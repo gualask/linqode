@@ -325,15 +325,17 @@ func (m *Model) endedFooter() string {
 // one way on one screen and another way on the next is one an operator
 // reads twice.
 func (m *Model) activeFooter() string {
-	status := fmt.Sprintf("%d lines", m.store.Len())
+	// What narrows the view, and nothing else: how many lines it holds is the
+	// stats panel's first row, and said twice it was one more thing on a line
+	// that has to fit the keys.
+	var parts []string
 	if m.store.Filter() != nil {
-		status = fmt.Sprintf("%d/%d lines", m.store.Len(), m.store.Total()) +
-			theme.Cyan.Render("  f:"+terminalText(m.store.Filter().Expr()))
+		parts = append(parts, theme.Cyan.Render("f:"+terminalText(m.store.Filter().Expr())))
 	}
 	if m.query != "" {
-		status += theme.Yellow.Render("  /" + terminalText(m.query))
+		parts = append(parts, theme.Yellow.Render("/"+terminalText(m.query)))
 	}
-	return panel.Footer(m.globalHints(), status, m.focusedHints(), m.width)
+	return panel.Footer(m.globalHints(), strings.Join(parts, "  "), m.focusedHints(), m.width)
 }
 
 // globalHints work wherever the keys are, the panel's cursor included. `tab`

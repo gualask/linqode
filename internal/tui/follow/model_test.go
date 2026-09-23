@@ -56,8 +56,9 @@ func TestDrainAppliesLinesAndFollowTracksTail(t *testing.T) {
 	if !strings.Contains(view, "following") {
 		t.Errorf("follow indicator missing:\n%s", view)
 	}
-	if !strings.Contains(view, "30 lines") {
-		t.Errorf("line count missing:\n%s", view)
+	// The count is the stats panel's, not the footer's.
+	if strings.Contains(view, "30 lines") {
+		t.Errorf("the footer still counts the lines:\n%s", view)
 	}
 }
 
@@ -191,7 +192,7 @@ func typeText(m *Model, text string) {
 	}
 }
 
-func TestFilterNarrowsViewAndFooterShowsCounts(t *testing.T) {
+func TestFilterNarrowsViewAndFooterShowsIt(t *testing.T) {
 	events := append(jsonlEvents(3, "error"), jsonlEvents(5, "info")...)
 	m := newTestModel(events...)
 
@@ -200,8 +201,8 @@ func TestFilterNarrowsViewAndFooterShowsCounts(t *testing.T) {
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	view := m.View()
-	if !strings.Contains(view, "3/8 lines") {
-		t.Errorf("filtered counts missing:\n%s", view)
+	if m.store.Len() != 3 {
+		t.Errorf("%d lines in view, want the 3 errors", m.store.Len())
 	}
 	if !strings.Contains(view, "f:level=error") {
 		t.Errorf("filter expression missing:\n%s", view)
@@ -213,7 +214,7 @@ func TestFilterNarrowsViewAndFooterShowsCounts(t *testing.T) {
 		m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if !strings.Contains(m.View(), "8 lines") {
+	if m.store.Len() != 8 || strings.Contains(m.View(), "f:") {
 		t.Errorf("filter not cleared:\n%s", m.View())
 	}
 }
