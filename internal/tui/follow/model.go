@@ -16,6 +16,11 @@ const (
 	// maxEventsPerTick bounds how many feed events one drain applies.
 	maxEventsPerTick = 5_000
 	drainInterval    = 100 * time.Millisecond
+	// backlogMax is the longest the opening burst of a log follow is taken
+	// to last. The burst ends at the first drain that finds nothing new; a
+	// service logging faster than a line per drain never leaves one, and
+	// past this its lines are live whatever the drains say.
+	backlogMax = 2 * time.Second
 	// statsWidth is the width of the stats side panel; topValues is how
 	// many top values it lists.
 	statsWidth = 28
@@ -70,6 +75,11 @@ type Model struct {
 	showStats  bool
 	topField   string
 
+	// backlogFrom is when the first log line arrived, which opened the
+	// backlog; zero until one has. backlogOpen is whether it still is.
+	backlogFrom time.Time
+	backlogOpen bool
+
 	// now is the clock lines are stamped with as they arrive and the
 	// timeline ends at. A field rather than a call so a test can say when
 	// now is.
@@ -123,10 +133,32 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 
 // drain applies pending feed events to the store, at most maxEventsPerTick.
 func (m *Model) drain() {
+	applied := 0
 	for range maxEventsPerTick {
 		if !m.drainNextEvent() {
-			return
+			break
 		}
+		applied++
+	}
+	m.closeBacklog(applied)
+}
+
+// closeBacklog ends the opening burst of a log follow at the first drain
+// that finds nothing new, or when the feed ends, or backlogMax after it
+// began — the lines docker replays for `--tail` arrive as fast as the
+// connection carries them, and a pause of a whole drain interval is the
+// first sign the replay is over.
+//
+// A drain that merely empties the channel is not that sign: a large tail
+// over a slow link arrives in pieces, and the gap between two of them is
+// shorter than a drain but still inside the replay.
+func (m *Model) closeBacklog(applied int) {
+	if !m.backlogOpen {
+		return
+	}
+	if applied == 0 || m.feedDone || m.now().Sub(m.backlogFrom) >= backlogMax {
+		m.store.CloseBacklog()
+		m.backlogOpen = false
 	}
 }
 
@@ -147,7 +179,16 @@ func (m *Model) drainNextEvent() bool {
 
 func (m *Model) applyFeedEvent(event operations.Event) {
 	switch event.Kind {
-	case operations.EventLog, operations.EventStdout:
+	case operations.EventLog:
+		// Only a log follow opens with a backlog. A script's or a command's
+		// output is live from its first line, and placing it by arrival is
+		// exactly right.
+		if m.backlogFrom.IsZero() {
+			m.backlogFrom, m.backlogOpen = m.now(), true
+			m.store.OpenBacklog()
+		}
+		m.adjustForDroppedLines(m.store.PushAt(event.Text, m.now()))
+	case operations.EventStdout:
 		m.adjustForDroppedLines(m.store.PushAt(event.Text, m.now()))
 	case operations.EventStderr:
 		m.stderrNotice = event.Text

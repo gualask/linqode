@@ -122,3 +122,81 @@ func TestRecentOnAnEmptyStore(t *testing.T) {
 		t.Errorf("an empty store gave %+v", stats)
 	}
 }
+
+// The backlog a follow opens with arrived in one burst, and placed by
+// arrival it would all be "in the last minute". It is left out of the recent
+// counts instead — still in the totals — and what arrives after it is
+// counted as it comes, filtered or not.
+func TestBacklogIsNotRecentByArrival(t *testing.T) {
+	s := NewStore(100)
+	s.OpenBacklog()
+	for range 50 {
+		s.PushAt(`{"level":"error"}`, noon.Add(-time.Second))
+	}
+	s.CloseBacklog()
+	s.PushAt(`{"level":"error"}`, noon)
+	s.PushAt(`{"level":"info"}`, noon)
+
+	check := func(what string) {
+		t.Helper()
+		stats := s.ComputeStats("", noon)
+		if stats.Clock != ByArrival || stats.Recent != time.Minute {
+			t.Errorf("%s: clock %v window %v, want arrival over 1m", what, stats.Clock, stats.Recent)
+		}
+		if got := stats.Levels[0]; got.Key != "error" || got.N != 51 || got.Recent != 1 {
+			t.Errorf("%s: errors = %+v, want 51 with the live one recent", what, got)
+		}
+	}
+	check("unfiltered")
+	filter, err := ParseFilter("level=error")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetFilter(filter)
+	check("filtered")
+}
+
+// A backlog still arriving is backlog to its last line: nothing pushed
+// before CloseBacklog is recent.
+func TestOpenBacklogHoldsEverythingPushed(t *testing.T) {
+	s := NewStore(100)
+	s.OpenBacklog()
+	s.PushAt(`{"level":"error"}`, noon)
+	if got := s.ComputeStats("", noon).Levels[0]; got.Recent != 0 {
+		t.Errorf("a line of an open backlog counted as recent: %+v", got)
+	}
+}
+
+// The window does not jump every frame. It is kept until it holds under
+// half the share that chose it, where a window chosen afresh would already
+// have moved on.
+func TestRecentWindowHoldsUntilItEmpties(t *testing.T) {
+	fill := func() *Store {
+		s := NewStore(100)
+		for range 18 {
+			s.PushAt(`{"level":"info"}`, noon.Add(-3*time.Minute))
+		}
+		s.PushAt(`{"level":"info"}`, noon.Add(-40*time.Second))
+		s.PushAt(`{"level":"info"}`, noon)
+		return s
+	}
+	s := fill()
+	if window := s.ComputeStats("", noon).Recent; window != time.Minute {
+		t.Fatalf("two of twenty inside the minute gave %v, want 1m", window)
+	}
+
+	// Thirty seconds on, one line is inside the minute: under the tenth that
+	// chose it, not under half of that.
+	later := noon.Add(30 * time.Second)
+	if window := fill().ComputeStats("", later).Recent; window != 5*time.Minute {
+		t.Fatalf("a fresh store gave %v, want 5m", window)
+	}
+	if window := s.ComputeStats("", later).Recent; window != time.Minute {
+		t.Errorf("the window moved to %v with a line still inside it, want 1m kept", window)
+	}
+
+	// Two minutes on the minute is empty, and the window lengthens.
+	if window := s.ComputeStats("", noon.Add(2*time.Minute)).Recent; window != 5*time.Minute {
+		t.Errorf("an empty minute was kept as the window: %v, want 5m", window)
+	}
+}

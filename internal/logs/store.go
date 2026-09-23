@@ -1,6 +1,9 @@
 package logs
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // Store is the log engine's state for one followed stream: a bounded tail
 // of parsed lines, an optional field filter narrowing the visible view,
@@ -22,6 +25,15 @@ type Store struct {
 	// parsed counts buffered lines carrying a JSONL record, for the
 	// structured-stream detection heuristic.
 	parsed int
+	// backlogEnd is the sequence number of the first line that was not part
+	// of the backlog a follow opened with: every line below it arrived in
+	// that burst. Zero while there is no backlog, the maximum while one is
+	// still arriving.
+	backlogEnd uint64
+	// window is the window the recent counts last covered, and windowClock
+	// the clock that placed the lines in it; see recency.
+	window      time.Duration
+	windowClock Clock
 }
 
 // detectMinParsed is the minimum parsed lines before auto-detection may
@@ -73,10 +85,38 @@ func (s *Store) PushAt(raw string, arrived time.Time) int {
 	return 0
 }
 
+// OpenBacklog says the lines pushed from now on are the backlog a follow
+// starts with — written over hours, arriving in one burst — until
+// CloseBacklog says the burst is over. Their arrival time says nothing about
+// when they were written, and the recent counts leave them out when that is
+// the only time there is.
+func (s *Store) OpenBacklog() {
+	s.backlogEnd = math.MaxUint64
+}
+
+// CloseBacklog ends the backlog at the last line pushed.
+func (s *Store) CloseBacklog() {
+	if s.backlogEnd == math.MaxUint64 {
+		s.backlogEnd = s.baseSeq + uint64(s.buffer.Len())
+	}
+}
+
+// inBacklog says whether the visible line at index arrived in the backlog.
+func (s *Store) inBacklog(index int) bool {
+	seq := s.baseSeq + uint64(index)
+	if s.filter != nil {
+		seq = s.visible[index]
+	}
+	return seq < s.backlogEnd
+}
+
 // SetFilter sets or clears the field filter, rebuilding the visible view.
 func (s *Store) SetFilter(filter *Filter) {
 	s.filter = filter
 	s.visible = nil
+	// A filter changes which lines the window is chosen over, so the window
+	// the old view settled on says nothing about the new one.
+	s.window = 0
 	if filter == nil {
 		return
 	}

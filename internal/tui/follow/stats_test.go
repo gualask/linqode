@@ -128,3 +128,47 @@ func TestStatsPanelFitsTheTerminal(t *testing.T) {
 		}
 	}
 }
+
+// A log follow opens with the backlog docker replays, which all arrives at
+// once: placed by arrival it would count as the last minute's. The burst
+// ends at the first drain that finds nothing, and only what comes after is
+// recent.
+func TestStatsPanelLeavesTheBacklogOutOfRecent(t *testing.T) {
+	noon := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	feed, ch := feedOf(lineEvents(`{"level":"error"}`, `{"level":"error"}`, `{"level":"error"}`)...)
+	m := New("deploy@prod", "logs: web", feed)
+	m.now = func() time.Time { return noon }
+	m.SetSize(120, 30)
+	m.drain()
+	m.drain() // nothing new: the replay is over
+
+	ch <- operations.Event{Kind: operations.EventLog, Text: `{"level":"error"}`}
+	m.drain()
+	m.Update(key("a"))
+	if row := "error              1     4"; !strings.Contains(m.View(), row) {
+		t.Errorf("row %q missing: the backlog was counted as recent\n%s", row, m.View())
+	}
+}
+
+// A feed that never paused is live after backlogMax whatever the drains say,
+// and a command's output has no backlog at all.
+func TestBacklogEndsWithoutAPause(t *testing.T) {
+	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	feed, ch := feedOf(lineEvents(`{"level":"error"}`)...)
+	m := New("deploy@prod", "logs: web", feed)
+	m.now = func() time.Time { return now }
+	m.drain()
+	now = now.Add(backlogMax)
+	ch <- operations.Event{Kind: operations.EventLog, Text: `{"level":"error"}`}
+	m.drain()
+	if m.backlogOpen {
+		t.Error("the backlog is still open after backlogMax")
+	}
+
+	output, _ := feedOf(operations.Event{Kind: operations.EventStdout, Text: "done"})
+	command := New("deploy@prod", "run: migrate", output)
+	command.drain()
+	if !command.backlogFrom.IsZero() {
+		t.Error("a command's output opened a backlog")
+	}
+}

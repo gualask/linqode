@@ -154,7 +154,11 @@ nothing — every line it is read from has already arrived.
 would be a column of noughts on a service that logs twice an hour and the
 whole tail on one that logs twice a second. It is named in the panel
 (`last 5m · by log time`), because a number nobody can name the window of is
-not a reading. A tenth rather than a half: the column is there to say what is
+not a reading. **Once chosen it holds** until it keeps less than half that
+tenth: chosen afresh on every frame, a service logging in bursts would flip
+between two windows and every number in the column would change meaning with
+it. A shorter window is still taken as soon as it qualifies. A filter starts
+the choice over, since it changes the lines the window is chosen over. A tenth rather than a half: the column is there to say what is
 happening *now*, and a window holding most of the tail says what the total
 beside it already said.
 
@@ -202,9 +206,16 @@ second ago would say the second came long after the first:
   guessed at: a wrong guess does not misplace a record by a little, it moves
   every one of them by hours.
 - **By arrival** otherwise, which is honest and imperfect: the backlog a
-  follow starts with was written over hours and arrives in one burst, so all
-  of it counts as recent until the window shrinks back around the traffic
-  that follows. `docker compose logs --timestamps` would give every line the daemon's
+  follow starts with was written over hours and arrives in one burst, and
+  placed by arrival all of it would be "the last minute" — an incident in
+  progress on a service that has been quiet all day. So the backlog is **not
+  placed at all**: it counts in the totals and never as recent, and the
+  window is chosen over what arrived after it. Docker marks no boundary
+  between the replay and the live lines, so the burst is taken to end at the
+  first drain (100 ms) that finds nothing new, or two seconds after it began
+  on a service that never pauses that long. Only a log follow has a backlog;
+  a script's or a command's output is live from its first line. `docker
+  compose logs --timestamps` would give every line the daemon's
   own time, plain text included, and was not taken: it adds some thirty
   bytes to every line on the wire, and the engine is Docker-agnostic by
   design, so the arrival clock is needed for scripts and `tail -F` anyway.

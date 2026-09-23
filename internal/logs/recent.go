@@ -24,7 +24,10 @@ type Clock int
 const (
 	// ByArrival places lines by when they reached this client. Every line
 	// has that time, and it is wrong for the backlog a follow starts with:
-	// those lines were written over hours and arrived in one burst.
+	// those lines were written over hours and arrived in one burst, so they
+	// are not placed at all (see Store.OpenBacklog). Counted as arriving
+	// when they did, a follow would open on its whole tail under "last 1m"
+	// — an incident in progress, on a service that has been quiet all day.
 	ByArrival Clock = iota
 	// ByLogTime places lines by the timestamp their records carry.
 	ByLogTime
@@ -41,7 +44,8 @@ var recentWindows = []time.Duration{
 }
 
 // recentShare is the fraction of what is in view a window has to hold to be
-// the one counted over: the shortest window holding a tenth of the lines.
+// the one counted over: the shortest window holding a tenth of the lines
+// that could be placed at all.
 // It is a tenth rather than a half because the column is there to say what
 // is happening *now* — a window holding most of the tail says what the total
 // beside it already said.
@@ -57,6 +61,13 @@ const recentShare = 10
 // when at least half the lines carry a readable timestamp, and a line
 // without one — the traceback under an error record — is placed at the time
 // of the record before it, which is when it was written.
+//
+// It remembers the window it chose, because it is asked on every frame and
+// a window chosen afresh each time jumps: a service logging in bursts holds
+// a tenth of its lines in the last minute, then just under, then just over,
+// and every number in the column changes meaning with it. So a window is
+// kept until it holds less than half the share that chose it; a shorter one
+// is still taken as soon as it qualifies, and then kept the same way.
 func (s *Store) recency(now time.Time) (Clock, time.Duration, []time.Time) {
 	arrived := make([]time.Time, s.Len())
 	logged := make([]time.Time, s.Len())
@@ -68,24 +79,33 @@ func (s *Store) recency(now time.Time) (Clock, time.Duration, []time.Time) {
 			carried = line.Logged
 			stamped++
 		}
-		arrived[index], logged[index] = line.Arrived, carried
+		if !s.inBacklog(index) {
+			arrived[index] = line.Arrived
+		}
+		logged[index] = carried
 	}
 
 	clock, at := ByArrival, arrived
 	if stamped > 0 && stamped*2 >= len(arrived) {
 		clock, at = ByLogTime, logged
 	}
+	placed := countSince(at, time.Time{})
 
 	// A line stamped after now, which is what a server clock a little ahead
 	// of this one produces, is recent under every window rather than under
 	// none.
 	window := recentWindows[len(recentWindows)-1]
 	for _, candidate := range recentWindows {
-		if countSince(at, now.Add(-candidate))*recentShare >= len(at) {
+		if countSince(at, now.Add(-candidate))*recentShare >= placed {
 			window = candidate
 			break
 		}
 	}
+	if previous := s.window; previous != 0 && s.windowClock == clock && window > previous &&
+		countSince(at, now.Add(-previous))*recentShare*2 >= placed {
+		window = previous
+	}
+	s.window, s.windowClock = window, clock
 	return clock, window, at
 }
 
