@@ -250,7 +250,11 @@ of the rows under it.
 The layout follows htop's meters — the bar carries the percentage, the text
 inside it carries the absolute amounts, so the percentage is never printed
 twice. What the bar has not filled is the same track a chart's columns stand
-in; the `░` in the sketches above is a plain-text stand-in for it.
+in; the `░` in the sketches above is a plain-text stand-in for it — and
+what is actually drawn on a terminal that takes no colour (`NO_COLOR`,
+`CLICOLOR=0`, `TERM=dumb`). The track is a background, a background is a
+colour, and without one it would be bare spaces: a gauge with no end. Sixteen
+colours are enough for the fill.
 
 **No brackets around the gauges.** htop writes its meters between them and
 needs to: its track is empty space, and without the `]` nothing says how far

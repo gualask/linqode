@@ -15,7 +15,12 @@
 // to its nearest ANSI slot, which is where this started.
 package theme
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+)
 
 // The palette. Dark-background values are vivid; light-background ones are
 // darkened to hold contrast against white, which is why they are not just
@@ -115,8 +120,29 @@ var (
 	// the hard way — a track of speckle in the reading's own colour shouted
 	// as loudly as the fill — and a chart's track is four rows of it, where
 	// the speckle would be the loudest thing on the screen.
-	Track = lipgloss.NewStyle().Background(surface)
+	//
+	// Except where there is no fill to draw. A background is a colour, and a
+	// terminal that takes no colour — NO_COLOR set, CLICOLOR=0, TERM=dumb —
+	// gets the track as bare spaces, which leaves a gauge with no end: `cpu
+	// ███ 14%` no longer says how far the bar could have gone. There the
+	// track falls back to `░`, which is what the fill replaced, and the
+	// argument against it does not hold: with no colour on the screen the
+	// speckle has nothing to shout over. Sixteen colours are enough for the
+	// fill; lipgloss degrades it to bright black on a dark terminal and
+	// white on a light one.
+	Track = lipgloss.NewStyle().Background(surface).Transform(trackCells)
 )
+
+// trackCells writes the empty cells of a track as `░` when the terminal
+// takes no colour, and leaves them blank for the fill everywhere else. It is
+// asked on every render rather than once, so a test that switches the
+// colour profile sees the track the profile would draw.
+func trackCells(cells string) string {
+	if lipgloss.ColorProfile() != termenv.Ascii {
+		return cells
+	}
+	return strings.ReplaceAll(cells, " ", "░")
+}
 
 // Usage colors a percentage of something finite — memory, a filesystem, a
 // container's share of a CPU. The thresholds are what make a screen full of
