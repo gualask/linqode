@@ -132,9 +132,7 @@ object becomes a record whose nested fields are flattened to dotted paths
   operate on the filtered view, whose indices stay consistent across buffer
   drops by sequence-number accounting.
 - **Stats** (`a`): counts by level and top values of a chosen field (`t`), in
-  a side panel, each counted twice — recently and in all (see
-  [Recent counts](#recent-counts)) — with the levels drawn as one bar
-  besides.
+  a side panel, recently and in all (see [Recent counts](#recent-counts)).
   They are recomputed on demand over the bounded tail (see
   [porting.md](porting.md), deliberate divergences). The panel is cut to the
   log's height from the bottom, where the least frequent values are, so a
@@ -142,86 +140,53 @@ object becomes a record whose nested fields are flattened to dotted paths
 
 ### Recent counts
 
-The counts say how many errors the view holds; on their own they cannot say
-whether those errors are still happening, which is the difference between an
-incident and a scar. So every count is drawn twice: **how many in a window
-ending now, and how many in all**. "Thirty errors" and "thirty errors in the
-last minute" are different problems, and the difference costs the server
-nothing — every line it is read from has already arrived.
+A count alone cannot say whether the errors are still happening — the
+difference between an incident and a scar. So every row carries two numbers:
+**how many in a window ending now, and how many in all**.
 
-**The window follows the pace of what is in view**: the shortest of 1m, 5m,
-15m, 1h, 6h and 24h that holds at least a tenth of the lines. A fixed window
-would be a column of noughts on a service that logs twice an hour and the
-whole tail on one that logs twice a second. It is named in the panel
-(`last 5m · by log time`), because a number nobody can name the window of is
-not a reading. **Once chosen it holds** until it keeps less than half that
-tenth: chosen afresh on every frame, a service logging in bursts would flip
-between two windows and every number in the column would change meaning with
-it. A shorter window is still taken as soon as it qualifies. A filter starts
-the choice over, since it changes the lines the window is chosen over. A tenth rather than a half: the column is there to say what is
-happening *now*, and a window holding most of the tail says what the total
-beside it already said.
+**The window follows the pace of the view**: the shortest of 1m, 5m, 15m, 1h,
+6h and 24h holding at least a tenth of the lines that can be placed in time.
+A fixed window would be all noughts on a quiet service and the whole tail on
+a busy one; a tenth rather than a half, because a window holding most of the
+tail repeats the total. The panel names it (`last 5m · by log time`). Once
+chosen it **holds** until it keeps under half that tenth, so a bursty service
+does not flip windows every frame; a shorter window is taken as soon as it
+qualifies, and a filter starts the choice over.
 
-**The levels are drawn as one bar** the width of the panel, a segment per
-level in proportion, worst first — so the red starts at the left edge, where
-it is always in the same place. This is the question a count cannot answer on
-its own: five errors is a sliver of a busy service and the whole of a quiet
-one, and `5` is the same number in both, while a bar that has gone red says
-which one you are looking at before you have read anything. A share above
-zero is never drawn as nothing, for the reason every other bar in this
-interface does not drop one: the segment that matters is usually the small
-one. The cell it takes is borrowed from the widest segment, so the bar is
-exactly the panel's width whatever it holds.
+**The levels are also drawn as one bar**, a segment per level, worst first,
+so red always starts at the left edge. It answers what a count cannot: five
+errors is a sliver of a busy service and the whole of a quiet one. A share
+above zero always gets at least one cell, borrowed from the widest segment.
+The rows under the bar follow its order; field values stay ordered by count.
 
-The rows under it are in the bar's order rather than by how many, so the two
-are read in the same direction: what the bar puts at the left edge is what
-the list puts at the top. The field values keep the order they have, which is
-by how many.
+**The counts are of the lines in view**: a filter narrows them, and the panel
+says what it counts out of (`5 of 190 lines`). The window is chosen over the
+filtered lines too, so windows with and without a filter are not comparable.
 
-**The counts are of the lines in view**, so a filter narrows them and the
-panel says what it is counting out of (`5 of 190 lines`). "How many of these
-are errors" is the question a filter leaves you holding, and it used to be
-unanswerable here: the counts were of the whole tail whatever the filter
-said, so a log filtered down to one route still reported every level in the
-buffer.
+This replaced a histogram of when the lines were written (removed September
+2026): height for how many, colour for the worst level — two readings in one
+shape, neither of them a number.
 
-This replaced a histogram of when the lines in view were written (removed
-September 2026), which drew height for how many lines and colour for the
-worst level among them. It was a true picture and the wrong question: reading
-it took knowing that the height counted every level while the colour spoke
-for one of them, and neither was a number. What it needed is what the counts
-need anyway — the lines placed in time, under one clock — and that is what
-stayed.
+**One clock places the whole view**, never a mix, and the panel names it:
 
-**Which clock placed the lines is named in the panel**, and a view is placed
-by one clock, never a mix — a record written an hour ago beside a line that arrived a
-second ago would say the second came long after the first:
+- **By log time** when at least half the lines carry a readable timestamp. A
+  line without one — the traceback under an error — takes the time of the
+  record before it. A timestamp is read only when it carries a zone, or is
+  an epoch number (s, ms, µs or ns) landing between 2000 and 2200; one
+  without a zone is left unread, since a wrong guess moves every record by
+  hours.
+- **By arrival** otherwise. The backlog a follow opens with was written over
+  hours and arrives in one burst, so it is **not placed**: it counts in the
+  totals, never as recent. Docker marks no boundary between replay and live
+  lines, so the burst ends at the first drain (100 ms) that finds nothing
+  new, or after two seconds. Only log follows have a backlog; script and
+  command output is live from its first line. `docker compose logs
+  --timestamps` would stamp every line, and was not taken: thirty bytes more
+  per line, and the engine stays Docker-agnostic, so scripts and `tail -F`
+  need the arrival clock anyway.
 
-- **By log time** when at least half the lines carry a timestamp that can be
-  read. A line without one — the traceback under an error record — is placed
-  at the time of the record before it, which is when it was written. A
-  timestamp is read only when it carries a zone, or is a number of seconds,
-  milliseconds, microseconds or nanoseconds since the epoch landing between
-  2000 and 2200. A timestamp without a zone is left unread rather than
-  guessed at: a wrong guess does not misplace a record by a little, it moves
-  every one of them by hours.
-- **By arrival** otherwise, which is honest and imperfect: the backlog a
-  follow starts with was written over hours and arrives in one burst, and
-  placed by arrival all of it would be "the last minute" — an incident in
-  progress on a service that has been quiet all day. So the backlog is **not
-  placed at all**: it counts in the totals and never as recent, and the
-  window is chosen over what arrived after it. Docker marks no boundary
-  between the replay and the live lines, so the burst is taken to end at the
-  first drain (100 ms) that finds nothing new, or two seconds after it began
-  on a service that never pauses that long. Only a log follow has a backlog;
-  a script's or a command's output is live from its first line. `docker
-  compose logs --timestamps` would give every line the daemon's
-  own time, plain text included, and was not taken: it adds some thirty
-  bytes to every line on the wire, and the engine is Docker-agnostic by
-  design, so the arrival clock is needed for scripts and `tail -F` anyway.
-
-A line stamped after now, which is what a server clock a little ahead of this
-one produces, is recent under every window rather than under none.
+A line stamped in the future — a server clock slightly ahead — is recent
+under every window.
 
 ## The machine interface
 

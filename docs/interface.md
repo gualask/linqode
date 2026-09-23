@@ -247,26 +247,16 @@ place: CPU and memory appear twice on this screen, once for the machine and
 once per container below, and without the word the row reads as an aggregate
 of the rows under it.
 
-The layout follows htop's meters — the bar carries the percentage, the text
-inside it carries the absolute amounts, so the percentage is never printed
-twice. What the bar has not filled is the same track a chart's columns stand
-in; the `░` in the sketches above is a plain-text stand-in for it — and
-what is actually drawn on a terminal that takes no colour (`NO_COLOR`,
-`CLICOLOR=0`, `TERM=dumb`). The track is a background, a background is a
-colour, and without one it would be bare spaces: a gauge with no end. Sixteen
-colours are enough for the fill.
+The layout follows htop's meters: the bar carries the percentage and the
+amounts sit beside it, so the percentage is never printed twice. Bars share
+whatever the labels leave, stretch with the terminal, and are capped at
+thirty cells, past which a gauge adds resolution nobody reads.
 
-**No brackets around the gauges.** htop writes its meters between them and
-needs to: its track is empty space, and without the `]` nothing says how far
-the bar could have gone. A bar standing in a fill ends where the fill ends,
-so the brackets were two cells per meter spent saying it twice — and on the
-band, where four meters share a row, the fill groups a label with its own
-amount as well as the bracket did. They came off everything that draws a
-gauge in September 2026: the band, the readings, the docker disk rows. Bars share whatever the labels leave, stretch with the terminal, and
-are capped at thirty cells because past that a gauge adds resolution nobody
-reads. The label is the word `host`: CPU and memory appear twice on this
-screen, once here and once per container below, and without the word the band
-reads as an aggregate of the rows under it.
+**No brackets around the gauges** (removed September 2026). htop needs them
+because its track is empty space; here the unfilled part is the
+[track](#one-track), which ends where the gauge ends, and a label and its
+amount are grouped by spacing instead — one space inside a meter, three
+between meters.
 
 Which readings it carries follows from what they cost the row:
 
@@ -340,20 +330,13 @@ either way and says `—` until it has a number, except the CPU meter, which
 has something better to stand in with: the load average, under its own label,
 until the share exists.
 
-- **The per-core strip** draws the cores as heights, not as a labelled bar
-  each: a labelled bar each stops fitting somewhere around sixteen cores, and
-  the shape of the row is what it is read for. One pinned core among eight
-  idle ones is a machine with a problem and an average that says twelve
-  percent, so the busiest is named beside it. It stands in the same track as
-  the gauges and is as wide as they are — with room to spare a core takes
-  several cells, with a cell of track between one core and the next so two
-  neighbours under the same load stay two cores rather than one wide bar;
-  where a gap each does not fit there are none, and on a machine with more
-  cores than cells each cell
-  carries the busiest of the ones it covers, since a strip that showed every
-  other core would be the one way to lose the reading. It was one cell per
-  core on the bare background until September 2026, which left it the single
-  shape in that column with no track under it.
+- **The per-core strip** draws the cores as heights rather than a labelled
+  bar each, which stops fitting around sixteen cores. One pinned core among
+  eight idle ones averages twelve percent, so the busiest is named beside
+  it. The strip is as wide as the gauges: with room, each core takes several
+  cells and one cell of track separates it from the next, so two equally
+  busy neighbours stay two cores; with more cores than cells, each cell
+  carries the busiest of the cores it covers, so a pinned one is never lost.
 - **The gauges shrink so the widest row fits** its column. The pressure row
   is the longest and the one with no gauge to give up, so the bars reserve
   what its text needs — which costs a wide column nothing, since the cap is
@@ -382,48 +365,21 @@ fetched — the one thing on the screen that costs the server nothing, and the
 difference between "memory is at 88%" and "memory has been climbing for ten
 minutes".
 
-They used to be **a column of strips one row high** beside the readings. One
-row is eight heights to draw a history with; the column vanished altogether
-wherever the widest reading left fewer than twenty-four cells, which on a
-host with a GPU row was most terminals; and the screen under the process list
-stayed empty. The charts took that room instead — and then took rather more
-of it than they were worth, on the argument that height buys resolution: a
-share drawn from nought to a hundred over ten rows is eighty heights, and
-memory going from 78% to 88% is eight of them. What that bought in practice
-was a wall, twelve rows in which a busy machine is a solid block of colour and
-an idle one is empty air, over a process list squeezed to make room for it.
+**A chart is five rows**: a title and four rows of history, or four rows in
+all on a short terminal. It is read for *when* something happened; how much right
+now is the meter's job. The charts replaced a column of one-row strips, then
+grew to fourteen rows on the argument that height buys resolution; in
+practice that was a wall of solid colour over a squeezed process list, so the
+height is fixed and the rest goes to the processes.
 
-**A chart is five rows**: a title and four rows of history, four rows where
-the terminal is short. The chart is read for *when* something happened; how
-much it is right now is what the meter above it is for.
+**The history is solid columns**, a sample each and touching, over the track
+— the meter's shape stood on end. At four rows, eighths make a ragged edge,
+and columns with air between them read as a grid.
 
-**The history is drawn as solid columns**, a sample each and touching, over
-the track — which is the meter's shape stood on end. Four rows of the finer
-drawing is a ragged edge of eighths, and columns with air between them read
-as a grid rather than as a history; they had that air for an afternoon and
-it is gone.
-
-**The columns are there before the readings are.** A trend needs two
-samples, and the charts used to appear one sample after the view opened,
-pushing the process list down the screen as they arrived. Every column is
-drawn from the first frame instead — a quiet fill a shade off the terminal's
-background — and the readings fill them from the right, so a chart has its
-shape before it has its history. A reading that needs a difference, which is
-the CPU share and both throughputs, says `—` until it has one.
-
-**A gauge and a chart stand in the same track.** There is one empty in this
-interface and it is a quiet fill a shade off the terminal's background: the
-half of a meter that is not used, the rows of a chart that are not filled
-yet, the part of a log level's bar that the other levels hold. Every shape
-`spark` draws stands in it — the band's meters, the readings, the per-core
-row, the charts, the docker disk rows and the bar the log panel divides
-between levels — and they are the same colour and read as the same thing. The one exception is the live panel's strips, which
-are drawn on the bare background. The meter's track was a field
-of `░` until September 2026, which put two kinds of empty one above the other
-the moment the charts landed under the readings — a speckled one in the
-gauges, a filled one in the charts. The speckle lost: it had already been
-found to shout as loudly as the fill when it took the reading's own colour,
-and a chart's track is four rows of it.
+**The columns are there before the readings are.** Every column is drawn from
+the first frame and fills from the right, so nothing moves when the second
+sample arrives; a reading that needs a difference (CPU share, throughput)
+says `—` until then.
 
 **A share is drawn from nought to a hundred**, so the height is the level, as
 it is on the meter above. A rate has no natural full and is drawn against the
@@ -436,8 +392,7 @@ one colour, because the top of a rate chart is only the top of what happened.
 **The title says how far back the chart reaches**, at its right end. That was
 an axis row under the history until the charts got short enough for the axis
 to be a fifth of one, and every chart on the screen covers the same minutes
-anyway. The newest column is against the right edge, so a chart that has not
-filled yet fills from the right. The history holds an hour, so a wide
+anyway. The newest column is at the right edge. The history holds an hour, so a wide
 terminal reaches further back than a narrow one.
 
 Four charts share a row where each gets 36 cells, wrap into two rows of two
@@ -446,6 +401,21 @@ which reads as a fourth that did not fit.
 
 Nothing is retained across sessions. History while nobody is connected is what
 an agent would buy, and that is a non-goal.
+
+### One track
+
+Everything `spark` draws stands in **one track**, a fill a shade off the
+terminal's background: the unused half of a meter, the unfilled rows of a
+chart, the per-core strip, the docker disk rows, the log panel's level bar.
+One kind of empty reads as one thing. The live panel's strips are the only
+shapes on the bare background.
+
+It replaced a field of `░` (September 2026), which shouted as loudly as the
+fill and would have been four rows of speckle under every chart. `░` survives
+in two places: the sketches in this document, and terminals that take **no
+colour at all** (`NO_COLOR`, `CLICOLOR=0`, `TERM=dumb`), where a background
+cannot be drawn and a track of bare spaces would leave every gauge without an
+end. Sixteen colours are enough for the fill.
 
 ### The processes
 
@@ -466,10 +436,7 @@ fetched every process there is.
 The readings are drawn first, and what they leave is divided between the
 charts and the processes in one place. The charts ask for a fixed few rows —
 five, or four where that is all that fits — and everything past them belongs
-to the processes. There is nothing left to negotiate: the charts used to take
-45% of the room and then grow into whatever rows the process list could not
-fill, which is how a screen of four charts twelve rows tall over nine
-processes happened.
+to the processes.
 
 When only one fits, **it is the processes**. The numbers before the shapes:
 the next sample reconstructs a chart, and nothing reconstructs which process
