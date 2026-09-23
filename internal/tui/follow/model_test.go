@@ -274,13 +274,10 @@ func TestStatsPanelShowsLevelsAndTopField(t *testing.T) {
 	if !strings.Contains(view, "3 lines") {
 		t.Errorf("totals missing:\n%s", view)
 	}
-
-	m.Update(key("t"))
-	typeText(m, "level")
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	view = m.View()
-	if !strings.Contains(view, "top level") {
-		t.Errorf("top field header missing:\n%s", view)
+	// Level and message are the well-known fields, and nothing else is left
+	// to count by.
+	if !strings.Contains(view, "(no fields to count by)") {
+		t.Errorf("a field was offered where there is none:\n%s", view)
 	}
 }
 

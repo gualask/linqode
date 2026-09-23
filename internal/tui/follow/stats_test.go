@@ -111,9 +111,6 @@ func TestStatsPanelFitsTheTerminal(t *testing.T) {
 	}
 	for _, height := range []int{12, 20, 40} {
 		m := statsModel(t, height, lines...)
-		m.Update(key("t"))
-		typeText(m, "path")
-		m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		view := m.View()
 		if got := strings.Count(view, "\n") + 1; got > height {
 			t.Errorf("at height %d the view is %d lines:\n%s", height, got, view)
@@ -170,5 +167,90 @@ func TestBacklogEndsWithoutAPause(t *testing.T) {
 	command.drain()
 	if !command.backlogFrom.IsZero() {
 		t.Error("a command's output opened a backlog")
+	}
+}
+
+// The panel picks the field worth counting by itself, and `t` steps to the
+// next one, wrapping round.
+func TestStatsPanelPicksAndStepsTheField(t *testing.T) {
+	var lines []string
+	for i := range 12 {
+		lines = append(lines, fmt.Sprintf(`{"level":"info","route":"/r%d","status":%d,"id":"%d"}`,
+			i%3, 200+i%2, i))
+	}
+	m := statsModel(t, 30, lines...)
+	for _, want := range []string{"top route", "top status", "top id", "top route"} {
+		if view := m.View(); !strings.Contains(view, want) {
+			t.Fatalf("%q missing:\n%s", want, view)
+		}
+		m.Update(key("t"))
+	}
+}
+
+// Picking from the panel: the arrows move the cursor over levels and values
+// alike, enter adds the row to the filter, and enter again takes it out.
+// Two levels picked are either of them.
+func TestStatsPanelPicksTheFilter(t *testing.T) {
+	m := statsModel(t, 30,
+		stamped(3, "error"), stamped(2, "warn"), stamped(2, "info"), stamped(1, "info"))
+	if !m.statsFocus {
+		t.Fatal("opening the panel did not hand it the keys")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // error, the top row
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // warn
+	if got := m.store.Filter().Expr(); got != "level=error level=warn" {
+		t.Fatalf("filter = %q, want the two levels picked", got)
+	}
+	if m.store.Len() != 2 {
+		t.Errorf("%d lines in view, want the error and the warning", m.store.Len())
+	}
+	view := m.View()
+	if !strings.Contains(view, "•error") || !strings.Contains(view, "2 of 4 lines") {
+		t.Errorf("the picked rows are not marked:\n%s", view)
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // warn again
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // error again
+	if m.store.Filter() != nil {
+		t.Errorf("picking both again left %q", m.store.Filter().Expr())
+	}
+}
+
+// The cursor stays on the row it names while the counts reorder under it.
+func TestStatsCursorFollowsItsRow(t *testing.T) {
+	m := statsModel(t, 30, stamped(3, "info"), stamped(2, "debug"), stamped(2, "debug"))
+	m.Update(tea.KeyMsg{Type: tea.KeyDown}) // info, below debug
+	if m.picked.value != "info" {
+		t.Fatalf("cursor on %q, want info", m.picked.value)
+	}
+	for range 3 {
+		m.store.PushAt(stamped(1, "info"), m.now())
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := m.store.Filter().Expr(); got != "level=info" {
+		t.Errorf("filter = %q, want the row the cursor was left on", got)
+	}
+}
+
+// tab and esc hand the keys between the panel and the log; esc from the log
+// still goes back.
+func TestStatsFocusMovesWithTabAndEsc(t *testing.T) {
+	m := statsModel(t, 30, stamped(1, "info"))
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.statsFocus || !m.showStats {
+		t.Fatal("esc from the panel did not hand the keys to the log")
+	}
+	if !strings.Contains(m.View(), "tab stats") {
+		t.Errorf("the footer does not say how to reach the panel:\n%s", m.View())
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if !m.statsFocus {
+		t.Fatal("tab did not hand the keys to the panel")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc}); cmd == nil {
+		t.Error("esc from the log did not go back")
 	}
 }

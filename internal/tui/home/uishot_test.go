@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -299,8 +300,13 @@ func shotFollowWith(width, height int, events chan operations.Event, field, filt
 		}
 		m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	}
-	if field != "" {
-		typed("t", field)
+	// The panel picks its field itself; `t` steps until it is the one asked
+	// for, or has gone round them all.
+	for range 16 {
+		if field == "" || strings.Contains(m.View(), "top "+field) {
+			break
+		}
+		m.Update(key("t"))
 	}
 	if filter != "" {
 		typed("f", filter)

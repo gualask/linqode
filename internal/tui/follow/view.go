@@ -83,8 +83,10 @@ func (m *Model) logBody(width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// statsView is the side panel: how many lines, when they were written, and
-// how they divide between levels and between the values of a chosen field.
+// statsView is the side panel: how many lines, and how they divide between
+// levels and between the values of a field. Its rows are what the filter is
+// picked from: a dot marks the ones the filter holds, and with the panel
+// focused the cursor is drawn on the row enter would pick.
 //
 // It never draws more rows than the log beside it has. It used to draw as
 // many as it had counts, and on a short terminal that pushed the footer off
@@ -92,7 +94,7 @@ func (m *Model) logBody(width int) string {
 // frequent values are.
 func (m *Model) statsView() string {
 	width := statsWidth - 1 // the panel's left padding
-	stats := m.store.ComputeStats(m.topField, m.now())
+	stats, levels, values := m.statsRows()
 	window := formatWindow(stats.Recent)
 	clock := "by arrival"
 	if stats.Clock == logs.ByLogTime {
@@ -103,31 +105,83 @@ func (m *Model) statsView() string {
 		theme.Dim.Render(fmt.Sprintf("last %s · %s", window, clock)),
 		"",
 	}
-	// Worst first, in the bar and in the rows under it, so the two are read
-	// in the same direction: what the bar puts at the left edge is what the
-	// list puts at the top. The field values below stay ordered by how many,
-	// which is the only order they have.
-	levels := worstFirst(stats.Levels)
-	rows := countList(width, "levels", "(none)", window, levels, levelStyle)
+	cursor := -1
+	if m.statsFocus {
+		cursor = m.cursorIndex(m.picksOf(levels, values))
+	}
+	mark := func(field string, offset int) func(index int, key string) (bool, bool) {
+		return func(index int, key string) (bool, bool) {
+			return m.store.Filter().Has(field, key), index+offset == cursor
+		}
+	}
+	rows := countList(width, "levels", "(none)", window, levels, levelStyle, mark(logs.LevelKey, 0))
 	if len(levels) > 0 {
 		rows = slices.Insert(rows, 1, levelBar(width, levels))
 	}
 	lines = append(lines, rows...)
 	lines = append(lines, "")
 	if m.topField == "" {
-		lines = append(lines, theme.Dim.Render("t: pick a top field"))
+		lines = append(lines, theme.Dim.Render("(no fields to count by)"))
 	} else {
-		values := stats.Values
-		if len(values) > topValues {
-			values = values[:topValues]
-		}
 		lines = append(lines, countList(width, "top "+terminalText(m.topField),
-			"(no values)", window, values, plainLabel)...)
+			"(no values)", window, values, plainLabel, mark(m.topField, len(levels)))...)
 	}
 	if m.viewport > 0 && len(lines) > m.viewport {
 		lines = lines[:m.viewport]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// pick is one row of the stats panel as a filter term: a field and a value.
+type pick struct{ field, value string }
+
+// statsRows is the counts the panel draws, in the order it draws them: the
+// levels worst first, in the bar and in the rows under it, so the two are
+// read in the same direction; the field's values by how many, which is the
+// only order they have, cut to topValues.
+//
+// The field is chosen here the first time there is one to choose: the
+// panel is useful before anyone has told it which field matters, and once
+// chosen it stays, so a field that overtakes it as lines arrive does not
+// swap the list out from under the cursor.
+func (m *Model) statsRows() (logs.Stats, []logs.Count, []logs.Count) {
+	if m.topField == "" {
+		if fields := m.store.Fields(); len(fields) > 0 {
+			m.topField = fields[0]
+		}
+	}
+	stats := m.store.ComputeStats(m.topField, m.now())
+	values := stats.Values
+	if len(values) > topValues {
+		values = values[:topValues]
+	}
+	return stats, worstFirst(stats.Levels), values
+}
+
+// picks is every row the cursor can stand on, top to bottom.
+func (m *Model) picks() []pick {
+	_, levels, values := m.statsRows()
+	return m.picksOf(levels, values)
+}
+
+func (m *Model) picksOf(levels, values []logs.Count) []pick {
+	picks := make([]pick, 0, len(levels)+len(values))
+	for _, level := range levels {
+		picks = append(picks, pick{logs.LevelKey, level.Key})
+	}
+	for _, value := range values {
+		picks = append(picks, pick{m.topField, value.Key})
+	}
+	return picks
+}
+
+// cursorIndex is the row the cursor is on: the one it named, wherever that
+// has moved to, or the position it had when that row is gone.
+func (m *Model) cursorIndex(picks []pick) int {
+	if index := slices.Index(picks, m.picked); index >= 0 {
+		return index
+	}
+	return min(max(m.cursor, 0), max(len(picks)-1, 0))
 }
 
 // heldLines is what the counts under it are of: the lines in view, and the
@@ -180,23 +234,31 @@ const countColumn = 6
 // countList is one heading and the counts under it: what each key holds
 // recently, and what it holds in all.
 //
-// Two numbers rather than a number and a bar. The bar said what share of the
-// list a count was, which the aligned totals say well enough at four entries
-// — and a bar, the window's number and the total do not fit beside a route
-// in twenty-seven cells. The question the panel is opened with is how many
-// there are now, and that is a number or it is nothing.
-func countList(width int, heading, empty, window string,
-	counts []logs.Count, style func(key string) lipgloss.Style) []string {
+// Two numbers rather than a number and a bar. The question the panel is
+// opened with is how many there are now, and that is a number or it is
+// nothing. mark says, per row, whether the filter holds it — drawn as a dot
+// in the row's first cell — and whether the cursor is on it.
+func countList(width int, heading, empty, window string, counts []logs.Count,
+	style func(key string) lipgloss.Style, mark func(index int, key string) (active, cursor bool)) []string {
 	label := max(width-2*countColumn, 4)
 	lines := []string{theme.Bold.Render(fmt.Sprintf("%-*s", label, heading)) +
 		theme.Dim.Render(fmt.Sprintf("%*s%*s", countColumn, window, countColumn, "all"))}
 	if len(counts) == 0 {
 		return append(lines, theme.Dim.Render(" "+empty))
 	}
-	for _, count := range counts {
+	for index, count := range counts {
+		active, cursor := mark(index, count.Key)
+		dot := " "
+		if active {
+			dot = theme.Cyan.Render("•")
+		}
 		name := ansi.Truncate(terminalText(count.Key), label-1, "…")
-		lines = append(lines, " "+style(count.Key).Render(fmt.Sprintf("%-*s", label-1, name))+
-			fmt.Sprintf("%*d%*d", countColumn, count.Recent, countColumn, count.N))
+		row := style(count.Key).Render(fmt.Sprintf("%-*s", label-1, name)) +
+			fmt.Sprintf("%*d%*d", countColumn, count.Recent, countColumn, count.N)
+		if cursor {
+			row = theme.Reverse.Render(ansi.Strip(row))
+		}
+		lines = append(lines, dot+row)
 	}
 	return lines
 }
@@ -238,9 +300,7 @@ func (m *Model) inputFooter() string {
 	case inputSearch:
 		prompt, hint = " /", "  enter search · esc cancel"
 	case inputFilter:
-		prompt, hint = " filter: ", "  key=value key!=value · empty clears · esc cancel"
-	case inputTopField:
-		prompt, hint = " top field: ", "  empty clears · esc cancel"
+		prompt, hint = " filter: ", `  key=value key!=value key="a b" · empty clears · esc cancel`
 	}
 	return prompt + terminalText(m.inputText) + "▏" + theme.Dim.Render(hint)
 }
@@ -280,9 +340,29 @@ func (m *Model) activeFooter() string {
 	// else here is its own — but the colour still means what it means
 	// everywhere else, and a key that works from anywhere must not change
 	// colour depending on which screen it is read from.
-	return out + theme.Dim.Render("  ·  ") +
-		panel.MarkKeys("/ search · f filter · s json · a stats · t field · esc back", true) +
+	return out + theme.Dim.Render("  ·  ") + panel.MarkKeys(m.footerKeys(), true) +
 		theme.Dim.Render(" · ") + panel.MarkKeys("q quit", false)
+}
+
+// footerKeys is the keymap for where the keys are going. The log's is short
+// on purpose: search, and the panel the filter is picked from. The typed
+// filter is offered only once a filter is set, as the way to edit or clear
+// it; `s` is not offered at all, since detection gets it right and the key
+// is a correction for when it does not.
+func (m *Model) footerKeys() string {
+	if m.statsFocus {
+		return "↑↓ move · enter filter · t field · tab log · a close"
+	}
+	keys := "/ search"
+	if m.store.Filter() != nil {
+		keys += " · f filter"
+	}
+	if m.showStats {
+		keys += " · tab stats"
+	} else {
+		keys += " · a stats"
+	}
+	return keys + " · esc back"
 }
 
 func levelStyle(level string) lipgloss.Style {

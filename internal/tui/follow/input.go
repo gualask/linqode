@@ -15,10 +15,10 @@ const (
 	inputNone inputMode = iota
 	// inputSearch is `/` — text search over raw lines.
 	inputSearch
-	// inputFilter is `f` — field filter expression (`level=error app!=web`).
+	// inputFilter is `f` — field filter expression (`level=error app!=web`),
+	// for what the stats panel cannot pick: a negation, a field it is not
+	// counting.
 	inputFilter
-	// inputTopField is `t` — field whose top values the stats panel counts.
-	inputTopField
 )
 
 func (m *Model) handleKey(key tea.KeyMsg) tea.Cmd {
@@ -26,6 +26,9 @@ func (m *Model) handleKey(key tea.KeyMsg) tea.Cmd {
 		return m.handleInputKey(key)
 	}
 
+	if m.statsFocus && m.handleStatsKey(key.String()) {
+		return nil
+	}
 	switch key.String() {
 	case "esc":
 		// Back to the screen this was opened from, never out of the
@@ -35,10 +38,31 @@ func (m *Model) handleKey(key tea.KeyMsg) tea.Cmd {
 		return tea.Quit
 	case "down", "up", "pgdown", "pgup", "home", "end":
 		m.handleNavigationKey(key.String())
-	case "/", "n", "N", "f", "s", "a", "t":
+	case "/", "n", "N", "f", "s", "a", "t", "tab":
 		m.handleToolKey(key.String())
 	}
 	return nil
+}
+
+// handleStatsKey is a key while the stats panel has focus; false leaves it
+// to the log. The arrows move the cursor over the counts, and enter adds
+// the row under it to the filter or takes it out. esc hands the keys back
+// to the log rather than leaving the view: it is the one key that means
+// "out of here" everywhere, and here is the panel.
+func (m *Model) handleStatsKey(key string) bool {
+	switch key {
+	case "up":
+		m.moveCursor(-1)
+	case "down":
+		m.moveCursor(1)
+	case "enter":
+		m.togglePicked()
+	case "esc":
+		m.statsFocus = false
+	default:
+		return false
+	}
+	return true
 }
 
 func (m *Model) handleNavigationKey(key string) {
@@ -70,13 +94,63 @@ func (m *Model) handleToolKey(key string) {
 	case "f":
 		m.openFilterInput()
 	case "s":
+		// Off the footer: detection gets it right, and this is the
+		// correction for when it does not.
 		effective := !m.structuredRendering()
 		m.structured = &effective
 	case "a":
+		// Opening the panel hands it the keys, since it is opened to be read
+		// and picked from; closing it hands them back.
 		m.showStats = !m.showStats
+		m.statsFocus = m.showStats
+	case "tab":
+		m.statsFocus = m.showStats && !m.statsFocus
 	case "t":
-		m.input, m.inputText = inputTopField, m.topField
+		m.nextField()
 	}
+}
+
+// nextField steps the panel to the next field worth counting by, in the
+// order the log engine ranks them, wrapping round.
+func (m *Model) nextField() {
+	fields := m.store.Fields()
+	if len(fields) == 0 {
+		m.notice = "no fields to count by"
+		return
+	}
+	next := fields[0]
+	for index, field := range fields {
+		if field == m.topField {
+			next = fields[(index+1)%len(fields)]
+			break
+		}
+	}
+	m.topField = next
+	m.showStats = true
+}
+
+// moveCursor moves the panel's cursor by delta rows, stopping at the ends.
+func (m *Model) moveCursor(delta int) {
+	picks := m.picks()
+	if len(picks) == 0 {
+		return
+	}
+	m.cursor = min(max(m.cursorIndex(picks)+delta, 0), len(picks)-1)
+	m.picked = picks[m.cursor]
+}
+
+// togglePicked adds the row under the cursor to the filter, or takes it out.
+func (m *Model) togglePicked() {
+	picks := m.picks()
+	if len(picks) == 0 {
+		return
+	}
+	m.cursor = m.cursorIndex(picks)
+	m.picked = picks[m.cursor]
+	m.store.SetFilter(m.store.Filter().Toggle(m.picked.field, m.picked.value))
+	m.matchLine = -1
+	m.follow = true
+	m.notice = ""
 }
 
 func (m *Model) openFilterInput() {
@@ -133,9 +207,6 @@ func (m *Model) commitInput(mode inputMode, text string) {
 		m.store.SetFilter(f)
 		m.matchLine = -1
 		m.follow = true
-	case inputTopField:
-		m.topField = text
-		m.showStats = true
 	}
 }
 

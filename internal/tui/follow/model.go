@@ -25,10 +25,6 @@ const (
 	// many top values it lists.
 	statsWidth = 28
 	topValues  = 8
-	// statsBar is how wide a count's bar is drawn: eight cells hold sixty-four
-	// widths, which is finer than anybody reads a share at, and leaves the
-	// names beside them most of the panel.
-	statsBar = 8
 )
 
 type drainTickMsg struct{}
@@ -73,7 +69,19 @@ type Model struct {
 	// override (`s`).
 	structured *bool
 	showStats  bool
-	topField   string
+	// statsFocus is whether the keys go to the stats panel — its cursor, the
+	// filter it picks — rather than to the log.
+	statsFocus bool
+	// topField is the field the panel counts values of. Empty until the
+	// panel first finds one worth counting, which it picks itself; `t` steps
+	// to the next.
+	topField string
+	// picked is the row the panel's cursor is on, by what it names rather
+	// than by where it is: the counts reorder as lines arrive, and a cursor
+	// kept by position would slide onto another row under the operator's
+	// finger. cursor is where it was, for when the row it named is gone.
+	picked pick
+	cursor int
 
 	// backlogFrom is when the first log line arrived, which opened the
 	// backlog; zero until one has. backlogOpen is whether it still is.
