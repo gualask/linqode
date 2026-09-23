@@ -124,19 +124,24 @@ object becomes a record whose nested fields are flattened to dotted paths
 
 - **Detection**: when most buffered lines parse as records, the view switches
   to structured rendering — timestamp, coloured level, message, then remaining
-  fields — with a manual override either way (`s`). Well-known level, message
+  fields — with `s` as the override when it guesses wrong (not in the footer). Well-known level, message
   and timestamp key variants are recognised.
-- **Filters** (`f`): `key=value` / `key!=value` terms, AND-ed and
-  case-insensitive, narrow the visible view to matching records; plain-text
-  lines are hidden while a filter is active. Scroll, search and follow all
-  operate on the filtered view, whose indices stay consistent across buffer
-  drops by sequence-number accounting.
-- **Stats** (`a`): counts by level and top values of a chosen field (`t`), in
-  a side panel, recently and in all (see [Recent counts](#recent-counts)).
-  They are recomputed on demand over the bounded tail (see
-  [porting.md](porting.md), deliberate divergences). The panel is cut to the
-  log's height from the bottom, where the least frequent values are, so a
-  short terminal keeps its footer.
+- **Filters** narrow the view to matching records; plain-text lines are
+  hidden while one is active. They are **picked from the stats panel**:
+  `enter` on a level or a value adds it, again takes it out, and a dot marks
+  what the filter holds. Values of one field are alternatives (`error` or
+  `warn`); different fields must all hold. `f` types one instead, for what
+  the panel cannot pick — a negation, a field it is not counting:
+  `key=value`, `key!=value`, `key="a b"`, case-insensitive; `level` finds
+  whichever level field a record uses. Scroll, search and follow operate on
+  the filtered view.
+- **Stats** (`a`): counts by level and by one field, recently and in all
+  (see [Recent counts](#recent-counts)). The panel takes the keys when it
+  opens; `tab` and `esc` hand them back to the log. It picks the field
+  itself — the most common one whose values repeat, like a route or a
+  status — and `t` steps to the next. It is cut to the log's height from
+  the bottom, so a short terminal keeps its footer. The counts are
+  recomputed on demand over the bounded tail (see [porting.md](porting.md)).
 
 ### Recent counts
 
@@ -159,9 +164,11 @@ errors is a sliver of a busy service and the whole of a quiet one. A share
 above zero always gets at least one cell, borrowed from the widest segment.
 The rows under the bar follow its order; field values stay ordered by count.
 
-**The counts are of the lines in view**: a filter narrows them, and the panel
-says what it counts out of (`5 of 190 lines`). The window is chosen over the
-filtered lines too, so windows with and without a filter are not comparable.
+**The counts are of the lines in view**, and the panel says what it counts
+out of (`5 of 190 lines`) — except that each list sets aside the filter's
+terms on its own field, as facets do: under `level=error` the levels list
+still shows `warn`, so it can be picked next. The window is chosen over the
+filtered lines, so windows with and without a filter are not comparable.
 
 This replaced a histogram of when the lines were written (removed September
 2026): height for how many, colour for the worst level — two readings in one

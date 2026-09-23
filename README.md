@@ -194,14 +194,16 @@ remembered too, so a memory leak is already a climb when the panel opens.
 | `↑`/`↓`, `PgUp`/`PgDn` | scroll (leaves follow mode) |
 | `End` / `Home` | jump to bottom (follow) / top |
 | `/` then `n`/`N` | search, next/previous match |
-| `f` | filter JSONL logs by field (`level=error app!=web`) |
-| `s` | toggle structured rendering (auto-detected for JSONL) |
-| `a` | toggle the stats panel: how much of the log is a problem, and how the lines in view divide by level and by a field, recently and in all |
-| `t` | choose the field the stats panel counts |
-| `Esc` | back to the status view |
+| `a` | open or close the stats panel: counts by level and by a field, recently and in all |
+| `tab` | move the keys between the log and the stats panel |
+| `↑`/`↓`, `Enter` (panel) | move over the counts; add the row to the filter, or take it out |
+| `t` | count by the next field (the panel picks the first itself) |
+| `f` | type a filter (`level=error route!=/healthz msg="a b"`) |
+| `s` | toggle structured rendering, when detection gets it wrong |
+| `Esc` | back to the status view (from the panel: back to the log) |
 | `q` | quit |
 
-While a search, a filter or a field name is being typed, every key types:
+While a search or a filter is being typed, every key types:
 `Esc` cancels the input, and `q` is a `q`.
 
 ## Documentation
