@@ -38,7 +38,7 @@ func (m *Model) handleKey(key tea.KeyMsg) tea.Cmd {
 		return tea.Quit
 	case "down", "up", "pgdown", "pgup", "home", "end":
 		m.handleNavigationKey(key.String())
-	case "/", "n", "N", "f", "s", "a", "t", "tab":
+	case "/", "n", "N", "f", "x", "s", "a", "t", "tab":
 		m.handleToolKey(key.String())
 	}
 	return nil
@@ -93,6 +93,14 @@ func (m *Model) handleToolKey(key string) {
 		m.nextMatch(false)
 	case "f":
 		m.openFilterInput()
+	case "x":
+		// The whole filter at once: one picked from the panel is taken out a
+		// row at a time, and a filter of five rows should not cost five.
+		if m.store.Filter() != nil {
+			m.store.SetFilter(nil)
+			m.matchLine = -1
+			m.follow = true
+		}
 	case "s":
 		// Off the footer: detection gets it right, and this is the
 		// correction for when it does not.

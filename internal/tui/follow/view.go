@@ -345,17 +345,22 @@ func (m *Model) activeFooter() string {
 }
 
 // footerKeys is the keymap for where the keys are going. The log's is short
-// on purpose: search, and the panel the filter is picked from. The typed
-// filter is offered only once a filter is set, as the way to edit or clear
-// it; `s` is not offered at all, since detection gets it right and the key
-// is a correction for when it does not.
+// on purpose: search, and the panel the filter is picked from. Editing and
+// clearing a filter are offered only once there is one; `s` is not offered
+// at all, since detection gets it right and the key is a correction for when
+// it does not.
 func (m *Model) footerKeys() string {
+	filtered := m.store.Filter() != nil
 	if m.statsFocus {
-		return "↑↓ move · enter filter · t field · tab log · a close"
+		keys := "↑↓ move · enter filter"
+		if filtered {
+			keys += " · x clear"
+		}
+		return keys + " · t field · tab log · a close"
 	}
 	keys := "/ search"
-	if m.store.Filter() != nil {
-		keys += " · f filter"
+	if filtered {
+		keys += " · f filter · x clear"
 	}
 	if m.showStats {
 		keys += " · tab stats"

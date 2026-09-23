@@ -254,3 +254,29 @@ func TestStatsFocusMovesWithTabAndEsc(t *testing.T) {
 		t.Error("esc from the log did not go back")
 	}
 }
+
+// x clears the whole filter at once, from the panel or from the log, and is
+// offered only while there is one to clear.
+func TestClearFilterAtOnce(t *testing.T) {
+	m := statsModel(t, 30, stamped(3, "error"), stamped(2, "warn"), stamped(1, "info"))
+	if strings.Contains(m.View(), "x clear") {
+		t.Errorf("clearing offered with no filter set:\n%s", m.View())
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(m.View(), "x clear") {
+		t.Errorf("clearing not offered with a filter set:\n%s", m.View())
+	}
+	m.Update(key("x"))
+	if m.store.Filter() != nil || m.store.Len() != 3 {
+		t.Errorf("x from the panel left %q with %d lines", m.store.Filter().Expr(), m.store.Len())
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc}) // keys to the log
+	m.Update(key("x"))
+	if m.store.Filter() != nil {
+		t.Errorf("x from the log left %q", m.store.Filter().Expr())
+	}
+}
