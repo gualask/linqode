@@ -43,8 +43,8 @@ hardened them first:
 | `internal/remote` | `[user@]host[:port]` spec parsing (IPv6, last-`@` rule, rejects incl. port 0), `~/.ssh/config` alias resolution and precedence, identity-file discovery limited to existing files, tilde expansion |
 | `internal/compose` | Command builders (`ps`, `logs`, actions, restart inspect) incl. shell quoting of hostile paths and container names; `ps --format json` parsing in both shapes (NDJSON ≥ 2.21, legacy array), null `Publishers`, sorting; port summaries collapsing IPv4/IPv6 duplicates; restart counts parsed leniently (leading slash stripped, a vanished container's error line skipped without losing the rest) and an absent count staying unknown rather than zero |
 | `internal/host` | Metrics parsing from the marked `/proc` + `df -Pk` sections; tolerance of missing sections and of garbage (both leave fields zero rather than failing the sample); derived percentages guarding against division by zero and unsigned underflow; the command asking for every section |
-| `internal/tui/spark` | The windows strips are scaled against — widened when a reading barely moves, not clamped at a hundred for a container's CPU, widened by a share of itself for an amount — and the shapes: a bar that keeps its width and never draws a share above zero as nothing, a histogram that stacks across rows and leaves an empty column blank |
-| `internal/logs` | Line assembly across arbitrary chunk boundaries (CRLF, invalid UTF-8, runes split mid-chunk); ring-buffer drop accounting; ASCII-case-insensitive search on rune-safe offsets; JSONL record parsing (flattening, numeric literals verbatim, well-known keys); filter parsing and matching (AND terms, negation, case folding); the filtered visible view across buffer drops; wrap-around search over the visible view; detection heuristic; stats recompute incl. a test pinning that counts follow drops; record timestamps read only when they carry a zone or are a plausible epoch in any of four units; the timeline's choice of clock, the traceback placed with the record above it, the filter narrowing it, a server clock ahead landing in the last bucket and a line older than the longest span counted rather than drawn |
+| `internal/tui/spark` | The windows strips are scaled against — widened when a reading barely moves, not clamped at a hundred for a container's CPU, widened by a share of itself for an amount — and the shapes: a bar that keeps its width and never draws a share above zero as nothing, shares divided into one bar of an exact width with the smallest still drawn, a histogram that stacks across rows and leaves an empty column on the bare track, and solid columns half a cell tall at the least |
+| `internal/logs` | Line assembly across arbitrary chunk boundaries (CRLF, invalid UTF-8, runes split mid-chunk); ring-buffer drop accounting; ASCII-case-insensitive search on rune-safe offsets; JSONL record parsing (flattening, numeric literals verbatim, well-known keys); filter parsing and matching (AND terms, negation, case folding); the filtered visible view across buffer drops; wrap-around search over the visible view; detection heuristic; stats recompute incl. a test pinning that counts follow drops; record timestamps read only when they carry a zone or are a plausible epoch in any of four units; the recent counts' choice of clock, the traceback placed with the record above it, the counts narrowing to the filtered view, and the window following the pace of what is in view |
 
 ### 2. In-process SSH integration tests (`internal/remote/*_test.go`, package `remote_test`)
 
@@ -95,15 +95,16 @@ bounded burst drain, filter commit/clear/errors, structured-rendering
 detection and override, the stats panel, the action and script menus
 (navigation, running the chosen entry, closing on esc or on the key that
 opened them), the RESTARTS column appearing only once counts exist, the
-system view dividing its room between the charts and the processes and
+system view giving the charts their rows and the processes all the rest and
 keeping the processes when only one fits, share charts drawn against their
-whole scale, the readings in two columns when wide, both rankings side by
+whole scale with their columns drawn before the first trend arrives, the readings in two columns when wide, both rankings side by
 side with no key to switch them and no cap on the list,
 a filesystem's fill time said only on enough evidence and within its reach,
 the live panel opening on the trend the sampled counters built,
 docker's disk drawn under the table only in rows the table leaves empty and
-read only while it is drawn, the log
-view's timeline and shares and its panel never taller than the log, and the
+read only while it is drawn, the log view's counts split into what is recent
+and what is all, its levels drawn as one bar worst first, its panel never
+taller than the log, and the
 `!` prompt (keys type instead of acting while it is open, empty input runs
 nothing, esc cancels, and it reopens on the last command). Views receive
 hand-built `operations.Feed` channels — no SSH involved.

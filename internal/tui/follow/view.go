@@ -2,6 +2,7 @@ package follow
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -91,37 +92,37 @@ func (m *Model) logBody(width int) string {
 // frequent values are.
 func (m *Model) statsView() string {
 	width := statsWidth - 1 // the panel's left padding
-	stats := m.store.ComputeStats(m.topField)
+	stats := m.store.ComputeStats(m.topField, m.now())
+	window := formatWindow(stats.Recent)
+	clock := "by arrival"
+	if stats.Clock == logs.ByLogTime {
+		clock = "by log time"
+	}
 	lines := []string{
-		fmt.Sprintf("%d lines · %s", stats.Total,
-			theme.Magenta.Render(fmt.Sprintf("%d json", stats.Parsed))),
+		heldLines(stats),
+		theme.Dim.Render(fmt.Sprintf("last %s · %s", window, clock)),
 		"",
 	}
-	lines = append(lines, m.timelineView(width)...)
-	lines = append(lines, "", theme.Bold.Render("levels"))
-	if len(stats.Levels) == 0 {
-		lines = append(lines, theme.Dim.Render("  (none)"))
+	// Worst first, in the bar and in the rows under it, so the two are read
+	// in the same direction: what the bar puts at the left edge is what the
+	// list puts at the top. The field values below stay ordered by how many,
+	// which is the only order they have.
+	levels := worstFirst(stats.Levels)
+	rows := countList(width, "levels", "(none)", window, levels, levelStyle)
+	if len(levels) > 0 {
+		rows = slices.Insert(rows, 1, levelBar(width, levels))
 	}
-	for _, level := range stats.Levels {
-		style := levelStyle(level.Key)
-		lines = append(lines, countRow(level, total(stats.Levels), width, style, style))
-	}
+	lines = append(lines, rows...)
 	lines = append(lines, "")
 	if m.topField == "" {
 		lines = append(lines, theme.Dim.Render("t: pick a top field"))
 	} else {
-		lines = append(lines, theme.Bold.Render("top "+terminalText(m.topField)))
 		values := stats.Values
 		if len(values) > topValues {
 			values = values[:topValues]
 		}
-		if len(values) == 0 {
-			lines = append(lines, theme.Dim.Render("  (no values)"))
-		}
-		for _, value := range values {
-			lines = append(lines, countRow(value, total(stats.Values), width,
-				theme.Cyan, lipgloss.NewStyle()))
-		}
+		lines = append(lines, countList(width, "top "+terminalText(m.topField),
+			"(no values)", window, values, plainLabel)...)
 	}
 	if m.viewport > 0 && len(lines) > m.viewport {
 		lines = lines[:m.viewport]
@@ -129,103 +130,92 @@ func (m *Model) statsView() string {
 	return strings.Join(lines, "\n")
 }
 
-// countRow is one count, its share of the list it belongs to as a bar, and
-// what it counts. The bar is the share of every count in the list, not of
-// the largest one, so a list's bars add up to one whole bar: that is what
-// makes "most of it" and "a sliver" readable without doing the sums.
-func countRow(count logs.Count, of, width int, bar, name lipgloss.Style) string {
-	share := 0.0
-	if of > 0 {
-		share = float64(count.N) / float64(of)
+// heldLines is what the counts under it are of: the lines in view, and the
+// tail they were drawn from when a filter is hiding some of it.
+func heldLines(stats logs.Stats) string {
+	if stats.Lines != stats.Tail {
+		return fmt.Sprintf("%d of %d lines", stats.Lines, stats.Tail)
 	}
-	label := ansi.Truncate(terminalText(count.Key), max(width-7-statsBar-1, 1), "…")
-	return fmt.Sprintf("%6d %s %s", count.N, bar.Render(spark.Bar(share, statsBar)), name.Render(label))
+	return fmt.Sprintf("%d lines · %s", stats.Lines,
+		theme.Magenta.Render(fmt.Sprintf("%d json", stats.Parsed)))
 }
 
-func total(counts []logs.Count) int {
-	sum := 0
-	for _, count := range counts {
-		sum += count.N
-	}
-	return sum
-}
-
-// timelineView is when the lines in view were written: a histogram whose
-// height is how many and whose colour is the worst level among them, over an
-// axis saying how far back it reaches and which clock placed the lines.
+// levelBar is every level in view drawn as one bar of the panel's width, a
+// segment each, in the order given — which is worst first, so the red starts
+// at the left edge.
 //
-// Height says how much and colour says how bad, the rule every strip on the
-// home follows. A slice holding one error among five hundred lines is drawn
-// red whole, because when the errors happened is what the panel is opened to
-// find out; how many there were is the levels list underneath.
-func (m *Model) timelineView(width int) []string {
-	header := theme.Bold.Render("timeline")
-	if m.store.Filter() != nil {
-		// The counts below are of the whole tail; this is of the lines the
-		// filter lets through, and it must not be read as the same thing.
-		header += theme.Dim.Render(" · filtered")
+// It answers the question the counts cannot answer on their own: how big the
+// problem is. Five errors is a sliver of a busy service and the whole of a
+// quiet one, and "5" is the same number in both — while a bar that has gone
+// red says which one you are looking at before you have read anything.
+//
+// What the bar is read for is whether there is any red at all, and a mark
+// you have to hunt for along a row is a mark you will miss.
+func levelBar(width int, levels []logs.Count) string {
+	shares := make([]float64, len(levels))
+	for index, count := range levels {
+		shares[index] = float64(count.N)
 	}
-	timeline := m.store.Timeline(m.now(), width)
-	if timeline.Placed == 0 {
-		return []string{header, theme.Dim.Render("  (nothing to place yet)")}
-	}
-	values := make([]float64, len(timeline.Buckets))
-	ceiling := 0.0
-	for index, bucket := range timeline.Buckets {
-		values[index] = float64(bucket.Lines)
-		ceiling = max(ceiling, values[index])
-	}
-	lines := []string{header}
-	lines = append(lines, spark.Columns(values, ceiling, m.timelineRows(), func(index int) lipgloss.Style {
-		return severityStyle(timeline.Buckets[index].Worst)
-	})...)
+	return spark.Segments(shares, width, func(index int) lipgloss.Style {
+		return levelStyle(levels[index].Key)
+	}, theme.Track)
+}
 
-	clock := "by arrival"
-	if timeline.Clock == logs.ByLogTime {
-		clock = "by log time"
+// worstFirst orders levels by severity, keeping the order the list came in
+// within each of them — which is by how many, since that is how the counts
+// beside the bar are sorted.
+func worstFirst(levels []logs.Count) []logs.Count {
+	ordered := slices.Clone(levels)
+	slices.SortStableFunc(ordered, func(a, b logs.Count) int {
+		return int(logs.SeverityOf(b.Key)) - int(logs.SeverityOf(a.Key))
+	})
+	return ordered
+}
+
+// countColumn is how wide each of a row's two numbers is drawn. Six cells
+// hold the tail's whole capacity with a space in front of it, so the columns
+// never touch and never move.
+const countColumn = 6
+
+// countList is one heading and the counts under it: what each key holds
+// recently, and what it holds in all.
+//
+// Two numbers rather than a number and a bar. The bar said what share of the
+// list a count was, which the aligned totals say well enough at four entries
+// — and a bar, the window's number and the total do not fit beside a route
+// in twenty-seven cells. The question the panel is opened with is how many
+// there are now, and that is a number or it is nothing.
+func countList(width int, heading, empty, window string,
+	counts []logs.Count, style func(key string) lipgloss.Style) []string {
+	label := max(width-2*countColumn, 4)
+	lines := []string{theme.Bold.Render(fmt.Sprintf("%-*s", label, heading)) +
+		theme.Dim.Render(fmt.Sprintf("%*s%*s", countColumn, window, countColumn, "all"))}
+	if len(counts) == 0 {
+		return append(lines, theme.Dim.Render(" "+empty))
 	}
-	left := "-" + formatSpan(timeline.Span)
-	gap := max(width-len(left)-len(clock)-len("now"), 2)
-	axis := left + strings.Repeat(" ", gap/2) + clock + strings.Repeat(" ", gap-gap/2) + "now"
-	lines = append(lines, theme.Dim.Render(axis))
-	if timeline.Older > 0 {
-		lines = append(lines, theme.Dim.Render(fmt.Sprintf("%d older lines not drawn", timeline.Older)))
+	for _, count := range counts {
+		name := ansi.Truncate(terminalText(count.Key), label-1, "…")
+		lines = append(lines, " "+style(count.Key).Render(fmt.Sprintf("%-*s", label-1, name))+
+			fmt.Sprintf("%*d%*d", countColumn, count.Recent, countColumn, count.N))
 	}
 	return lines
 }
 
-// timelineRows is how tall the histogram is drawn: one row on a terminal
-// with room for little else, growing a row for every four the log has, up
-// to four. Past that a histogram adds resolution nobody reads and takes the
-// rows the counts under it need.
-func (m *Model) timelineRows() int {
-	return min(max((m.viewport-10)/4, 1), 4)
-}
+// plainLabel is the styling a field's values get: none. A level is coloured
+// because the colour is the reading — an error row is red wherever it
+// appears — and a route is not one of those.
+func plainLabel(string) lipgloss.Style { return lipgloss.NewStyle() }
 
-// severityStyle colours a slice of the timeline by the worst line in it.
-// Everything short of a warning is one colour, the one every throughput strip
-// on the home is drawn in, so the two colours that mean something are the
-// only ones that stand out.
-func severityStyle(severity logs.Severity) lipgloss.Style {
-	switch severity {
-	case logs.SeverityError:
-		return theme.Red
-	case logs.SeverityWarning:
-		return theme.Yellow
-	default:
-		return theme.Cyan
-	}
-}
-
-// formatSpan writes a timeline's span the shortest way: 15m, 6h, 7d.
-func formatSpan(span time.Duration) string {
+// formatWindow writes the stretch the recent counts cover the shortest way:
+// 5m, 6h, 1d.
+func formatWindow(window time.Duration) string {
 	switch {
-	case span%(24*time.Hour) == 0:
-		return fmt.Sprintf("%dd", int(span/(24*time.Hour)))
-	case span%time.Hour == 0:
-		return fmt.Sprintf("%dh", int(span/time.Hour))
+	case window%(24*time.Hour) == 0:
+		return fmt.Sprintf("%dd", int(window/(24*time.Hour)))
+	case window%time.Hour == 0:
+		return fmt.Sprintf("%dh", int(window/time.Hour))
 	default:
-		return fmt.Sprintf("%dm", int(span/time.Minute))
+		return fmt.Sprintf("%dm", int(window/time.Minute))
 	}
 }
 

@@ -10,10 +10,12 @@
 // a new box on the home.
 //
 // The layout follows htop's meters: the bar carries the percentage and the
-// text inside it carries the absolute amounts. Printing the percentage as
+// text beside it carries the absolute amounts. Printing the percentage as
 // well would say twice what the bar already says, and it would cost the
 // width that makes the bar worth drawing — at 80 columns that difference is
-// a seven-cell bar against a four-cell one.
+// a seven-cell bar against a four-cell one. The brackets htop writes around
+// its meters are gone with them: they delimit a track of empty space, and
+// this one is a fill that delimits itself.
 //
 // This replaced a right-hand sidebar (removed September 2026). The sidebar
 // spent 30 columns on every row of the screen to show four readings that
@@ -33,6 +35,13 @@ import (
 	"github.com/gualask/linqode/internal/tui/spark"
 	"github.com/gualask/linqode/internal/tui/theme"
 )
+
+// bandGap separates one meter from the next, and the last of them from the
+// tail. It is wider than the single space inside a meter, which is what
+// binds a label and an amount to the bar between them now that no bracket
+// does: `cpu ███▁▁ 14%` is one reading because its parts are closer to each
+// other than to anything else on the row.
+const bandGap = 3
 
 // meterMinBar is the narrowest bar still worth drawing. Below this the
 // gauge says nothing the number does not, but it still costs the width.
@@ -176,16 +185,16 @@ func (m *Model) renderBand(width int) string {
 	}
 	tail := func() string { return strings.Join(tailParts(), "  ") }
 
-	// fixed is everything the bars do not occupy: the leading marker,
-	// `label[` and ` value]` per meter, two spaces between meters, and the
-	// tail.
+	// fixed is everything the bars do not occupy: the leading marker, the
+	// label before each bar and the amount after it, the gaps between the
+	// meters, and the tail.
 	fixed := func() int {
-		width := 1 + len(bandLabel) + 2 + 2*(len(meters)-1)
+		width := 1 + len(bandLabel) + 2 + bandGap*(len(meters)-1)
 		for _, gauge := range meters {
-			width += len(gauge.label) + len(gauge.value) + 3
+			width += len(gauge.label) + len(gauge.value) + 2
 		}
 		if text := tail(); text != "" {
-			width += 2 + len(text)
+			width += bandGap + len(text)
 		}
 		return width
 	}
@@ -215,12 +224,13 @@ func (m *Model) renderBand(width int) string {
 	if available > 0 {
 		barWidth = min(max((available-fixed())/len(meters), meterMinBar), meterMaxBar)
 	}
+	gap := strings.Repeat(" ", bandGap)
 	parts := make([]string, len(meters))
 	for index, gauge := range meters {
-		parts[index] = fmt.Sprintf("%s[%s %s]", gauge.label,
+		parts[index] = fmt.Sprintf("%s %s %s", gauge.label,
 			styledBar(gauge.percent, barWidth, gauge.style), gauge.value)
 	}
-	line := " " + m.labelStyle().Render(bandLabel) + "  " + strings.Join(parts, "  ")
+	line := " " + m.labelStyle().Render(bandLabel) + "  " + strings.Join(parts, gap)
 	styled := make([]string, 0, 3)
 	for _, part := range tailParts() {
 		if part == temperature {
@@ -230,13 +240,14 @@ func (m *Model) renderBand(width int) string {
 		styled = append(styled, theme.Dim.Render(part))
 	}
 	if len(styled) > 0 {
-		line += "  " + strings.Join(styled, theme.Dim.Render("  "))
+		line += gap + strings.Join(styled, theme.Dim.Render("  "))
 	}
 	return line
 }
 
-// styledBar is the gauge every meter here is drawn with; see spark.Meter for
-// why only its filled part takes the reading's colour.
+// styledBar is the gauge every meter here is drawn with — the band's and the
+// view's, which is why it is one function: see spark.Meter for why only its
+// filled part takes the reading's colour.
 func styledBar(percent float64, width int, style lipgloss.Style) string {
-	return spark.Meter(percent, width, style)
+	return spark.Meter(percent, width, style, theme.Track)
 }

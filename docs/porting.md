@@ -182,7 +182,7 @@ port so real-server validation is paid once, on the Go implementation.
   tail a recompute is well under a millisecond at render rate, and it
   removes a whole class of drift invariants from buffer mutations. The
   store keeps only two incremental counters (total via the buffer, parsed
-  lines) for the JSONL detection heuristic. The timeline added in September
-  2026 follows the same rule; what it needed from each line — when the record
+  lines) for the JSONL detection heuristic. The recent counts added in September
+  2026 follow the same rule; what they need from each line — when the record
   says it was written, when it arrived — is read once at push time, so the
   recompute stays a pass of integer arithmetic.

@@ -302,9 +302,6 @@ func (m *Model) readingRows(g grid) (capacity, activity []string) {
 		percent := m.usage.CPUPercent
 		capacity = append(capacity, m.meterRow(g, "cpu", percent, theme.Usage(percent),
 			fmt.Sprintf("%.0f%% busy", percent)+load))
-		if strip := m.coreRow(g); strip != "" {
-			capacity = append(capacity, strip)
-		}
 	} else if metrics.HasLoad() {
 		// The first sample after connecting cannot say what the CPU is
 		// doing — a percentage is a difference — so the load average
@@ -313,6 +310,12 @@ func (m *Model) readingRows(g grid) (capacity, activity []string) {
 		capacity = append(capacity, m.meterRow(g, "load", perCPU*100, loadStyle(perCPU),
 			fmt.Sprintf("%.2f  %.2f  %.2f", metrics.Load1, metrics.Load5, metrics.Load15)+
 				theme.Dim.Render(fmt.Sprintf("   over %d cores", metrics.CPUs))))
+	}
+	// Outside that branch, because the row is drawn on the first sample
+	// too: a row that arrives with the second one moves every row under
+	// it, the charts and both process lists included.
+	if strip := m.coreRow(g); strip != "" {
+		capacity = append(capacity, strip)
 	}
 	if metrics.MemTotalKB > 0 {
 		percent := metrics.MemUsedPercent()
@@ -348,8 +351,15 @@ func (m *Model) readingRows(g grid) (capacity, activity []string) {
 			theme.Usage(percent), text))
 	}
 
-	if m.hasUsage && len(m.usage.Interfaces) > 0 {
-		activity = append(activity, m.textRow(g, "net", m.networkText()))
+	// Which interfaces there are is in the sample; what they are carrying is
+	// a difference between two, so the row is here from the first one and
+	// says plainly that it has no number yet.
+	if len(metrics.Interfaces) > 0 {
+		text := theme.Dim.Render(unknownReading)
+		if m.hasUsage {
+			text = m.networkText()
+		}
+		activity = append(activity, m.textRow(g, "net", text))
 	}
 	if metrics.HasPressure() {
 		activity = append(activity, m.textRow(g, "pressure", m.pressureText()))
@@ -433,41 +443,86 @@ const rowTextReserve = 64
 // meterRow is one reading: its name, its gauge, and the numbers the gauge
 // cannot carry. The bar shows the percentage, so no row prints one twice —
 // except the CPU, whose reading has no absolute amount to print instead.
+//
+// The gauge used to be written between brackets, the way htop writes its
+// meters. htop needs them: its track is empty space, and without the `]`
+// there is nothing to say how far the bar could have gone. This one stands
+// in a fill that ends where it ends, and a delimiter around a shape that
+// delimits itself is two cells spent saying it twice.
 func (m *Model) meterRow(g grid, label string, percent float64, style lipgloss.Style, text string) string {
-	return fmt.Sprintf(" %s [%s]  %s", pad(label, g.label),
+	return fmt.Sprintf(" %s %s  %s", pad(label, g.label),
 		styledBar(percent, g.gauge(), style), text)
 }
 
 // textRow is a reading with no meter, aligned so its text starts where the
-// gauges do rather than under their labels.
+// gauges' does rather than under their labels. The gauge's room is left
+// blank rather than tracked: a track is the shape of a reading that has one,
+// and these rows have none.
 func (m *Model) textRow(g grid, label, text string) string {
 	return fmt.Sprintf(" %s %s  %s", pad(label, g.label),
-		strings.Repeat(" ", g.gauge()+2), text)
+		strings.Repeat(" ", g.gauge()), text)
 }
 
-// coreRow is one cell per core, tallest for the busiest. It is the row that
-// makes the average above it readable: one pinned core among eight idle ones
-// is a machine with a problem and an average that says twelve percent.
+// coreRow is the cores drawn as heights, tallest for the busiest. It is the
+// row that makes the average above it readable: one pinned core among eight
+// idle ones is a machine with a problem and an average that says twelve
+// percent.
 //
-// One cell per core rather than a labelled bar each, because a labelled bar
-// each stops fitting somewhere around sixteen cores and the shape of the
-// strip is what the row is read for. The number that matters is called out
-// beside it.
+// Heights rather than a labelled bar each, because a labelled bar each stops
+// fitting somewhere around sixteen cores and the shape of the row is what it
+// is read for. The number that matters is called out beside it.
+//
+// It stands in the gauges' track, as wide as they are. It used to be one
+// cell per core on the terminal's own background, which left it the one
+// shape in the column with no track — a strip floating where every row above
+// and below it has a slab, and eight cells wide where they are thirty.
 func (m *Model) coreRow(g grid) string {
+	if !m.hasUsage {
+		// One sample says how many cores there are and nothing about what any
+		// of them is doing. A strip of lowest cells would say they are all
+		// idle, which is a reading rather than a blank, so the row draws the
+		// empty track and says beside it that it has no numbers yet.
+		if len(m.metrics.CPUTimes) < 2 {
+			return ""
+		}
+		return fmt.Sprintf(" %s %s  %s", pad("cores", g.label),
+			theme.Track.Render(strings.Repeat(" ", g.gauge())),
+			theme.Dim.Render(unknownReading))
+	}
 	if len(m.usage.Cores) == 0 {
 		return ""
 	}
-	var strip strings.Builder
 	busiest, index := 0.0, 0
 	for core, percent := range m.usage.Cores {
-		strip.WriteString(theme.Usage(percent).Render(spark.Cell(percent / 100)))
 		if percent > busiest {
 			busiest, index = percent, core
 		}
 	}
-	text := strip.String() + theme.Dim.Render(
-		fmt.Sprintf("   busiest cpu%d at %.0f%%", index, busiest))
-	return fmt.Sprintf(" %s %s", pad("cores", g.label), text)
+	cells := coreCells(m.usage.Cores, g.gauge())
+	strip := spark.Strip(cells, 0, 100,
+		func(cell int) lipgloss.Style { return theme.Usage(cells[cell]) }, theme.Track)
+	return fmt.Sprintf(" %s %s  %s", pad("cores", g.label), strip,
+		theme.Dim.Render(fmt.Sprintf("busiest cpu%d at %.0f%%", index, busiest)))
+}
+
+// coreCells spreads the cores over the cells a gauge is wide. With room to
+// spare each core takes several cells and the row reads as a bar per core;
+// past that each cell carries the busiest of the cores it covers, which is
+// what the row is for — a pinned core among sixty-four is the reading, and
+// showing every other core would be the one way to lose it.
+func coreCells(cores []float64, width int) []float64 {
+	if width <= 0 || len(cores) == 0 {
+		return nil
+	}
+	cells := make([]float64, width)
+	for cell := range cells {
+		first := cell * len(cores) / width
+		last := min(max((cell+1)*len(cores)/width, first+1), len(cores))
+		for _, percent := range cores[first:last] {
+			cells[cell] = max(cells[cell], percent)
+		}
+	}
+	return cells
 }
 
 // networkText is the machine's throughput and the interface carrying most of

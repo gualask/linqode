@@ -36,24 +36,54 @@ func busyMachine(width, height int) *Model {
 	return m
 }
 
-// The room under the readings is shared: the charts take their share within
-// their bounds, the processes the rest, and rows the processes cannot fill go
-// back to the charts.
-func TestRoomIsSharedBetweenChartsAndProcesses(t *testing.T) {
+// The charts are drawn from the first sample, before there is a trend to put
+// in them. They used to arrive a sample later and push the process list down
+// the screen as they did.
+func TestTheChartSlotsAreDrawnBeforeTheFirstTrend(t *testing.T) {
+	m := New("", "")
+	m.SetSample(richMetrics(), nil)
+	m.SetOpen(true)
+	m.SetSize(160, 40)
+	charts := m.charts()
+	if len(charts) == 0 {
+		t.Fatal("one sample drew no charts")
+	}
+	height, _ := m.room(40 - len(m.readingLines()))
+	if height != chartMaxHeight {
+		t.Errorf("the charts were given %d rows before the first trend, want %d",
+			height, chartMaxHeight)
+	}
+	lines := m.drawChart(charts[0], 40, chartMaxHeight)
+	if len(lines) != chartMaxHeight {
+		t.Fatalf("a chart with no history drew %d lines", len(lines))
+	}
+	// A reading that needs two samples says so rather than saying nought.
+	if !strings.Contains(lines[0], "—") {
+		t.Errorf("the cpu title claims a reading it cannot have yet: %q", lines[0])
+	}
+	if strings.ContainsAny(strings.Join(lines[1:], ""), spark.Glyphs) {
+		t.Errorf("a chart with no history drew a bar:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// The charts take their rows and the processes take the rest. A chart is a
+// fixed few rows now, so a short list of processes leaves the screen empty
+// rather than growing the charts into it.
+func TestTheChartsTakeTheirRowsAndTheProcessesTakeTheRest(t *testing.T) {
 	m := busyMachine(160, 60)
 	charts, processes := m.room(40)
-	if charts < chartMinHeight || charts > chartMaxHeight {
-		t.Errorf("charts given %d rows, outside %d–%d", charts, chartMinHeight, chartMaxHeight)
-	}
-	if processes < processMinRows {
-		t.Errorf("processes given %d rows, fewer than %d", processes, processMinRows)
-	}
-	if used := 2 + charts + processes; used > 40 {
-		t.Errorf("the blocks take %d rows of 40", used)
-	}
-	// Four processes need six rows; everything past that is the charts'.
 	if charts != chartMaxHeight {
-		t.Errorf("charts given %d rows while the processes left rows empty", charts)
+		t.Errorf("charts given %d rows, want %d", charts, chartMaxHeight)
+	}
+	if want := 40 - 2 - chartMaxHeight; processes != want {
+		t.Errorf("processes given %d of the remaining rows, want %d", processes, want)
+	}
+	// Room enough for the charts but barely enough for the lists: the charts
+	// give up their fifth row before the processes give up a process.
+	charts, processes = m.room(2 + chartMinHeight + processMinRows)
+	if charts != chartMinHeight || processes != processMinRows {
+		t.Errorf("a tight view gave charts %d and processes %d, want %d and %d",
+			charts, processes, chartMinHeight, processMinRows)
 	}
 }
 
@@ -91,8 +121,9 @@ func TestTheViewFitsItsHeight(t *testing.T) {
 	}
 }
 
-// A share is drawn against nought to a hundred: at 10% busy a chart with
-// eight rows of history has its bars in the bottom row and nothing above.
+// A share is drawn against nought to a hundred: at 10% busy a chart has its
+// bar in the bottom row and nothing above it. The title carries how far back
+// the chart reaches, where an axis row used to.
 func TestShareChartsAreDrawnAgainstTheirWholeScale(t *testing.T) {
 	m := New("", "")
 	m.history.push(trend{uptime: 1, cpu: 10})
@@ -100,20 +131,31 @@ func TestShareChartsAreDrawnAgainstTheirWholeScale(t *testing.T) {
 	c := chart{label: "cpu", of: func(t trend) float64 { return t.cpu },
 		ceiling: func([]float64) float64 { return 100 },
 		style:   func(float64) lipgloss.Style { return theme.Green }}
-	lines := m.drawChart(c, 40, 10)
-	if len(lines) != 10 {
-		t.Fatalf("a chart of height 10 drew %d lines", len(lines))
+	lines := m.drawChart(c, 40, chartMaxHeight)
+	if len(lines) != chartMaxHeight {
+		t.Fatalf("a chart of height %d drew %d lines", chartMaxHeight, len(lines))
 	}
-	for row := 1; row < 8; row++ {
+	for row := 1; row < chartMaxHeight-1; row++ {
 		if strings.ContainsAny(lines[row], spark.Glyphs) {
-			t.Errorf("10%% reached row %d of 8:\n%s", row, strings.Join(lines, "\n"))
+			t.Errorf("10%% reached row %d of %d:\n%s", row, chartMaxHeight-1,
+				strings.Join(lines, "\n"))
 		}
 	}
-	if !strings.ContainsAny(lines[8], spark.Glyphs) {
+	if !strings.ContainsAny(lines[chartMaxHeight-1], spark.Glyphs) {
 		t.Errorf("10%% drew nothing in the bottom row:\n%s", strings.Join(lines, "\n"))
 	}
-	if !strings.Contains(lines[9], "now") {
-		t.Errorf("the axis does not end at now: %q", lines[9])
+	if !strings.Contains(lines[0], "5s") {
+		t.Errorf("the title does not say how far back the chart reaches: %q", lines[0])
+	}
+}
+
+// The readings are flush right, so the newest column is always in the same
+// place and a chart that has not filled yet fills from the right.
+func TestTheNewestColumnIsAgainstTheRightEdge(t *testing.T) {
+	m := busyMachine(160, 60)
+	bottom := m.drawChart(m.charts()[0], 40, chartMaxHeight)[chartMaxHeight-1]
+	if !strings.HasSuffix(bottom, "█") && !strings.HasSuffix(bottom, "▄") {
+		t.Errorf("the bottom row does not end in a column: %q", bottom)
 	}
 }
 
@@ -121,10 +163,31 @@ func TestShareChartsAreDrawnAgainstTheirWholeScale(t *testing.T) {
 // peak it is scaled to.
 func TestTheChartsAreDrawn(t *testing.T) {
 	view := busyMachine(160, 60).View()
-	for _, want := range []string{"cpu  ", "memory  ", "net down", "net up", "peak ", "now"} {
+	for _, want := range []string{"cpu  ", "memory  ", "net down", "net up", "peak ", "3m"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the view is missing %q:\n%s", want, view)
 		}
+	}
+}
+
+// The readings keep their rows from the first sample on. Three of them are
+// differences between two samples — the CPU share, the per-core strip, both
+// throughputs — and the rows that carried them used to arrive one sample
+// late, pushing the charts and the process lists down the screen.
+func TestTheReadingsKeepTheirRowsBeforeTheFirstDifference(t *testing.T) {
+	first, second := climbing(1), climbing(2)
+	for _, m := range []*Model{first, second} {
+		m.SetOpen(true)
+		m.SetSize(160, 40)
+	}
+	before, after := first.readingLines(), second.readingLines()
+	if len(before) != len(after) {
+		t.Errorf("the readings are %d rows on the first sample and %d on the second:\n%s\n---\n%s",
+			len(before), len(after), strings.Join(before, "\n"), strings.Join(after, "\n"))
+	}
+	if !strings.Contains(strings.Join(before, "\n"), unknownReading) {
+		t.Errorf("the first sample claims readings it cannot have:\n%s",
+			strings.Join(before, "\n"))
 	}
 }
 

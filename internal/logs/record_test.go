@@ -1,6 +1,9 @@
 package logs
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func mustGet(t *testing.T, r *Record, key string) string {
 	t.Helper()
@@ -105,5 +108,44 @@ func TestLogLineCarriesRecordOnlyForJSONL(t *testing.T) {
 	}
 	if ParseLine("plain").Record != nil {
 		t.Error("plain line has a record")
+	}
+}
+
+var noon = time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+
+// A written timestamp is read only when it says which zone it is in, and a
+// number only when it lands somewhere a log could have been written.
+func TestRecordTimeReadsZonedAndEpochTimestamps(t *testing.T) {
+	cases := []struct {
+		line string
+		want time.Time
+	}{
+		{`{"time":"2026-09-15T12:00:00Z"}`, noon},
+		{`{"time":"2026-09-15T14:00:00.250+02:00"}`, noon.Add(250 * time.Millisecond)},
+		{`{"ts":"2026-09-15 12:00:00Z"}`, noon},
+		{`{"@timestamp":"2026-09-15T12:00:00+0000"}`, noon},
+		{`{"time":"2026-09-15 12:00:00 +0000 UTC"}`, noon},
+		{`{"ts":1789473600.5}`, noon.Add(500 * time.Millisecond)},
+		{`{"time":1789473600000}`, noon},
+		{`{"time":1789473600000000}`, noon},
+		{`{"time":1789473600000000000}`, noon},
+		{`{"ts":"1789473600"}`, noon},
+	}
+	for _, c := range cases {
+		got, ok := ParseRecord(c.line).Time()
+		if !ok || !got.Equal(c.want) {
+			t.Errorf("%s read as %v (%v), want %v", c.line, got, ok, c.want)
+		}
+	}
+	for _, line := range []string{
+		`{"time":"2026-09-15 12:00:00"}`, // no zone: a guess would move it by hours
+		`{"time":"12:00:01"}`,
+		`{"ts":12.5}`, // seconds since the process started
+		`{"time":"yesterday"}`,
+		`{"msg":"no time at all"}`,
+	} {
+		if got, ok := ParseRecord(line).Time(); ok {
+			t.Errorf("%s read as %v, want no time", line, got)
+		}
 	}
 }

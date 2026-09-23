@@ -243,7 +243,8 @@ func trendStrip(points []point, width int, read trendReading, scale func([]float
 	}
 	floor, ceiling := scale(values)
 	strip := spark.Strip(values, floor, ceiling,
-		func(index int) lipgloss.Style { return theme.Usage(percents[index]) }) +
+		func(index int) lipgloss.Style { return theme.Usage(percents[index]) },
+		lipgloss.NewStyle()) +
 		strings.Repeat(" ", width-len(values))
 	if len(values) < 2 {
 		return strip, 0

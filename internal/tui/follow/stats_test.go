@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/gualask/linqode/internal/logs"
 	"github.com/gualask/linqode/internal/operations"
 )
 
@@ -35,25 +36,47 @@ func stamped(minutesAgo int, level string) string {
 	return fmt.Sprintf(`{"time":%q,"level":%q,"msg":"m"}`, at.Format(time.RFC3339), level)
 }
 
-// The panel says when, by which clock, and how the levels divide.
-func TestStatsPanelDrawsTheTimelineAndShares(t *testing.T) {
+// The panel says how many of each level there are now and in all, and names
+// the window "now" means and the clock that placed the lines in it.
+func TestStatsPanelCountsRecentAndAll(t *testing.T) {
 	m := statsModel(t, 30,
 		stamped(10, "info"), stamped(4, "error"), stamped(4, "info"), stamped(1, "info"))
 	view := m.View()
-	for _, text := range []string{"timeline", "by log time", "-15m", "now", "█"} {
+	for _, text := range []string{"levels", "last 1m", "by log time"} {
 		if !strings.Contains(view, text) {
 			t.Errorf("%q missing from the panel:\n%s", text, view)
 		}
 	}
-	// Three of four lines are info: its bar is three quarters of eight cells,
-	// padded to eight so the names line up.
-	if !strings.Contains(view, "     3 ██████   info") {
-		t.Errorf("info's share not drawn as six cells:\n%s", view)
+	// One of the three info lines is inside the minute; the error is four
+	// minutes old and counts only in the total.
+	for _, row := range []string{"info               1     3", "error              0     1"} {
+		if !strings.Contains(view, row) {
+			t.Errorf("row %q missing from the panel:\n%s", row, view)
+		}
 	}
 }
 
-// Plain text has no timestamps, and the timeline says it placed the lines by
-// when they arrived rather than drawing them as if it knew better.
+// The levels are drawn as one bar of the panel's width, so how much of the
+// log is a problem is readable without doing the sums — and the worst level
+// is at the left edge, where it is always in the same place.
+func TestStatsPanelDrawsTheLevelsAsOneBar(t *testing.T) {
+	m := statsModel(t, 30,
+		stamped(10, "info"), stamped(4, "error"), stamped(4, "info"), stamped(1, "info"))
+	if bar := strings.Repeat("█", statsWidth-1); !strings.Contains(m.View(), bar) {
+		t.Errorf("no bar %d cells wide in the panel:\n%s", statsWidth-1, m.View())
+	}
+
+	ordered := worstFirst([]logs.Count{{Key: "info", N: 3}, {Key: "error", N: 1}, {Key: "warn", N: 2}})
+	for index, want := range []string{"error", "warn", "info"} {
+		if ordered[index].Key != want {
+			t.Errorf("levels ordered %+v, want the worst first", ordered)
+			break
+		}
+	}
+}
+
+// Plain text has no timestamps, and the panel says it placed the lines by
+// when they arrived rather than counting them as if it knew better.
 func TestStatsPanelSaysWhenItPlacesByArrival(t *testing.T) {
 	m := statsModel(t, 30, "starting", "listening on :8080")
 	if view := m.View(); !strings.Contains(view, "by arrival") {
@@ -61,15 +84,21 @@ func TestStatsPanelSaysWhenItPlacesByArrival(t *testing.T) {
 	}
 }
 
-// A filter narrows the timeline, and the panel says so, because the counts
-// under it are still of the whole tail.
-func TestStatsPanelMarksAFilteredTimeline(t *testing.T) {
+// The counts are of the lines in view, so a filter narrows them and the
+// panel says what it is counting out of — which is the answer to "how many
+// of these are errors".
+func TestStatsPanelCountsTheFilteredView(t *testing.T) {
 	m := statsModel(t, 30, stamped(3, "error"), stamped(2, "info"))
 	m.Update(key("f"))
 	typeText(m, "level=error")
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if view := m.View(); !strings.Contains(view, "filtered") {
-		t.Errorf("filtered timeline not marked:\n%s", view)
+
+	view := m.View()
+	if !strings.Contains(view, "1 of 2 lines") {
+		t.Errorf("the panel does not say what it is counting out of:\n%s", view)
+	}
+	if strings.Contains(view, "info ") {
+		t.Errorf("a level the filter hides is still counted:\n%s", view)
 	}
 }
 

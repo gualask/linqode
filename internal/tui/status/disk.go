@@ -106,9 +106,13 @@ func (m *Model) renderDisk(width int) string {
 		size, free, sized := entry.Bytes()
 		if sized && size > 0 {
 			percent := float64(free) / float64(size) * 100
-			line += "[" + spark.Meter(percent, diskMeter, theme.Usage(percent)) + "]"
+			// No brackets around it: the gauge's empty half is a fill that
+			// ends where the gauge ends, and a delimiter around a shape that
+			// delimits itself says it twice. The rows without one leave the
+			// room blank, which is how they line up with the rows that have.
+			line += spark.Meter(percent, diskMeter, theme.Usage(percent), theme.Track)
 		} else {
-			line += strings.Repeat(" ", diskMeter+2)
+			line += strings.Repeat(" ", diskMeter)
 		}
 		if entry.HasReclaimable() {
 			amount, _, _ := strings.Cut(entry.Reclaimable, " ")

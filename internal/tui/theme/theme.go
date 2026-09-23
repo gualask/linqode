@@ -103,6 +103,19 @@ var (
 	// row keeps its place with a quiet fill instead: still findable when
 	// focus comes back, no longer competing with the panel that has it.
 	SelectedIdle = lipgloss.NewStyle().Background(surface)
+
+	// Track is the empty part of a shape that has a shape when it is empty:
+	// the half of a meter that is not used, the slot a chart's bar stands
+	// in, drawn from the first frame so the chart keeps its place while it
+	// fills. Both of them, and by the same token — a gauge over a history
+	// of itself is one reading drawn twice, and two kinds of empty one
+	// above the other read as two different things.
+	//
+	// It is a fill rather than a field of `░`. The meter learned that one
+	// the hard way — a track of speckle in the reading's own colour shouted
+	// as loudly as the fill — and a chart's track is four rows of it, where
+	// the speckle would be the loudest thing on the screen.
+	Track = lipgloss.NewStyle().Background(surface)
 )
 
 // Usage colors a percentage of something finite — memory, a filesystem, a

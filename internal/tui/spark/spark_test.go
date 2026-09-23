@@ -12,6 +12,11 @@ import (
 
 func plain(int) lipgloss.Style { return lipgloss.NewStyle() }
 
+// bare is a strip or a chart standing on the terminal's own background,
+// which is every one of these tests: what a track is for is a question for
+// the callers that have gauges to line up with.
+var bare = lipgloss.NewStyle()
+
 // A reading that barely moves must not be drawn as if it had swung from
 // empty to full, and one that spans more than the floor keeps its own range.
 func TestPercentWidensANarrowWindowAndNoMore(t *testing.T) {
@@ -38,7 +43,7 @@ func TestWindowIsNotClampedAboveAHundred(t *testing.T) {
 	if low != 150 || high != 250 {
 		t.Errorf("window = %v–%v, want 150–250", low, high)
 	}
-	strip := []rune(Strip([]float64{150, 250}, low, high, plain))
+	strip := []rune(Strip([]float64{150, 250}, low, high, plain, bare))
 	if strip[1] != '█' || strip[0] == '█' {
 		t.Errorf("a climb past a hundred drew %q", string(strip))
 	}
@@ -72,7 +77,7 @@ func TestRateAnchorsAtZero(t *testing.T) {
 func TestAClimbIsVisibleInTheStrip(t *testing.T) {
 	values := []float64{78, 80, 82, 84, 86, 88}
 	floor, ceiling := Percent(values)
-	strip := []rune(Strip(values, floor, ceiling, plain))
+	strip := []rune(Strip(values, floor, ceiling, plain, bare))
 	if strip[0] == strip[len(strip)-1] {
 		t.Errorf("a ten-point climb drew flat: %q", string(strip))
 	}
@@ -84,7 +89,7 @@ func TestStripAsksTheStyleAboutEveryCell(t *testing.T) {
 	Strip([]float64{1, 2, 3}, 0, 3, func(index int) lipgloss.Style {
 		asked = append(asked, index)
 		return lipgloss.NewStyle()
-	})
+	}, bare)
 	if len(asked) != 3 || asked[0] != 0 || asked[2] != 2 {
 		t.Errorf("style asked about cells %v", asked)
 	}
@@ -94,23 +99,23 @@ func TestStripAsksTheStyleAboutEveryCell(t *testing.T) {
 // a share above zero is never drawn as nothing.
 func TestBar(t *testing.T) {
 	for _, fraction := range []float64{0, 0.001, 0.5, 1, 3} {
-		if got := len([]rune(Bar(fraction, 8))); got != 8 {
+		if got := len([]rune(Bar(fraction, 8, bare, bare))); got != 8 {
 			t.Errorf("Bar(%v, 8) is %d cells wide", fraction, got)
 		}
 	}
-	if got := Bar(0, 4); strings.TrimSpace(got) != "" {
+	if got := Bar(0, 4, bare, bare); strings.TrimSpace(got) != "" {
 		t.Errorf("nothing drew %q", got)
 	}
-	if got := Bar(0.001, 4); !strings.HasPrefix(got, "▏") {
+	if got := Bar(0.001, 4, bare, bare); !strings.HasPrefix(got, "▏") {
 		t.Errorf("a sliver drew %q, want the thinnest mark", got)
 	}
-	if got := Bar(1, 4); got != "████" {
+	if got := Bar(1, 4, bare, bare); got != "████" {
 		t.Errorf("a whole drew %q", got)
 	}
-	if got := Bar(0.5, 4); got != "██  " {
+	if got := Bar(0.5, 4, bare, bare); got != "██  " {
 		t.Errorf("a half drew %q", got)
 	}
-	if got := Bar(0.5, 0); got != "" {
+	if got := Bar(0.5, 0, bare, bare); got != "" {
 		t.Errorf("zero width drew %q", got)
 	}
 }
@@ -118,7 +123,7 @@ func TestBar(t *testing.T) {
 // A histogram stacks its heights across rows, draws any value above zero,
 // and leaves an empty column blank rather than on a floor.
 func TestColumns(t *testing.T) {
-	lines := Columns([]float64{0, 1, 50, 100}, 100, 2, plain)
+	lines := Columns([]float64{0, 1, 50, 100}, 100, 2, plain, bare)
 	if len(lines) != 2 {
 		t.Fatalf("drew %d rows, want 2", len(lines))
 	}
@@ -135,8 +140,28 @@ func TestColumns(t *testing.T) {
 	if top[3] != '█' || bottom[3] != '█' {
 		t.Errorf("the ceiling drew %q over %q, want both rows full", top[3], bottom[3])
 	}
-	if got := Columns([]float64{1}, 1, 0, plain); got != nil {
+	if got := Columns([]float64{1}, 1, 0, plain, bare); got != nil {
 		t.Errorf("no rows drew %q", got)
+	}
+}
+
+// A column is solid to its top cell, which is a half where the value falls
+// between two rows. The columns touch, an empty one is the bare track rather
+// than a floor, and anything above zero is drawn.
+func TestBars(t *testing.T) {
+	lines := Bars([]float64{0, 12.5, 50, 100}, 100, 2, plain, bare)
+	want := []string{"   █", " ▄██"}
+	if len(lines) != len(want) {
+		t.Fatalf("two rows drew %d lines: %q", len(lines), lines)
+	}
+	for row := range want {
+		if lines[row] != want[row] {
+			t.Errorf("row %d is %q, want %q", row, lines[row], want[row])
+		}
+	}
+	// A reading far below one column's own height is still a reading.
+	if got := Bars([]float64{0.4}, 100, 4, plain, bare); got[3] != "▄" {
+		t.Errorf("0.4%% of a hundred drew %q in the bottom row", got[3])
 	}
 }
 
@@ -163,17 +188,49 @@ func TestSpan(t *testing.T) {
 // proportion.
 func TestMeter(t *testing.T) {
 	for _, percent := range []float64{-20, 0, 37, 100, 250} {
-		if got := lipgloss.Width(Meter(percent, 10, lipgloss.NewStyle())); got != 10 {
+		if got := lipgloss.Width(Meter(percent, 10, bare, bare)); got != 10 {
 			t.Errorf("Meter(%v, 10) is %d cells wide", percent, got)
 		}
 	}
-	if got := strings.Count(Meter(50, 10, lipgloss.NewStyle()), "█"); got != 5 {
+	if got := strings.Count(Meter(50, 10, bare, bare), "█"); got != 5 {
 		t.Errorf("half a meter filled %d cells of 10", got)
 	}
-	if got := strings.Count(Meter(250, 10, lipgloss.NewStyle()), "█"); got != 10 {
+	if got := strings.Count(Meter(250, 10, bare, bare), "█"); got != 10 {
 		t.Errorf("a reading past a hundred filled %d cells of 10", got)
 	}
-	if got := Meter(50, 0, lipgloss.NewStyle()); got != "" {
+	if got := Meter(50, 0, bare, bare); got != "" {
 		t.Errorf("zero width drew %q", got)
+	}
+}
+
+// Shares drawn as one bar: the whole width, in proportion, with a share
+// above zero never rounded away and a level with nothing in it absent.
+func TestSegments(t *testing.T) {
+	width := func(values []float64, cells int) string {
+		return Segments(values, cells, plain, bare)
+	}
+	if got := width([]float64{1, 1}, 10); got != strings.Repeat("█", 10) {
+		t.Errorf("two equal shares drew %q", got)
+	}
+	if got := len([]rune(width([]float64{97, 2, 1}, 20))); got != 20 {
+		t.Errorf("three shares drew %d cells, want 20", got)
+	}
+	// One error among a thousand lines is one cell, not none, and the
+	// hundredth that pays for it comes off the widest share.
+	segments := Segments([]float64{999, 1}, 20, func(index int) lipgloss.Style {
+		if index == 1 {
+			return lipgloss.NewStyle().Bold(true)
+		}
+		return lipgloss.NewStyle()
+	}, bare)
+	if got := len([]rune(segments)); got != 20 {
+		t.Errorf("a sliver beside a whole drew %d cells: %q", got, segments)
+	}
+	// Nothing at all is the bare track, and no width is nothing.
+	if got := width([]float64{0, 0}, 4); got != "    " {
+		t.Errorf("no shares drew %q, want the track", got)
+	}
+	if got := width([]float64{1}, 0); got != "" {
+		t.Errorf("no width drew %q", got)
 	}
 }

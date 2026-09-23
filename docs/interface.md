@@ -11,7 +11,7 @@ gives way when the terminal runs short. What is *read* to fill it is
 
 ```
 ┌─ linqode  user@host  /srv/app ──────────────────────────────────────────┐
-│ host  cpu[▇▇▃░░ 28%]  mem[▇▇▇▇░ 3.1G/7.8G]  /var[▇▇░ 24G/98G]  52°C  up │
+│ host  cpu ▇▇▃░░ 28%   mem ▇▇▇▇░ 3.1G/7.8G   /var ▇▇░ 24G/98G   52°C  up │
 └─────────────────────────────────────────────────────────────────────────┘
 ┌─ services ──────────────────────── 4 running · 1 exited · 1 unhealthy ──┐
 │ SERVICE  STATE    HEALTH   RESTARTS  CPU    MEM    NET RX/TX   IO R/W    │
@@ -249,7 +249,16 @@ of the rows under it.
 
 The layout follows htop's meters — the bar carries the percentage, the text
 inside it carries the absolute amounts, so the percentage is never printed
-twice. Bars share whatever the labels leave, stretch with the terminal, and
+twice. What the bar has not filled is the same track a chart's columns stand
+in; the `░` in the sketches above is a plain-text stand-in for it.
+
+**No brackets around the gauges.** htop writes its meters between them and
+needs to: its track is empty space, and without the `]` nothing says how far
+the bar could have gone. A bar standing in a fill ends where the fill ends,
+so the brackets were two cells per meter spent saying it twice — and on the
+band, where four meters share a row, the fill groups a label with its own
+amount as well as the bracket did. They came off everything that draws a
+gauge in September 2026: the band, the readings, the docker disk rows. Bars share whatever the labels leave, stretch with the terminal, and
 are capped at thirty cells because past that a gauge adds resolution nobody
 reads. The label is the word `host`: CPU and memory appear twice on this
 screen, once here and once per container below, and without the word the band
@@ -287,22 +296,23 @@ row here until September 2026, and is under the services table now, with the
 rest of what is about docker.
 
 **It fills the screen in both directions**: the readings at the top, in two
-columns where the terminal is wide enough; a row of charts under them, as tall
-as the readings leave room for; and the processes in whatever is left, both
-rankings side by side where the width allows.
+columns where the terminal is wide enough; a row of short charts under them;
+and the processes in whatever is left, both rankings side by side where the
+width allows.
 
 ```
- cpu      [▇▇▇░░░░░░░]  28% busy   load 7.21  5.98  4.55   over 8 cores     net                    283K/s down   70.8K/s up   busiest eth0 at 354K/s
- cores    ▇▅▁▁▂▁▁▁   busiest cpu0 at 98%                                    pressure               cpu 24.5%   io 8.3% (full 2.1%)   mem 0.0%   stalled 10s
- memory   [▇▇▇▇▇▇▇░░░]  24.6G used   6.7G available of 31.3G                 temp     [▇▇▇▇▇▇▇▇░░]  74°C Composite of 85°C   71°C Package id 0
- swap     [▇▇▇░░░░░░░]  3.2G used   4.8G free of 8.0G                       gpu      [▇▇▇▇▇▇▇▇▇░]  91% busy   20.9G/22.5G   74°C   149W   NVIDIA A10
- /        [▇▇▇▇▇▇▇▇▇░]  89.0G used   107G free of 196G   /dev/nvme0n1p2      uptime                 42d7h
- /var     [▇▇▇▇▇▇▇▇▇▇]  372G used   27.6G free of 400G   full in ~1h         system                 Debian GNU/Linux 12 (bookworm)
+ cpu      ▇▇▇░░░░░░░  28% busy   load 7.21  5.98  4.55   over 8 cores    net                  283K/s down   70.8K/s up   busiest eth0 at 354K/s
+ cores    ▇▇▅▅▁▁▂▂▁▁  busiest cpu0 at 98%                                pressure             cpu 24.5%   io 8.3% (full 2.1%)   mem 0.0%   stalled 10s
+ memory   ▇▇▇▇▇▇▇░░░  24.6G used   6.7G available of 31.3G               temp     ▇▇▇▇▇▇▇▇░░  74°C Composite of 85°C   71°C Package id 0
+ swap     ▇▇▇░░░░░░░  3.2G used   4.8G free of 8.0G                      gpu      ▇▇▇▇▇▇▇▇▇░  91% busy   20.9G/22.5G   74°C   149W   NVIDIA A10
+ /        ▇▇▇▇▇▇▇▇▇░  89.0G used   107G free of 196G   /dev/nvme0n1p2    uptime               42d7h
+ /var     ▇▇▇▇▇▇▇▇▇▇  372G used   27.6G free of 400G   full in ~1h       system               Debian GNU/Linux 12 (bookworm)
 
- cpu  28% busy                   memory  79% used                net down  283K/s   peak 354K/s     net up  70.8K/s   peak 96.1K/s
-         ▃  ▅▆█▇▅▃                          ▃▃▄▄▅▅▆▆▇▇█▇█                 ▂▇▃ ▄▂▇▃▁▄                      ▁▂▁ ▃▁▂▁
-   ▅▅▆▇████████████▆              ▅▅▆▆███████████████████         ▃▄████▆███████▅                  ▂▅████▆████▅
- -12m                     now    -12m                     now    -12m                     now    -12m                     now
+ cpu  28% busy                    3m     memory  79% used                 3m     net down  283K/s   peak 354K/s   3m     net up  70.8K/s   peak 96.1K/s   3m
+                 ▄██▄                                                                  █           ▄                                   █
+                ▄████▄                   ▄▄▄▄▄▄▄▄▄▄▄█████████████████████████          █▄          █          █             ▄         ██                   ▄
+               ▄██████▄                  ████████████████████████████████████         ███         ▄██         █▄            █         ██▄         █        █
+ ▄▄▄▄▄▄▄▄▄▄▄▄▄██████████▄▄▄▄▄▄▄▄▄▄▄▄▄    ████████████████████████████████████    ▄▄▄▄▄████▄▄▄▄▄▄▄▄███▄▄▄▄▄▄▄▄▄██▄▄▄▄▄    ▄▄▄██▄▄▄▄▄▄▄▄███▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄█▄
 
  processes  by memory   312 running                                     processes  by cpu   312 running
   process                    RSS       CPU   pid                         process                    RSS       CPU   pid
@@ -318,11 +328,25 @@ name. Read top to bottom, one column is the order the view always had, which
 is by how much a row answers "what is wrong with this machine", because a
 short terminal truncates the box from the bottom.
 
-- **The per-core strip** is one cell per core, not a labelled bar each: a
-  labelled bar each stops fitting somewhere around sixteen cores, and the
-  shape of the strip is what the row is read for. One pinned core among eight
+**The rows are there from the first sample.** Three readings here are
+differences between two samples — the CPU share, the per-core strip, both
+throughputs — and their rows used to arrive one sample after the view opened,
+pushing everything under them down the screen as they did. The row is drawn
+either way and says `—` until it has a number, except the CPU meter, which
+has something better to stand in with: the load average, under its own label,
+until the share exists.
+
+- **The per-core strip** draws the cores as heights, not as a labelled bar
+  each: a labelled bar each stops fitting somewhere around sixteen cores, and
+  the shape of the row is what it is read for. One pinned core among eight
   idle ones is a machine with a problem and an average that says twelve
-  percent, so the busiest is named beside it.
+  percent, so the busiest is named beside it. It stands in the same track as
+  the gauges and is as wide as they are — with room to spare a core takes
+  several cells, and on a machine with more cores than cells each cell
+  carries the busiest of the ones it covers, since a strip that showed every
+  other core would be the one way to lose the reading. It was one cell per
+  core on the bare background until September 2026, which left it the single
+  shape in that column with no track under it.
 - **The gauges shrink so the widest row fits** its column. The pressure row
   is the longest and the one with no gauge to give up, so the bars reserve
   what its text needs — which costs a wide column nothing, since the cap is
@@ -335,7 +359,7 @@ short terminal truncates the box from the bottom.
   use and no share of it, which is the whole difference between the two:
 
   ```
-   gpu      [▇▇░░░░░░░░]  21% busy   335M used   Apple M4 (10 cores)
+   gpu      ▇▇░░░░░░░░  21% busy   335M used   Apple M4 (10 cores)
   ```
 - **The last row is what the machine calls itself**, established once by the
   [connect-time probe](monitoring.md) rather than sampled — it does not change
@@ -355,26 +379,63 @@ They used to be **a column of strips one row high** beside the readings. One
 row is eight heights to draw a history with; the column vanished altogether
 wherever the widest reading left fewer than twenty-four cells, which on a
 host with a GPU row was most terminals; and the screen under the process list
-stayed empty. The charts take that room instead.
+stayed empty. The charts took that room instead — and then took rather more
+of it than they were worth, on the argument that height buys resolution: a
+share drawn from nought to a hundred over ten rows is eighty heights, and
+memory going from 78% to 88% is eight of them. What that bought in practice
+was a wall, twelve rows in which a busy machine is a solid block of colour and
+an idle one is empty air, over a process list squeezed to make room for it.
 
-**Height is what lets a chart use the reading's own scale.** A share is drawn
-from nought to a hundred, so the height is the level, as it is on the meter
-above: ten rows are eighty heights, and memory going from 78% to 88% is eight
-of them. A one-row strip could only show that climb by scaling against its own
-window, which made a reading that barely moved look as if it had swung. A rate
-has no natural full and is drawn against the busiest moment the chart holds,
-which its title names as the peak.
+**A chart is five rows**: a title and four rows of history, four rows where
+the terminal is short. The chart is read for *when* something happened; how
+much it is right now is what the meter above it is for.
+
+**The history is drawn as solid columns**, a sample each and touching, over
+the track — which is the meter's shape stood on end. Four rows of the finer
+drawing is a ragged edge of eighths, and columns with air between them read
+as a grid rather than as a history; they had that air for an afternoon and
+it is gone.
+
+**The columns are there before the readings are.** A trend needs two
+samples, and the charts used to appear one sample after the view opened,
+pushing the process list down the screen as they arrived. Every column is
+drawn from the first frame instead — a quiet fill a shade off the terminal's
+background — and the readings fill them from the right, so a chart has its
+shape before it has its history. A reading that needs a difference, which is
+the CPU share and both throughputs, says `—` until it has one.
+
+**A gauge and a chart stand in the same track.** There is one empty in this
+interface and it is a quiet fill a shade off the terminal's background: the
+half of a meter that is not used, the rows of a chart that are not filled
+yet, the part of a log level's bar that the other levels hold. Every shape
+`spark` draws stands in it — the band's meters, the readings, the per-core
+row, the charts, the docker disk rows and the bar the log panel divides
+between levels — and they are the same colour and read as the same thing. The one exception is the live panel's strips, which
+are drawn on the bare background. The meter's track was a field
+of `░` until September 2026, which put two kinds of empty one above the other
+the moment the charts landed under the readings — a speckled one in the
+gauges, a filled one in the charts. The speckle lost: it had already been
+found to shout as loudly as the fill when it took the reading's own colour,
+and a chart's track is four rows of it.
+
+**A share is drawn from nought to a hundred**, so the height is the level, as
+it is on the meter above. A rate has no natural full and is drawn against the
+busiest moment the chart holds, which its title names as the peak.
 
 **Colour says how bad**: a share's columns are coloured by their own reading,
 so a climbing memory chart turns yellow where the reading did. Throughput is
 one colour, because the top of a rate chart is only the top of what happened.
 
+**The title says how far back the chart reaches**, at its right end. That was
+an axis row under the history until the charts got short enough for the axis
+to be a fifth of one, and every chart on the screen covers the same minutes
+anyway. The newest column is against the right edge, so a chart that has not
+filled yet fills from the right. The history holds an hour, so a wide
+terminal reaches further back than a narrow one.
+
 Four charts share a row where each gets 36 cells, wrap into two rows of two
 where they do not, and into one column below that — never three over one,
-which reads as a fourth that did not fit. A chart draws **a sample a cell**,
-newest on the right, and its axis starts under the oldest one drawn, so it
-says how far back the chart actually reaches. The history holds an hour, so a
-wide terminal reaches further back than a narrow one.
+which reads as a fourth that did not fit.
 
 Nothing is retained across sessions. History while nobody is connected is what
 an agent would buy, and that is a non-goal.
@@ -396,11 +457,12 @@ fetched every process there is.
 ### What gives way
 
 The readings are drawn first, and what they leave is divided between the
-charts and the processes in one place. When both fit at their least — a chart
-row of a title, three rows of history and an axis; the headings and three
-processes — the charts take 45% of the room, between five and fourteen rows
-each, and the processes the rest; rows the processes cannot fill go back to
-the charts.
+charts and the processes in one place. The charts ask for a fixed few rows —
+five, or four where that is all that fits — and everything past them belongs
+to the processes. There is nothing left to negotiate: the charts used to take
+45% of the room and then grow into whatever rows the process list could not
+fill, which is how a screen of four charts twelve rows tall over nine
+processes happened.
 
 When only one fits, **it is the processes**. The numbers before the shapes:
 the next sample reconstructs a chart, and nothing reconstructs which process
@@ -448,10 +510,10 @@ with a meter for its reclaimable share, the amount, and how many are idle.
 
 ```
  ── docker disk · 37.94GB of 64.44GB reclaimable ──────────────────────────
- images         48.21GB  [██████████████░░░░░░]    31.42GB reclaimable   25 idle of 31
- containers     1.204GB  [███████░░░░░░░░░░░░░]    402.7MB reclaimable   8 idle of 12
- volumes        8.914GB                         nothing to reclaim   all 4 in use
- build cache    6.117GB  [████████████████████]    6.117GB reclaimable   118 idle of 118
+ images         48.21GB  ██████████████░░░░░░    31.42GB reclaimable   25 idle of 31
+ containers     1.204GB  ███████░░░░░░░░░░░░░    402.7MB reclaimable   8 idle of 12
+ volumes        8.914GB                       nothing to reclaim   all 4 in use
+ build cache    6.117GB  ████████████████████    6.117GB reclaimable   118 idle of 118
 ```
 
 It used to be a row of the system view, which put a question about docker in

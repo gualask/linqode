@@ -6,6 +6,7 @@ package logs
 import (
 	"slices"
 	"testing"
+	"time"
 )
 
 func storeOf(lines ...string) *Store {
@@ -136,11 +137,12 @@ func TestStatsCountLevelsCaseFoldedAndSorted(t *testing.T) {
 		`{"level":"info"}`,
 		"plain-text line",
 	)
-	stats := s.ComputeStats("")
-	if stats.Total != 4 || stats.Parsed != 3 {
-		t.Errorf("total %d parsed %d", stats.Total, stats.Parsed)
+	stats := s.ComputeStats("", time.Now())
+	if stats.Lines != 4 || stats.Parsed != 3 {
+		t.Errorf("lines %d parsed %d", stats.Lines, stats.Parsed)
 	}
-	want := []Count{{"error", 2}, {"info", 1}}
+	// Everything was pushed a moment ago, so every count is recent.
+	want := []Count{{"error", 2, 2}, {"info", 1, 1}}
 	if !slices.Equal(stats.Levels, want) {
 		t.Errorf("levels %v", stats.Levels)
 	}
@@ -151,20 +153,20 @@ func TestStatsCountTopValuesOfChosenField(t *testing.T) {
 	for _, path := range []string{"/a", "/b", "/a", "/c", "/a", "/b"} {
 		s.Push(`{"path":"` + path + `"}`)
 	}
-	stats := s.ComputeStats("path")
-	want := []Count{{"/a", 3}, {"/b", 2}, {"/c", 1}}
+	stats := s.ComputeStats("path", time.Now())
+	want := []Count{{"/a", 3, 3}, {"/b", 2, 2}, {"/c", 1, 1}}
 	if !slices.Equal(stats.Values, want) {
 		t.Errorf("values %v", stats.Values)
 	}
-	if len(s.ComputeStats("").Values) != 0 {
+	if len(s.ComputeStats("", time.Now()).Values) != 0 {
 		t.Error("no field chosen, values must be empty")
 	}
 }
 
 func TestStatsTiesBreakAlphabetically(t *testing.T) {
 	s := storeOf(`{"k":"b"}`, `{"k":"a"}`)
-	stats := s.ComputeStats("k")
-	want := []Count{{"a", 1}, {"b", 1}}
+	stats := s.ComputeStats("k", time.Now())
+	want := []Count{{"a", 1, 1}, {"b", 1, 1}}
 	if !slices.Equal(stats.Values, want) {
 		t.Errorf("values %v", stats.Values)
 	}
@@ -177,12 +179,12 @@ func TestStatsFollowBufferDrops(t *testing.T) {
 	s.Push(`{"level":"error"}`)
 	s.Push(`{"level":"info"}`)
 	s.Push(`{"level":"info"}`) // drops the error line
-	stats := s.ComputeStats("")
-	want := []Count{{"info", 2}}
+	stats := s.ComputeStats("", time.Now())
+	want := []Count{{"info", 2, 2}}
 	if !slices.Equal(stats.Levels, want) {
 		t.Errorf("levels %v", stats.Levels)
 	}
-	if stats.Total != 2 || stats.Parsed != 2 {
-		t.Errorf("total %d parsed %d", stats.Total, stats.Parsed)
+	if stats.Lines != 2 || stats.Parsed != 2 {
+		t.Errorf("lines %d parsed %d", stats.Lines, stats.Parsed)
 	}
 }

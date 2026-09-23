@@ -182,7 +182,7 @@ func TestEnterOnTheBandOpensTheSystemView(t *testing.T) {
 	if !strings.Contains(view, "0.50") || !strings.Contains(view, "available") {
 		t.Errorf("the system view is missing its readings:\n%s", view)
 	}
-	if !strings.Contains(bandLine(view), "load[") {
+	if !strings.Contains(bandLine(view), "load ") {
 		t.Errorf("the band left the header while its view was open:\n%s", view)
 	}
 	if !strings.Contains(view, "esc back") {

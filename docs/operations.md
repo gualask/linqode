@@ -132,38 +132,65 @@ object becomes a record whose nested fields are flattened to dotted paths
   operate on the filtered view, whose indices stay consistent across buffer
   drops by sequence-number accounting.
 - **Stats** (`a`): counts by level and top values of a chosen field (`t`), in
-  a side panel, each with a bar for its share of its list — so a list's bars
-  add up to one whole bar, and a share above zero is never drawn as nothing.
+  a side panel, each counted twice — recently and in all (see
+  [Recent counts](#recent-counts)) — with the levels drawn as one bar
+  besides.
   They are recomputed on demand over the bounded tail (see
   [porting.md](porting.md), deliberate divergences). The panel is cut to the
   log's height from the bottom, where the least frequent values are, so a
   short terminal keeps its footer.
 
-### The timeline
+### Recent counts
 
-The counts say how many errors the tail holds; the timeline at the top of the
-same panel says **when** they happened. "Thirty errors" and "thirty errors in
-the last two minutes" are different problems, and the difference costs the
-server nothing: every line it is drawn from has already arrived.
+The counts say how many errors the view holds; on their own they cannot say
+whether those errors are still happening, which is the difference between an
+incident and a scar. So every count is drawn twice: **how many in a window
+ending now, and how many in all**. "Thirty errors" and "thirty errors in the
+last minute" are different problems, and the difference costs the server
+nothing — every line it is read from has already arrived.
 
-It is a histogram a few rows tall, one column per slice of time ending now.
-**Height is how many lines, colour is the worst level among them** — red for
-an error, yellow for a warning, one neutral colour for everything else — which
-is the rule every strip on the home follows. A slice holding one error among
-five hundred lines is red whole, because when the errors happened is what the
-panel is opened for; how many there were is the levels list underneath. The
-span is the shortest of 1m, 5m, 15m, 1h, 6h, 24h and 7d that reaches back to
-the oldest line, so a busy service's two minutes and a quiet one's week both
-fill the width. Lines older than a week are counted under it rather than
-stretched over.
+**The window follows the pace of what is in view**: the shortest of 1m, 5m,
+15m, 1h, 6h and 24h that holds at least a tenth of the lines. A fixed window
+would be a column of noughts on a service that logs twice an hour and the
+whole tail on one that logs twice a second. It is named in the panel
+(`last 5m · by log time`), because a number nobody can name the window of is
+not a reading. A tenth rather than a half: the column is there to say what is
+happening *now*, and a window holding most of the tail says what the total
+beside it already said.
 
-**It is of the lines in view**, so a filter narrows it and its heading says
-`filtered`: "when did these start" is the question a filter is there to ask.
-The counts under it stay of the whole tail, which is why the heading has to
-say so.
+**The levels are drawn as one bar** the width of the panel, a segment per
+level in proportion, worst first — so the red starts at the left edge, where
+it is always in the same place. This is the question a count cannot answer on
+its own: five errors is a sliver of a busy service and the whole of a quiet
+one, and `5` is the same number in both, while a bar that has gone red says
+which one you are looking at before you have read anything. A share above
+zero is never drawn as nothing, for the reason every other bar in this
+interface does not drop one: the segment that matters is usually the small
+one. The cell it takes is borrowed from the widest segment, so the bar is
+exactly the panel's width whatever it holds.
 
-**Which clock placed the lines is on the axis**, and a view is placed by one
-clock, never a mix — a record written an hour ago beside a line that arrived a
+The rows under it are in the bar's order rather than by how many, so the two
+are read in the same direction: what the bar puts at the left edge is what
+the list puts at the top. The field values keep the order they have, which is
+by how many.
+
+**The counts are of the lines in view**, so a filter narrows them and the
+panel says what it is counting out of (`5 of 190 lines`). "How many of these
+are errors" is the question a filter leaves you holding, and it used to be
+unanswerable here: the counts were of the whole tail whatever the filter
+said, so a log filtered down to one route still reported every level in the
+buffer.
+
+This replaced a histogram of when the lines in view were written (removed
+September 2026), which drew height for how many lines and colour for the
+worst level among them. It was a true picture and the wrong question: reading
+it took knowing that the height counted every level while the colour spoke
+for one of them, and neither was a number. What it needed is what the counts
+need anyway — the lines placed in time, under one clock — and that is what
+stayed.
+
+**Which clock placed the lines is named in the panel**, and a view is placed
+by one clock, never a mix — a record written an hour ago beside a line that arrived a
 second ago would say the second came long after the first:
 
 - **By log time** when at least half the lines carry a timestamp that can be
@@ -175,15 +202,15 @@ second ago would say the second came long after the first:
   guessed at: a wrong guess does not misplace a record by a little, it moves
   every one of them by hours.
 - **By arrival** otherwise, which is honest and imperfect: the backlog a
-  follow starts with was written over hours and arrives in one burst, so it
-  stands at the right-hand end as a single spike until the span grows past
-  it. `docker compose logs --timestamps` would give every line the daemon's
+  follow starts with was written over hours and arrives in one burst, so all
+  of it counts as recent until the window shrinks back around the traffic
+  that follows. `docker compose logs --timestamps` would give every line the daemon's
   own time, plain text included, and was not taken: it adds some thirty
   bytes to every line on the wire, and the engine is Docker-agnostic by
   design, so the arrival clock is needed for scripts and `tail -F` anyway.
 
-A server clock a little ahead of this one puts its newest lines in the last
-slice rather than nowhere.
+A line stamped after now, which is what a server clock a little ahead of this
+one produces, is recent under every window rather than under none.
 
 ## The machine interface
 

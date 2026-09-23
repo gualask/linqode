@@ -46,6 +46,13 @@ const shotRounds = 18
 // hostErr makes the host fetch fail, which is how the stale flag is reached —
 // through the panel's own path rather than by writing its fields.
 func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
+	return shotRounded(width, height, hostMetrics, hostErr, shotRounds)
+}
+
+// shotRounded is that screen with the number of beats named. A frame that
+// wants the screen at the moment it opens — before a difference exists to
+// draw a percentage or a rate from — asks for none.
+func shotRounded(width, height int, hostMetrics bool, hostErr error, rounds int) *Model {
 	panel := status.New(status.Config{Stats: true, LiveStats: true})
 	round, hostRound, processRound := 0, 0, 0
 	failing := false
@@ -102,7 +109,7 @@ func shotScreen(width, height int, hostMetrics bool, hostErr error) *Model {
 	// list has landed, and a percentage is the difference between two
 	// readings — so the frames take three passes to show a full table, and
 	// as many again to fill the sparklines beside the host readings.
-	for range shotRounds {
+	for range rounds {
 		resample(screen)
 	}
 	// Docker's disk is gated on the table having room for it, and the first
@@ -243,8 +250,8 @@ func shotFollow(width int, structured, ended bool) string {
 // the filter prompt afterwards.
 //
 // The timestamps are written relative to the moment the frame is rendered,
-// because the timeline ends at now — which is also what makes this the frame
-// that shows whether "when" reads at a glance.
+// because the recent column ends at now — which is also what makes this the
+// frame that shows whether "how many just now" reads at a glance.
 func shotFollowStats(width, height int, filter string) string {
 	now := time.Now()
 	routes := []string{"/api/orders", "/api/users", "/healthz", "/api/orders/:id/items", "/api/login"}
@@ -270,7 +277,7 @@ func shotFollowStats(width, height int, filter string) string {
 
 // shotFollowPlain is a plain-text log with its statistics open, the whole
 // backlog having arrived in the one burst a follow starts with — which is the
-// case the timeline has to own up to rather than draw as if it knew better.
+// case the panel has to own up to rather than count as if it knew better.
 func shotFollowPlain(width, height int) string {
 	events := make(chan operations.Event, 128)
 	for i := range 80 {
@@ -333,6 +340,13 @@ func TestUIShot(t *testing.T) {
 		resample(systemView)
 	}
 
+	// The same view at the moment it opens, one sample in: the charts have
+	// their slots and nothing yet to put in them, and the readings that need
+	// a difference say so. This frame exists to catch the layout moving when
+	// the second sample lands.
+	opening := shotRounded(160, 46, true, nil, 0)
+	openSystem(opening)
+
 	// Walked to rather than counted to: one `tab` from the header is the
 	// table, and this frame is about the region after it — where `enter`
 	// opens the same logs and `c` now acts on the container the event was
@@ -385,7 +399,7 @@ func TestUIShot(t *testing.T) {
 	bare.SetSize(150, 20)
 
 	frames := []shotFrame{
-		{Name: "140x32 — log statistics: when, by log time, and how it divides",
+		{Name: "140x32 — log statistics: how the levels and the routes divide, and how many just now",
 			Text: shotFollowStats(140, 32, "")},
 		{Name: "140x32 — the same log filtered to its errors", Text: shotFollowStats(140, 32, "level=error")},
 		{Name: "120x16 — plain text on a short terminal, placed by arrival",
@@ -399,6 +413,8 @@ func TestUIShot(t *testing.T) {
 			Text: wide.View()},
 		{Name: "160x46 — the system view, opened with enter on the band",
 			Text: systemView.View()},
+		{Name: "160x46 — the system view a moment after opening, before the first trend",
+			Text: opening.View()},
 		{Name: "100x36 — one list, switched to ranking by CPU", Text: byCPUView.View()},
 		{Name: "250x60 — the system view with room in both directions",
 			Text: wideSystem.View()},

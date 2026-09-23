@@ -13,6 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gualask/linqode/internal/host"
 	"github.com/gualask/linqode/internal/tui/theme"
@@ -43,9 +44,7 @@ func sampled(metrics host.Metrics) *Model {
 func TestMeterBarsStretchWithTheTerminal(t *testing.T) {
 	m := sampled(sampleMetrics())
 
-	cells := func(width int) int {
-		return strings.Count(m.Band(width), "░") + strings.Count(m.Band(width), "█")
-	}
+	cells := func(width int) int { return barCells(m, width) }
 	narrow, wide := cells(80), cells(160)
 
 	if wide <= narrow {
@@ -54,6 +53,27 @@ func TestMeterBarsStretchWithTheTerminal(t *testing.T) {
 	if narrow < 3*meterMinBar {
 		t.Errorf("bars fell below the floor at 80 columns: %d cells", narrow)
 	}
+}
+
+// barCells is how many cells the band spends on its gauges at this width.
+// A gauge has no glyph of its own where it is empty and no bracket around it
+// either, so it is measured between the label that opens a meter and the
+// amount that closes it rather than counted.
+func barCells(m *Model, width int) int {
+	line := ansi.Strip(m.Band(width))
+	total := 0
+	for _, gauge := range m.meters() {
+		start := strings.Index(line, gauge.label+" ")
+		if start < 0 {
+			// Shed at this width, which is a finding of its own tests.
+			continue
+		}
+		start += len(gauge.label) + 1
+		if end := strings.Index(line[start:], " "+gauge.value); end >= 0 {
+			total += end
+		}
+	}
+	return total
 }
 
 // The band must never be the thing that wraps the header.
@@ -81,7 +101,7 @@ func TestNoNumbersBeforeTheFirstSample(t *testing.T) {
 	if !strings.Contains(line, "waiting") {
 		t.Errorf("the band says nothing about having no sample yet: %q", line)
 	}
-	for _, meter := range []string{"cpu[", "mem[", "swap[", "%"} {
+	for _, meter := range []string{"cpu ", "mem ", "swap ", "%"} {
 		if strings.Contains(line, meter) {
 			t.Errorf("the band drew %q with no sample behind it: %q", meter, line)
 		}
@@ -94,7 +114,7 @@ func TestHostLineDropsUnreportedParts(t *testing.T) {
 	m := sampled(host.Metrics{Load1: 1.5, CPUs: 2})
 
 	line := m.Band(120)
-	if !strings.Contains(line, "load[") || !strings.Contains(line, "1.50") {
+	if !strings.Contains(line, "load ") || !strings.Contains(line, "1.50") {
 		t.Errorf("load missing from band: %q", line)
 	}
 	for _, absent := range []string{"mem", "disk", "up "} {
@@ -220,11 +240,11 @@ func measured() *Model {
 // second sample to subtract the first from.
 func TestBandShowsLoadUntilItCanShowCPU(t *testing.T) {
 	first := sampled(richMetrics())
-	if line := first.Band(160); !strings.Contains(line, "load[") || strings.Contains(line, "cpu[") {
+	if line := first.Band(160); !strings.Contains(line, "load ") || strings.Contains(line, "cpu ") {
 		t.Errorf("first sample should fall back to load: %q", line)
 	}
 	line := measured().Band(160)
-	if !strings.Contains(line, "cpu[") || strings.Contains(line, "load[") {
+	if !strings.Contains(line, "cpu ") || strings.Contains(line, "load ") {
 		t.Errorf("second sample should carry the real reading: %q", line)
 	}
 	// One core of four busy for ten seconds: 25% of the machine.
@@ -238,10 +258,10 @@ func TestBandShowsLoadUntilItCanShowCPU(t *testing.T) {
 // says which one it is.
 func TestBandDiskMeterFollowsTheFullestFilesystem(t *testing.T) {
 	line := sampled(richMetrics()).Band(160)
-	if !strings.Contains(line, "/var[") {
+	if !strings.Contains(line, "/var ") {
 		t.Errorf("band did not follow the fullest filesystem: %q", line)
 	}
-	if strings.Contains(line, "disk[") {
+	if strings.Contains(line, "disk ") {
 		t.Errorf("band still labels its disk meter generically: %q", line)
 	}
 }
@@ -251,15 +271,52 @@ func TestBandDiskMeterFollowsTheFullestFilesystem(t *testing.T) {
 func TestSwapMeterAppearsOnlyWhenSwapIsFilling(t *testing.T) {
 	quiet := richMetrics()
 	quiet.SwapFreeKB = quiet.SwapTotalKB - 1000
-	if line := sampled(quiet).Band(200); strings.Contains(line, "swap[") {
+	if line := sampled(quiet).Band(200); strings.Contains(line, "swap ") {
 		t.Errorf("a megabyte of swap drew a meter: %q", line)
 	}
-	if line := sampled(richMetrics()).Band(200); !strings.Contains(line, "swap[") {
+	if line := sampled(richMetrics()).Band(200); !strings.Contains(line, "swap ") {
 		t.Errorf("half the swap in use drew no meter: %q", line)
 	}
 }
 
 // Everything the batch reads has a row, and the ones that need two samples
+// The cores stand in the gauges' track, so the row is as wide as the bars
+// above it whatever the machine has: with room to spare a core takes several
+// cells, and past that a cell carries the busiest of the ones it covers.
+func TestCoreCellsFillTheGaugeWhateverTheCoreCount(t *testing.T) {
+	cells := coreCells([]float64{100, 0, 0, 0}, 12)
+	if len(cells) != 12 {
+		t.Fatalf("four cores over twelve cells drew %d: %v", len(cells), cells)
+	}
+	// Three cells each, the pinned one first.
+	if cells[0] != 100 || cells[2] != 100 || cells[3] != 0 {
+		t.Errorf("a core did not take its share of the cells: %v", cells)
+	}
+
+	// Sixty-four cores over ten cells: the pinned one is what the row is
+	// read for, so it must survive the crowding.
+	cores := make([]float64, 64)
+	cores[37] = 100
+	cells = coreCells(cores, 10)
+	if len(cells) != 10 {
+		t.Fatalf("sixty-four cores over ten cells drew %d: %v", len(cells), cells)
+	}
+	busiest := 0.0
+	for _, cell := range cells {
+		busiest = max(busiest, cell)
+	}
+	if busiest != 100 {
+		t.Errorf("the pinned core was dropped: %v", cells)
+	}
+
+	if got := coreCells(nil, 10); got != nil {
+		t.Errorf("no cores drew %v", got)
+	}
+	if got := coreCells([]float64{50}, 0); got != nil {
+		t.Errorf("no room drew %v", got)
+	}
+}
+
 // wait for the second rather than showing a zero.
 func TestSystemViewShowsEveryReading(t *testing.T) {
 	m := measured()
@@ -311,20 +368,26 @@ func TestLongMountPointsKeepTheGaugesAligned(t *testing.T) {
 	m := sampled(metrics)
 	m.SetSize(160, 24)
 
-	var columns []int
+	// The readings are the rows before the first blank one: the view draws
+	// them first, then the charts and the processes. They used to be picked
+	// out by the `[` that opened every gauge, which is gone with the
+	// brackets; what is asserted is what always was, that every row pads its
+	// label to the same column and so starts its gauge in the same place.
+	column := m.labelColumn()
+	rows := 0
 	for _, line := range strings.Split(m.View(), "\n") {
-		if index := strings.Index(line, "["); index >= 0 {
-			columns = append(columns, lipgloss.Width(line[:index]))
-		}
-	}
-	if len(columns) < 3 {
-		t.Fatalf("expected a gauge on every reading, got %d", len(columns))
-	}
-	for _, column := range columns {
-		if column != columns[0] {
-			t.Errorf("gauges start at different columns: %v", columns)
+		line = ansi.Strip(line)
+		if strings.TrimSpace(line) == "" {
 			break
 		}
+		label := strings.Fields(line)[0]
+		if want := " " + pad(label, column) + " "; !strings.HasPrefix(line, want) {
+			t.Errorf("row %q does not reach the gauge column at %d", line, column+2)
+		}
+		rows++
+	}
+	if rows < 3 {
+		t.Fatalf("expected a reading on every row, got %d", rows)
 	}
 }
 
@@ -421,7 +484,7 @@ func TestTheSystemViewDrawsTheTemperature(t *testing.T) {
 	m.SetSize(150, 24)
 	view := m.View()
 
-	for _, want := range []string{" temp     [", "71°C Composite", "of 85°C",
+	for _, want := range []string{" temp     ", "71°C Composite", "of 85°C",
 		"58°C Package id 0", "41°C acpitz"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the temperature row is missing %q:\n%s", want, view)

@@ -154,8 +154,8 @@ func TestHostLineAppearsOnlyAfterFirstSample(t *testing.T) {
 	feed := &hostFeed{metrics: sampleMetrics()}
 	screen, _ := buildScreen(screenOptions{width: 120, height: 24, host: feed})
 
-	// "load[" rather than "load": the empty-table placeholder says "loading".
-	if strings.Contains(screen.View(), "load[") {
+	// "load " rather than "load": the empty-table placeholder says "loading".
+	if strings.Contains(screen.View(), "load ") {
 		t.Errorf("meter band shown before any sample arrived:\n%s", screen.View())
 	}
 
@@ -166,8 +166,8 @@ func TestHostLineAppearsOnlyAfterFirstSample(t *testing.T) {
 	// it is deliberately not repeated as text. The disk meter is labelled
 	// with the mount point it is showing, since it follows the fullest
 	// filesystem rather than always the root.
-	for _, want := range []string{"load[", "0.50", "mem[", "1000M/2.0G", "/[", "4.8G/19.1G", "up 1h30m"} {
-		if !strings.Contains(view, want) {
+	for _, want := range []string{"load ", "0.50", "mem ", "1000M/2.0G", "/ ", "4.8G/19.1G", "up 1h30m"} {
+		if !strings.Contains(bandLine(view), want) {
 			t.Errorf("meter band missing %q:\n%s", want, view)
 		}
 	}
@@ -222,7 +222,7 @@ func TestNoBandWithoutHostMetrics(t *testing.T) {
 		width: 200, height: 24, services: serviceList("web")})
 	sampleAll(screen)
 
-	if strings.Contains(screen.View(), "load[") {
+	if strings.Contains(screen.View(), "load ") {
 		t.Errorf("meter band shown with host metrics disabled:\n%s", screen.View())
 	}
 }
@@ -238,7 +238,7 @@ func TestBandFlagsStaleSample(t *testing.T) {
 	if !strings.Contains(line, "stale") {
 		t.Errorf("stale sample not flagged in the band: %q", line)
 	}
-	if !strings.Contains(line, "load[") {
+	if !strings.Contains(line, "load ") {
 		t.Errorf("stale sample blanked the band: %q", line)
 	}
 }
