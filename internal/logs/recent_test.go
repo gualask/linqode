@@ -1,6 +1,8 @@
 package logs
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -90,12 +92,18 @@ func TestRecentWindowFollowsThePace(t *testing.T) {
 	}
 }
 
-// The counts are of the lines in view, so a filter narrows them — which is
-// the whole of "how many of these are errors".
+// The lines are counted over the filtered view, and each list over the view
+// its own field's terms would give: under `level=error` the levels list
+// still holds info, so it can be picked next, while the routes are counted
+// over the errors alone.
 func TestCountsFollowTheFilter(t *testing.T) {
 	s := NewStore(100)
-	for _, level := range []string{"info", "error", "info", "error", "info"} {
-		s.PushAt(`{"level":"`+level+`","route":"/a"}`, noon)
+	for index, level := range []string{"info", "error", "info", "error", "info"} {
+		route := "/a"
+		if index == 0 {
+			route = "/b"
+		}
+		s.PushAt(`{"level":"`+level+`","route":"`+route+`"}`, noon)
 	}
 	filter, err := ParseFilter("level=error")
 	if err != nil {
@@ -107,11 +115,19 @@ func TestCountsFollowTheFilter(t *testing.T) {
 	if stats.Lines != 2 || stats.Tail != 5 {
 		t.Errorf("lines %d of a tail of %d, want 2 of 5", stats.Lines, stats.Tail)
 	}
-	if len(stats.Levels) != 1 || stats.Levels[0].N != 2 {
-		t.Errorf("levels = %+v, want the two errors alone", stats.Levels)
+	if len(stats.Levels) != 2 || stats.Levels[0].Key != "info" || stats.Levels[0].N != 3 {
+		t.Errorf("levels = %+v, want every level, the filter's own term set aside", stats.Levels)
 	}
-	if len(stats.Values) != 1 || stats.Values[0].N != 2 {
-		t.Errorf("values = %+v, want the route counted over the filtered view", stats.Values)
+	if len(stats.Values) != 1 || stats.Values[0].Key != "/a" || stats.Values[0].N != 2 {
+		t.Errorf("values = %+v, want the route counted over the errors", stats.Values)
+	}
+
+	// A term on the counted field sets aside that field alone.
+	filter, _ = ParseFilter("level=error route=/b")
+	s.SetFilter(filter)
+	stats = s.ComputeStats("route", noon)
+	if stats.Lines != 0 || len(stats.Values) != 1 || stats.Values[0].N != 2 {
+		t.Errorf("lines %d values %+v, want none in view and the errors' routes counted", stats.Lines, stats.Values)
 	}
 }
 
@@ -198,5 +214,20 @@ func TestRecentWindowHoldsUntilItEmpties(t *testing.T) {
 	// Two minutes on the minute is empty, and the window lengthens.
 	if window := s.ComputeStats("", noon.Add(2*time.Minute)).Recent; window != 5*time.Minute {
 		t.Errorf("an empty minute was kept as the window: %v, want 5m", window)
+	}
+}
+
+// The fields the panel steps through: facets first, by how many lines carry
+// them, then the rest; the well-known ones never.
+func TestFieldsPutFacetsFirst(t *testing.T) {
+	s := NewStore(100)
+	for index := range 20 {
+		s.PushAt(fmt.Sprintf(`{"level":"info","msg":"m%d","id":"%d","route":"/r%d","status":%d}`,
+			index, index, index%3, 200+index%2), noon)
+	}
+	s.PushAt(`{"region":"eu"}`, noon)
+	got := strings.Join(s.Fields(), " ")
+	if want := "route status id region"; got != want {
+		t.Errorf("fields = %q, want %q", got, want)
 	}
 }

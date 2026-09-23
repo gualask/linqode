@@ -101,15 +101,6 @@ func (s *Store) CloseBacklog() {
 	}
 }
 
-// inBacklog says whether the visible line at index arrived in the backlog.
-func (s *Store) inBacklog(index int) bool {
-	seq := s.baseSeq + uint64(index)
-	if s.filter != nil {
-		seq = s.visible[index]
-	}
-	return seq < s.backlogEnd
-}
-
 // SetFilter sets or clears the field filter, rebuilding the visible view.
 func (s *Store) SetFilter(filter *Filter) {
 	s.filter = filter

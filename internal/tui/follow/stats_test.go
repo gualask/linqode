@@ -84,9 +84,9 @@ func TestStatsPanelSaysWhenItPlacesByArrival(t *testing.T) {
 	}
 }
 
-// The counts are of the lines in view, so a filter narrows them and the
-// panel says what it is counting out of — which is the answer to "how many
-// of these are errors".
+// A filter narrows the lines the panel counts, and the panel says what it is
+// counting out of. The levels list still holds the level the filter hides,
+// because that list is where the next one is picked from.
 func TestStatsPanelCountsTheFilteredView(t *testing.T) {
 	m := statsModel(t, 30, stamped(3, "error"), stamped(2, "info"))
 	m.Update(key("f"))
@@ -97,8 +97,8 @@ func TestStatsPanelCountsTheFilteredView(t *testing.T) {
 	if !strings.Contains(view, "1 of 2 lines") {
 		t.Errorf("the panel does not say what it is counting out of:\n%s", view)
 	}
-	if strings.Contains(view, "info ") {
-		t.Errorf("a level the filter hides is still counted:\n%s", view)
+	if !strings.Contains(view, "info ") {
+		t.Errorf("the level the filter hides left the list it is picked from:\n%s", view)
 	}
 }
 

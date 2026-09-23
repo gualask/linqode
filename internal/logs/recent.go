@@ -51,16 +51,19 @@ var recentWindows = []time.Duration{
 // beside it already said.
 const recentShare = 10
 
-// recency places the lines in view in time and picks the window the recent
-// counts cover. It returns one time per visible line, in view order, zero
-// where a line has nothing to be placed by.
+// recency places every line of the tail in time and picks the window the
+// recent counts cover. It returns one time per buffered line, oldest first,
+// zero where a line has nothing to be placed by. The clock and the window
+// are chosen over the lines in view — the ones the filter lets through —
+// but every line is placed, because the stats panel counts a field over
+// lines its own filter terms would hide.
 //
 // The whole view is placed by one clock, never a mix of the two: a record
 // written an hour ago and a line that arrived a second ago on the same
 // footing would say the second came long after the first. Log time is used
-// when at least half the lines carry a readable timestamp, and a line
-// without one — the traceback under an error record — is placed at the time
-// of the record before it, which is when it was written.
+// when at least half the lines in view carry a readable timestamp, and a
+// line without one — the traceback under an error record — is placed at the
+// time of the record before it, which is when it was written.
 //
 // It remembers the window it chose, because it is asked on every frame and
 // a window chosen afresh each time jumps: a service logging in bursts holds
@@ -69,53 +72,59 @@ const recentShare = 10
 // kept until it holds less than half the share that chose it; a shorter one
 // is still taken as soon as it qualifies, and then kept the same way.
 func (s *Store) recency(now time.Time) (Clock, time.Duration, []time.Time) {
-	arrived := make([]time.Time, s.Len())
-	logged := make([]time.Time, s.Len())
-	stamped := 0
+	total := s.buffer.Len()
+	arrived := make([]time.Time, total)
+	logged := make([]time.Time, total)
+	inView := make([]bool, total)
+	stamped, viewed := 0, 0
 	var carried time.Time
-	for index := range s.Len() {
-		line, _ := s.Line(index)
+	for index := range total {
+		line, _ := s.buffer.Get(index)
 		if !line.Logged.IsZero() {
 			carried = line.Logged
-			stamped++
 		}
-		if !s.inBacklog(index) {
+		if s.filter == nil || s.filter.Matches(line.Record) {
+			inView[index] = true
+			viewed++
+			if !line.Logged.IsZero() {
+				stamped++
+			}
+		}
+		if s.baseSeq+uint64(index) >= s.backlogEnd {
 			arrived[index] = line.Arrived
 		}
 		logged[index] = carried
 	}
 
 	clock, at := ByArrival, arrived
-	if stamped > 0 && stamped*2 >= len(arrived) {
+	if stamped > 0 && stamped*2 >= viewed {
 		clock, at = ByLogTime, logged
 	}
-	placed := countSince(at, time.Time{})
+	since := func(cutoff time.Time) int {
+		n := 0
+		for index, moment := range at {
+			if inView[index] && !moment.IsZero() && !moment.Before(cutoff) {
+				n++
+			}
+		}
+		return n
+	}
+	placed := since(time.Time{})
 
 	// A line stamped after now, which is what a server clock a little ahead
 	// of this one produces, is recent under every window rather than under
 	// none.
 	window := recentWindows[len(recentWindows)-1]
 	for _, candidate := range recentWindows {
-		if countSince(at, now.Add(-candidate))*recentShare >= placed {
+		if since(now.Add(-candidate))*recentShare >= placed {
 			window = candidate
 			break
 		}
 	}
 	if previous := s.window; previous != 0 && s.windowClock == clock && window > previous &&
-		countSince(at, now.Add(-previous))*recentShare*2 >= placed {
+		since(now.Add(-previous))*recentShare*2 >= placed {
 		window = previous
 	}
 	s.window, s.windowClock = window, clock
 	return clock, window, at
-}
-
-// countSince is how many of the placed lines are at or after cutoff.
-func countSince(at []time.Time, cutoff time.Time) int {
-	n := 0
-	for _, moment := range at {
-		if !moment.IsZero() && !moment.Before(cutoff) {
-			n++
-		}
-	}
-	return n
 }
