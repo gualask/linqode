@@ -166,3 +166,48 @@ func TestMatchesExcept(t *testing.T) {
 		t.Error("an empty remainder did not match everything")
 	}
 }
+
+// A field picked from the stats panel can be named anything a JSON key can.
+// Written back with Expr and read again, it must be the same filter — not an
+// error, and above all not a different one.
+func TestUnusualKeysSurviveTheRoundTrip(t *testing.T) {
+	var f *Filter
+	f = f.Toggle("user agent", "curl")
+	f = f.Toggle("ok!", "yes")
+	f = f.Toggle("a=b", "c")
+	again, err := ParseFilter(f.Expr())
+	if err != nil {
+		t.Fatalf("%q does not parse back: %v", f.Expr(), err)
+	}
+	for _, key := range []string{"user agent", "ok!", "a=b"} {
+		for _, term := range again.terms {
+			if term.key == key && term.negated {
+				t.Errorf("%q came back negated from %q", key, f.Expr())
+			}
+		}
+	}
+	if !again.Has("user agent", "curl") || !again.Has("ok!", "yes") || !again.Has("a=b", "c") {
+		t.Errorf("round trip gave %q from %q", again.Expr(), f.Expr())
+	}
+	// Negated, a quoted key still reads as its negation.
+	negated := filter(t, `"user agent"!=curl`)
+	if len(negated.terms) != 1 || !negated.terms[0].negated || negated.terms[0].key != "user agent" {
+		t.Errorf("parsed %+v", negated.terms)
+	}
+	if _, err := ParseFilter(`"user agent"curl`); err == nil {
+		t.Error("a quoted key with no operator was accepted")
+	}
+}
+
+// Picking a value the filter excludes means "these": the exclusion goes, and
+// the value is asked for, instead of the two cancelling out to nothing.
+func TestToggleReplacesAnExclusion(t *testing.T) {
+	f := filter(t, "level!=error app=api")
+	f = f.Toggle("level", "error")
+	if f.Expr() != "app=api level=error" {
+		t.Errorf("toggled an excluded value: %q", f.Expr())
+	}
+	if f = f.Toggle("level", "error"); f.Expr() != "app=api" {
+		t.Errorf("toggled it again: %q", f.Expr())
+	}
+}

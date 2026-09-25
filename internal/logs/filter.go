@@ -33,7 +33,8 @@ type term struct {
 
 // ParseFilter parses a whitespace-separated list of `key=value` /
 // `key!=value` terms. A value holding spaces is written in double quotes
-// (`msg="connection reset"`). Values compare ASCII-case-insensitively. A nil
+// (`msg="connection reset"`), and so is a key that could not be read bare
+// (`"user agent"=curl`). Values compare ASCII-case-insensitively. A nil
 // filter with nil error means the expression was empty (no filter).
 func ParseFilter(expr string) (*Filter, error) {
 	words, err := splitWords(expr)
@@ -42,13 +43,9 @@ func ParseFilter(expr string) (*Filter, error) {
 	}
 	var terms []term
 	for _, word := range words {
-		equals := strings.IndexByte(word, '=')
-		if equals < 0 {
-			return nil, fmt.Errorf("`%s`: expected key=value or key!=value", word)
-		}
-		key, value, negated := word[:equals], word[equals+1:], false
-		if strings.HasSuffix(key, "!") {
-			key, negated = key[:len(key)-1], true
+		key, value, negated, err := splitTerm(word)
+		if err != nil {
+			return nil, err
 		}
 		if key == "" {
 			return nil, fmt.Errorf("`%s`: missing field name", word)
@@ -66,6 +63,37 @@ func ParseFilter(expr string) (*Filter, error) {
 		return nil, nil
 	}
 	return &Filter{terms: terms}, nil
+}
+
+// splitTerm cuts one word into its key, its value and whether it is negated.
+// A quoted key is read to its closing quote, so it may hold what a bare key
+// cannot: a space, an `=`, a trailing `!`.
+func splitTerm(word string) (key, value string, negated bool, err error) {
+	rest := word
+	if strings.HasPrefix(word, `"`) {
+		quoted, err := strconv.QuotedPrefix(word)
+		if err != nil {
+			return "", "", false, fmt.Errorf("`%s`: unbalanced quotes", word)
+		}
+		key, _ = strconv.Unquote(quoted)
+		rest = word[len(quoted):]
+		switch {
+		case strings.HasPrefix(rest, "!="):
+			return key, rest[2:], true, nil
+		case strings.HasPrefix(rest, "="):
+			return key, rest[1:], false, nil
+		}
+		return "", "", false, fmt.Errorf("`%s`: expected key=value or key!=value", word)
+	}
+	equals := strings.IndexByte(rest, '=')
+	if equals < 0 {
+		return "", "", false, fmt.Errorf("`%s`: expected key=value or key!=value", word)
+	}
+	key, value = rest[:equals], rest[equals+1:]
+	if strings.HasSuffix(key, "!") {
+		key, negated = key[:len(key)-1], true
+	}
+	return key, value, negated, nil
 }
 
 // splitWords splits at whitespace outside double quotes.
@@ -101,7 +129,9 @@ func splitWords(expr string) ([]string, error) {
 
 // Expr writes the filter back as an expression ParseFilter reads, for
 // display and re-editing. It is rebuilt from the terms rather than kept,
-// because a filter built by picking rows in the stats panel was never typed.
+// because a filter built by picking rows in the stats panel was never typed —
+// and a field picked there can be named anything a JSON key can, so the key
+// is quoted as well as the value when bare it would read as something else.
 func (f *Filter) Expr() string {
 	if f == nil {
 		return ""
@@ -112,11 +142,16 @@ func (f *Filter) Expr() string {
 		if t.negated {
 			operator = "!="
 		}
+		key := t.key
+		if strings.ContainsFunc(key, func(r rune) bool { return unicode.IsSpace(r) || r == '"' || r == '=' }) ||
+			strings.HasSuffix(key, "!") {
+			key = strconv.Quote(key)
+		}
 		value := t.value
 		if strings.ContainsFunc(value, func(r rune) bool { return unicode.IsSpace(r) || r == '"' }) {
 			value = strconv.Quote(value)
 		}
-		words[index] = t.key + operator + value
+		words[index] = key + operator + value
 	}
 	return strings.Join(words, " ")
 }
@@ -136,13 +171,18 @@ func (f *Filter) Has(key, value string) bool {
 
 // Toggle is the filter with key=value added, or taken out when it is already
 // there; nil when nothing is left. The receiver is not changed.
+//
+// A value the filter excludes is replaced rather than joined. The stats panel
+// lists it all the same — it counts a field with that field's own terms set
+// aside — and picking it there means "these", which `key!=value
+// key=value` could never show.
 func (f *Filter) Toggle(key, value string) *Filter {
 	var terms []term
 	removed := false
 	if f != nil {
 		for _, t := range f.terms {
-			if !t.negated && t.key == key && eqASCIIFold(t.value, value) {
-				removed = true
+			if t.key == key && eqASCIIFold(t.value, value) {
+				removed = removed || !t.negated
 				continue
 			}
 			terms = append(terms, t)
