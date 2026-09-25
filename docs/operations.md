@@ -53,10 +53,12 @@ and the command is the honest thing to render.
 One exemption survives, and only one. `n`/`N` — next and previous search match
 in the log view — is a case pair because "previous" has no arrow of its own,
 and getting it wrong moves the cursor rather than a service. The vim aliases
-that used to sit beside it are gone: `j`/`k`, `g`/`G` and `l` were second
+that used to sit beside it are gone: `j`/`k` and `g`/`G` were second
 spellings of keys every terminal already sends, so what they bought was a
 keymap to be learned twice. Navigation is the arrows, `PgUp`/`PgDn` and
-`Home`/`End`, and it is the same set in every list on the screen.
+`Home`/`End`, and it is the same set in every list on the screen. `l` is back
+in the log view, but not as an alias: it means *live*, back on the tail and
+following, which `End` also does and a laptop keyboard has no key for.
 
 ## Scripts
 
@@ -164,7 +166,11 @@ object becomes a record whose nested fields are flattened to dotted paths
   footer, so the prompt can be found without a filter to edit — for what
   the panel cannot pick — a negation, a field it is not counting:
   `key=value`, `key!=value`, `key="a b"`, case-insensitive; `level` finds
-  whichever level field a record uses. Scroll, search and follow operate on
+  whichever level field a record uses. A key that bare would read as
+  something else is quoted too (`"user agent"=curl`), which is how a field
+  picked from the panel comes back when `f` opens the filter to edit.
+  Picking a value the filter excludes replaces the exclusion rather than
+  contradicting it. Scroll, search and follow operate on
   the filtered view.
 - **Stats** (`a`): counts by level and by one field, recently and in all
   (see [Recent counts](#recent-counts)). The panel takes the keys when it
