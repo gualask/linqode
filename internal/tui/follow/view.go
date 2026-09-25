@@ -401,38 +401,47 @@ func renderLogLine(line logs.LogLine, structured bool, query string, width int) 
 	if !structured || line.Record == nil {
 		return renderRaw(line.Raw, query, width)
 	}
-	renderer := structuredLineRenderer{budget: width - 1, query: query}
+	renderer := structuredLineRenderer{budget: width - 1}
 	if width <= 0 {
 		renderer.budget = 1 << 20
 	}
 	record := line.Record
 	if timestamp, ok := record.Timestamp(); ok {
-		renderer.emit(timestamp+" ", theme.Dim, false)
+		renderer.emit(timestamp+" ", theme.Dim)
 	}
 	if level, ok := record.Level(); ok {
-		renderer.emit(fmt.Sprintf("%-5s ", level), levelStyle(level).Bold(true), false)
+		renderer.emit(fmt.Sprintf("%-5s ", level), levelStyle(level).Bold(true))
 	}
 	if message, ok := record.Message(); ok {
-		renderer.emit(message, lipgloss.NewStyle(), true)
+		renderer.emit(message, lipgloss.NewStyle())
 	}
 	for _, field := range record.Fields() {
 		if !logs.IsWellKnownKey(field.Key) {
-			renderer.emit(" "+field.Key+"="+field.Value, theme.Dim, false)
+			renderer.emit(" "+field.Key+"="+field.Value, theme.Dim)
 		}
 	}
-	if renderer.builder.Len() == 0 {
+	if len(renderer.segments) == 0 {
 		return renderRaw(line.Raw, query, width)
 	}
-	return renderer.builder.String()
+	return highlightIn(renderer.segments, query)
 }
 
+// segment is a run of text drawn in one style.
+type segment struct {
+	text  string
+	style lipgloss.Style
+}
+
+// structuredLineRenderer lays a record out as styled segments within the
+// width budget. Highlighting happens afterwards, over the line as drawn, so a
+// match is marked wherever it shows — in a field, in the timestamp, or across
+// the boundary between two parts.
 type structuredLineRenderer struct {
-	builder strings.Builder
-	budget  int
-	query   string
+	segments []segment
+	budget   int
 }
 
-func (r *structuredLineRenderer) emit(text string, style lipgloss.Style, highlighted bool) {
+func (r *structuredLineRenderer) emit(text string, style lipgloss.Style) {
 	text = terminalText(text)
 	if r.budget <= 0 || text == "" {
 		return
@@ -443,11 +452,7 @@ func (r *structuredLineRenderer) emit(text string, style lipgloss.Style, highlig
 	} else {
 		r.budget -= len(runes)
 	}
-	if highlighted && r.query != "" {
-		r.builder.WriteString(highlightIn(text, r.query, style))
-	} else {
-		r.builder.WriteString(style.Render(text))
-	}
+	r.segments = append(r.segments, segment{text, style})
 }
 
 func renderRaw(line, query string, width int) string {
@@ -460,7 +465,7 @@ func renderRaw(line, query string, width int) string {
 	if query == "" {
 		return line
 	}
-	return highlightIn(line, query, lipgloss.NewStyle())
+	return highlightIn([]segment{{line, lipgloss.NewStyle()}}, query)
 }
 
 // terminalText treats remote output as one line of text, never as terminal
@@ -479,25 +484,46 @@ func terminalText(text string) string {
 	}, ansi.Strip(text))
 }
 
-func highlightIn(text, query string, base lipgloss.Style) string {
+// highlightIn renders the segments in their styles, with every occurrence of
+// query in the text they make up together drawn as a match instead.
+func highlightIn(segments []segment, query string) string {
+	var line strings.Builder
+	for _, seg := range segments {
+		line.WriteString(seg.text)
+	}
+	text := line.String()
+	// Byte ranges of the matches in text, in order and not overlapping.
+	var matches [][2]int
+	if query != "" {
+		for offset := 0; ; {
+			index := logs.FindASCIICI(text[offset:], query)
+			if index < 0 {
+				break
+			}
+			matches = append(matches, [2]int{offset + index, offset + index + len(query)})
+			offset += index + len(query)
+		}
+	}
 	var b strings.Builder
-	rest := text
-	for {
-		index := logs.FindASCIICI(rest, query)
-		if index < 0 {
-			break
+	start := 0
+	for _, seg := range segments {
+		end := start + len(seg.text)
+		for at := start; at < end; {
+			// Skip the matches already behind this position.
+			for len(matches) > 0 && matches[0][1] <= at {
+				matches = matches[1:]
+			}
+			style, stop := seg.style, end
+			switch {
+			case len(matches) > 0 && matches[0][0] <= at:
+				style, stop = theme.Match, min(matches[0][1], end)
+			case len(matches) > 0:
+				stop = min(matches[0][0], end)
+			}
+			b.WriteString(style.Render(text[at:stop]))
+			at = stop
 		}
-		if index > 0 {
-			b.WriteString(base.Render(rest[:index]))
-		}
-		b.WriteString(theme.Match.Render(rest[index : index+len(query)]))
-		rest = rest[index+len(query):]
-	}
-	if b.Len() == 0 {
-		return base.Render(text)
-	}
-	if rest != "" {
-		b.WriteString(base.Render(rest))
+		start = end
 	}
 	return b.String()
 }

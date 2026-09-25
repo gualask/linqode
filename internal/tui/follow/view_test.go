@@ -8,10 +8,13 @@ import (
 	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/gualask/linqode/internal/logs"
 	"github.com/gualask/linqode/internal/operations"
+	"github.com/gualask/linqode/internal/tui/theme"
 )
 
 func TestLogRenderingTreatsTerminalControlsAsData(t *testing.T) {
@@ -98,6 +101,35 @@ func assertSafeTerminalOutput(t *testing.T, text string, multiline bool) {
 	for _, r := range text {
 		if unicode.IsControl(r) && !(multiline && r == '\n') {
 			t.Fatalf("terminal control U+%04X survived rendering: %q", r, text)
+		}
+	}
+}
+
+// A search is matched against the whole record, so a hit is marked wherever
+// the drawn line shows it — in a field or the timestamp, not only in the
+// message.
+func TestSearchHighlightsMatchesAnywhereInStructuredLine(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+
+	line := `{"ts":"12:00:01","level":"info","msg":"started","user":"alice"}`
+	m := newTestModel(lineEvents(line, line, line)...)
+	if !m.structuredRendering() {
+		t.Fatal("expected structured rendering")
+	}
+	for query, hit := range map[string]string{
+		"ALICE": "alice", // in a field, case-insensitive
+		"12:00": "12:00", // in the timestamp
+	} {
+		m.Update(key("/"))
+		typeText(m, query)
+		m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		body := m.logBody(120)
+		if !strings.Contains(body, theme.Match.Render(hit)) {
+			t.Errorf("query %q: %q not highlighted in %q", query, hit, body)
+		}
+		if got := ansi.Strip(body); !strings.Contains(got, "12:00:01 info  started user=alice") {
+			t.Errorf("query %q changed the text: %q", query, got)
 		}
 	}
 }

@@ -109,7 +109,10 @@ colour, tailing recent history — on a streaming exec channel. From there:
    scrolls up. Jumping to the bottom re-enters follow mode.
 
 Search (`/`, then `n`/`N`) runs over the visible lines with wrap-around and
-match highlighting. Closing the view cancels the remote command — terminate
+match highlighting. The highlight is drawn over the line as displayed, so in a
+JSON log a hit is marked wherever it shows — timestamp, message or a field —
+while a hit only in what the layout hides (a key such as `msg`, JSON
+punctuation) finds the line without marking anything on it. Closing the view cancels the remote command — terminate
 signal, then channel close — and tears down the pipeline.
 
 The log engine is deliberately **Docker-agnostic**: it consumes generic
