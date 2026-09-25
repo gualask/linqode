@@ -6,88 +6,134 @@ import (
 	"time"
 )
 
+// cgroupOrder is the sections in the order the command prints them.
+var cgroupOrder = []string{cgroupCPUMarker, cgroupMemMarker, cgroupFileMarker,
+	cgroupMaxMarker, cgroupIOMarker, cgroupPIDsMarker, cgroupNetMarker}
+
 // ParseCgroupSample reads the output of StatsCgroupCommand. Sections that did
 // not match anything leave their readings zero rather than failing the
 // sample: a host with cgroup v1, or without the pids controller, still yields
 // everything else.
 func ParseCgroupSample(raw []byte, at time.Time) CgroupSample {
-	sample := CgroupSample{At: at,
-		Containers: map[string]CgroupReading{}, Networks: map[int]CgroupReading{}}
-	reading := func(id string) CgroupReading { return sample.Containers[id] }
-	store := func(id string, r CgroupReading) { sample.Containers[id] = r }
-	cache := map[string]uint64{}
-	totalCache := map[string]uint64{}
-
-	// Read sections in command order; cache is applied once after parsing.
+	p := cgroupParse{
+		sample: CgroupSample{At: at,
+			Containers: map[string]CgroupReading{}, Networks: map[int]CgroupReading{}},
+		inactive:      map[string]uint64{},
+		totalInactive: map[string]uint64{},
+	}
 	sections := cgroupSections(string(raw))
-	order := []string{cgroupCPUMarker, cgroupMemMarker, cgroupFileMarker,
-		cgroupMaxMarker, cgroupIOMarker, cgroupPIDsMarker, cgroupNetMarker}
-	for _, marker := range order {
+	for _, marker := range cgroupOrder {
 		for line := range strings.Lines(sections[marker]) {
-			path, value, found := strings.Cut(line, ":")
-			if !found {
-				continue
-			}
-			value = strings.TrimSpace(value)
-			if marker == cgroupNetMarker {
-				parseNetLine(sample.Networks, path, value)
-				continue
-			}
-			id := containerID(path)
-			if id == "" {
-				continue
-			}
-			r := reading(id)
-			switch marker {
-			case cgroupCPUMarker:
-				// v2 reports microseconds in a labelled line, v1 reports
-				// nanoseconds as the whole file.
-				if number, ok := strings.CutPrefix(value, "usage_usec"); ok {
-					r.CPUMicros = parseUint(number)
-				} else if nanos := parseUint(value); nanos > 0 {
-					r.CPUMicros = nanos / 1000
-				}
-			case cgroupMemMarker:
-				r.MemBytes = parseUint(value)
-			case cgroupFileMarker:
-				fields := strings.Fields(value)
-				if len(fields) == 2 {
-					switch fields[0] {
-					case "inactive_file":
-						cache[id] = parseUint(fields[1])
-					case "total_inactive_file":
-						totalCache[id] = parseUint(fields[1])
-					}
-				}
-			case cgroupMaxMarker:
-				// "max" means unlimited under v2; v1 writes a number so
-				// large it means the same thing.
-				if value != "max" {
-					if limit := parseUint(value); limit < 1<<62 {
-						r.MemLimitBytes = limit
-					}
-				}
-			case cgroupIOMarker:
-				read, write := parseIOLine(value)
-				r.ReadBytes += read
-				r.WriteBytes += write
-			case cgroupPIDsMarker:
-				r.PIDs = parseUint(value)
-			}
-			store(id, r)
+			p.line(marker, line)
 		}
 	}
-	for id, r := range sample.Containers {
-		// Docker uses the hierarchical total under v1, which reports both
-		// fields, and inactive_file under v2. Never subtract both.
-		inactive := cache[id]
-		if total, ok := totalCache[id]; ok {
+	p.subtractPageCache()
+	return p.sample
+}
+
+// cgroupParse is one sample being read. The page cache is collected on the
+// way and taken off the memory readings once every section is in, because
+// which of its two figures applies depends on whether the host reported both.
+type cgroupParse struct {
+	sample                  CgroupSample
+	inactive, totalInactive map[string]uint64
+}
+
+// line applies one `path:value` line of a section to the container or the
+// process its path names.
+func (p *cgroupParse) line(marker, line string) {
+	path, value, found := strings.Cut(line, ":")
+	if !found {
+		return
+	}
+	value = strings.TrimSpace(value)
+	if marker == cgroupNetMarker {
+		parseNetLine(p.sample.Networks, path, value)
+		return
+	}
+	id := containerID(path)
+	if id == "" {
+		return
+	}
+	reading := p.sample.Containers[id]
+	p.apply(marker, id, value, &reading)
+	p.sample.Containers[id] = reading
+}
+
+// apply reads one container's value for the section it came from.
+func (p *cgroupParse) apply(marker, id, value string, reading *CgroupReading) {
+	switch marker {
+	case cgroupCPUMarker:
+		if micros, ok := cpuMicros(value); ok {
+			reading.CPUMicros = micros
+		}
+	case cgroupMemMarker:
+		reading.MemBytes = parseUint(value)
+	case cgroupFileMarker:
+		p.pageCache(id, value)
+	case cgroupMaxMarker:
+		if limit, ok := memLimit(value); ok {
+			reading.MemLimitBytes = limit
+		}
+	case cgroupIOMarker:
+		read, write := parseIOLine(value)
+		reading.ReadBytes += read
+		reading.WriteBytes += write
+	case cgroupPIDsMarker:
+		reading.PIDs = parseUint(value)
+	}
+}
+
+// cpuMicros reads CPU time: v2 reports microseconds in a labelled line, v1
+// nanoseconds as the whole file. v2's other lines (user_usec, system_usec)
+// are not it, and leave the reading alone.
+func cpuMicros(value string) (uint64, bool) {
+	if number, ok := strings.CutPrefix(value, "usage_usec"); ok {
+		return parseUint(number), true
+	}
+	if nanos := parseUint(value); nanos > 0 {
+		return nanos / 1000, true
+	}
+	return 0, false
+}
+
+// memLimit reads a memory limit. "max" means unlimited under v2; v1 writes a
+// number so large it means the same thing, and neither is a limit.
+func memLimit(value string) (uint64, bool) {
+	if value == "max" {
+		return 0, false
+	}
+	limit := parseUint(value)
+	return limit, limit < 1<<62
+}
+
+// pageCache records one line of memory.stat worth keeping: the inactive file
+// cache, under whichever of its two names the host uses.
+func (p *cgroupParse) pageCache(id, value string) {
+	fields := strings.Fields(value)
+	if len(fields) != 2 {
+		return
+	}
+	switch fields[0] {
+	case "inactive_file":
+		p.inactive[id] = parseUint(fields[1])
+	case "total_inactive_file":
+		p.totalInactive[id] = parseUint(fields[1])
+	}
+}
+
+// subtractPageCache takes the page cache off every memory reading. Docker
+// uses the hierarchical total under v1, which reports both fields, and
+// inactive_file under v2. Never subtract both.
+func (p *cgroupParse) subtractPageCache() {
+	for id, reading := range p.sample.Containers {
+		inactive := p.inactive[id]
+		if total, ok := p.totalInactive[id]; ok {
 			inactive = total
 		}
-		r.MemBytes = saturatingSub(r.MemBytes, inactive)
-		store(id, r)
+		reading.MemBytes = saturatingSub(reading.MemBytes, inactive)
+		p.sample.Containers[id] = reading
 	}
-	return sample
 }
 
 // cgroupSections splits the output on its markers.
