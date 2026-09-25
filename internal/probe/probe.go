@@ -242,6 +242,23 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// daemonCommand asks the daemon for its version, and is the one question in
+// the batch that waits on something other than the shell: every other section
+// reads a file or starts a CLI that answers on its own. A daemon that accepts
+// the connection and never replies, or a DOCKER_HOST=ssh:// whose connection
+// stalls, would hold the batch — and the batch runs before the screen does, so
+// the session would sit at "Connecting…" for good.
+//
+// Five seconds is the mount list's bound, for the same reason. A daemon cut
+// off there prints nothing, which leaves the section empty and the daemon
+// Unknown: carry on, and let the refresh report what it finds. That is not a
+// permanent finding, and a probe must not turn compose off on a daemon that
+// was only slow once. `timeout` is not POSIX, so a host without it asks
+// unguarded, which is what every host did before.
+const daemonCommand = "if command -v timeout >/dev/null 2>&1; " +
+	"then timeout 5 docker version --format '{{.Server.Version}}' 2>&1; " +
+	"else docker version --format '{{.Server.Version}}' 2>&1; fi"
+
 // Command is the remote command establishing the ground, in one round trip.
 //
 // Each section prints evidence rather than a verdict; the verdict is Parse's,
@@ -262,8 +279,7 @@ func Command(composeDir string) string {
 	var b strings.Builder
 	b.WriteString("echo '" + dockerMarker + "'; command -v docker 2>/dev/null; ")
 	b.WriteString("echo '" + daemonMarker + "'; " +
-		"if command -v docker >/dev/null 2>&1; then " +
-		"docker version --format '{{.Server.Version}}' 2>&1; fi; ")
+		"if command -v docker >/dev/null 2>&1; then " + daemonCommand + "; fi; ")
 	b.WriteString("echo '" + composeMarker + "'; " +
 		"if command -v docker >/dev/null 2>&1; then " +
 		"docker compose version --short 2>/dev/null; fi; ")

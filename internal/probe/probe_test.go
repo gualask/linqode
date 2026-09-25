@@ -174,7 +174,9 @@ func TestAMissingComposeDirIsPermanent(t *testing.T) {
 // host loses its table.
 func TestNothingEstablishedTurnsNothingOff(t *testing.T) {
 	for name, raw := range map[string][]byte{
-		"empty":     nil,
+		"empty": nil,
+		// What a daemon cut off by the timeout leaves behind.
+		"timed out": []byte("#docker\n/usr/bin/docker\n#daemon\n#compose\n5.3.1\n#legacy\n#dir\npresent\n"),
 		"garbage":   []byte("bash: line 1: syntax error\n"),
 		"truncated": []byte("#docker\n/usr/bin/docker\n#daemon\n29.7.0\n"),
 	} {
@@ -202,6 +204,11 @@ func TestCommandAsksForEverySection(t *testing.T) {
 	// Everything worth reading about a refused socket is on stderr.
 	if !strings.Contains(command, "'{{.Server.Version}}' 2>&1") {
 		t.Errorf("the daemon's error would be lost: %s", command)
+	}
+	// The daemon is the one section that can wait forever, and the batch
+	// runs before the screen does.
+	if !strings.Contains(command, "timeout 5 docker version") {
+		t.Errorf("the daemon is asked without a bound: %s", command)
 	}
 	// A host without docker must not have the shell report a missing binary
 	// on stderr for each of the two commands that would have used it.
