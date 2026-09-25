@@ -23,6 +23,13 @@ type Prober interface {
 // behind it. `script` is the exception, and the same one the TUI makes: a
 // configured script is a command the operator wrote, and it has never needed a
 // daemon.
+//
+// `stats` is on the list although its host half owes docker nothing, and the
+// TUI keeps its meters on the same host. The difference is the reader. A
+// screen can say why a panel is missing; a document promising host metrics
+// and containers that came back with an empty `containers` would tell a
+// machine "nothing is running", which is a different and false answer. Named
+// as unavailable, the caller can tell.
 func needsCompose(command Command) bool {
 	switch command {
 	case CommandStatus, CommandStats, CommandLogs,

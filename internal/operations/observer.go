@@ -71,9 +71,9 @@ func (o *HostOperator) Probe(ctx context.Context) (probe.Result, error) {
 	if err != nil {
 		return probe.Result{}, err
 	}
-	// The exit code is deliberately ignored. The batch ends with a grep that
-	// finds nothing on a host with no /etc/os-release, and a non-zero status
-	// there says nothing about the four sections that matter.
+	// The exit code is deliberately ignored. It is the status of whichever
+	// command the batch ran last, which says nothing about the sections
+	// before it; what each section established is in what it printed.
 	return probe.Parse(out.Stdout, o.composeDir), nil
 }
 
