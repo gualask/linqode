@@ -120,7 +120,9 @@ hit is the first one on the current line.
 The log has a **cursor**: the arrows move it over the lines, and the view
 scrolls only when it would leave the screen. While following it rides the
 newest line; moved off, it stays on its own line as new ones arrive — the
-events panel's rule — and reaching the newest line again resumes following. A
+events panel's rule — and reaching the newest line again resumes following,
+as does `F` (as in `less`) or `end` from anywhere. The footer offers `F follow`
+only while following has stopped. A
 search leaves it on the match, so `/`, `enter`, `enter` opens what was found.
 
 `enter` opens the line under it **in full**. The log cuts every line to the

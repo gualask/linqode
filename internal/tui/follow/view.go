@@ -377,6 +377,12 @@ func (m *Model) focusedHints() []panel.Hint {
 		if m.store.Len() > 0 {
 			hints = append(hints, panel.Hint{Text: "enter open", Drop: 3})
 		}
+		// Offered only once following has stopped: it is the way back, and
+		// the header's `following` already says when there is nothing to
+		// go back to.
+		if !m.follow && m.store.Len() > 0 {
+			hints = append(hints, panel.Hint{Text: "F follow", Drop: 2})
+		}
 		if m.query != "" {
 			hints = append(hints, panel.Hint{Text: "n/N next", Drop: 6})
 		}
