@@ -164,17 +164,16 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 		backend.GPUs = func() ([]host.GPU, error) {
 			return operator.GPUs(ctx)
 		}
-		// What the daemon is holding is a daemon question, not a compose one:
-		// a host with a working docker and a compose this cannot drive still
-		// has images, volumes and build cache worth showing.
-		if capabilities.CanReachDaemon() {
+		// The container readings are addressed by container, so they have
+		// nothing to ask about where there is no service list. What docker
+		// holds on disk goes with them for a different reason: it is drawn
+		// under the services table, and a host with no compose has no table
+		// on screen — the machine takes the body, and the system view is
+		// about the machine and nothing else.
+		if capabilities.CanCompose() {
 			backend.DiskUsage = func() ([]compose.DiskUsage, error) {
 				return operator.DiskUsage(ctx)
 			}
-		}
-		// The container readings are addressed by container, so they have
-		// nothing to ask about where there is no service list.
-		if capabilities.CanCompose() {
 			backend.Stats = func(services []compose.Service) (compose.CgroupSample, error) {
 				pids := make([]int, 0, len(services))
 				for _, service := range services {
