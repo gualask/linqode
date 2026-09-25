@@ -383,3 +383,20 @@ func TestQTypesWhileSearching(t *testing.T) {
 		t.Error("esc did not cancel the search input")
 	}
 }
+
+// A notice answers one key and goes with the next: `x` after a search that
+// found nothing brings the keys back, not the stale "no match".
+func TestANoticeGoesWithTheNextKey(t *testing.T) {
+	m := newTestModel(lineEvents("alpha", "beta")...)
+	m.SetSize(80, 10)
+	m.Update(key("/"))
+	typeText(m, "zzz")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(m.View(), "no match") {
+		t.Fatalf("no notice for a search that found nothing:\n%s", m.View())
+	}
+	m.Update(key("x"))
+	if view := m.View(); strings.Contains(view, "no match") || !strings.Contains(view, "q quit") {
+		t.Errorf("the notice outlived the search x cleared:\n%s", view)
+	}
+}

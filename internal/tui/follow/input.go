@@ -25,6 +25,11 @@ func (m *Model) handleKey(key tea.KeyMsg) tea.Cmd {
 	if m.input != inputNone {
 		return m.handleInputKey(key)
 	}
+	// A notice answers the key before this one, and goes with the next. Kept
+	// until something happened to clear it, it outlived what it was about —
+	// `x` took the search away and "no match" stayed — and while it stands
+	// the footer shows it in place of the keys.
+	m.notice = ""
 	if m.detail != nil {
 		return m.handleDetailKey(key.String())
 	}

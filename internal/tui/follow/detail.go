@@ -20,11 +20,18 @@ const maxKeyColumn = 24
 
 // openDetail opens the line under the cursor in full: the log view cuts
 // every line to the terminal's width, and this is where the rest of it is.
+//
+// It stops following. esc goes back to the log where it was left, and while
+// following, where it was left is the tail, which has moved on by the time
+// the line has been read — the line would come back a screen or two up with
+// nothing marking it. Stopped, the cursor is still on it; `l` resumes.
 func (m *Model) openDetail() {
+	m.selected = m.cursorLine()
 	line, ok := m.store.Line(m.selected)
 	if !ok {
 		return
 	}
+	m.follow = false
 	m.detail, m.detailScroll = &line, 0
 }
 

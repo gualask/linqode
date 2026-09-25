@@ -137,7 +137,9 @@ wrapped under themselves and their own line breaks kept, so a stack trace
 reads as one; any other line as its text, wrapped. The search's hits are
 marked there too. The line is held by value, so the tail moving underneath —
 new lines, the oldest dropped, a filter — never changes what is being read.
-The arrows scroll it, `esc` goes back to the log where it was left. Closing the view cancels the remote command — terminate
+The arrows scroll it, `esc` goes back to the log where it was left. Opening a
+line stops following, so that is the line that was opened rather than a tail
+that has moved on while it was read; `l` resumes. Closing the view cancels the remote command — terminate
 signal, then channel close — and tears down the pipeline.
 
 The log engine is deliberately **Docker-agnostic**: it consumes generic

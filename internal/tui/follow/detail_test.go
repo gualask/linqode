@@ -92,9 +92,10 @@ func TestEnterOpensTheWholeLine(t *testing.T) {
 		}
 	}
 
+	// Back on the log, stopped where the line was opened; l resumes.
 	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if m.detail != nil || !strings.Contains(m.View(), "following") {
-		t.Errorf("esc should return to the log:\n%s", m.View())
+	if view := m.View(); m.detail != nil || !strings.Contains(view, "l live") {
+		t.Errorf("esc should return to the log, stopped:\n%s", view)
 	}
 }
 
@@ -173,5 +174,29 @@ func TestLResumesFollowing(t *testing.T) {
 	m.View()
 	if !m.follow || m.selected != 29 {
 		t.Errorf("l: follow=%v selected=%d, want following on line 29", m.follow, m.selected)
+	}
+}
+
+// Opening a line while following stops following, so esc comes back to the
+// line that was read rather than to a tail that has moved on.
+func TestOpeningALineStopsFollowing(t *testing.T) {
+	feed, events := feedOf(numberedLines(5)...)
+	m := New("deploy@prod", "logs: web", feed)
+	m.SetSize(80, 10)
+	m.drain()
+	m.View()
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	opened := m.detail.Raw
+	for _, event := range numberedLines(20) {
+		events <- event
+	}
+	m.drain()
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m.View()
+	if m.follow {
+		t.Fatal("still following after a line was opened")
+	}
+	if line, _ := m.store.Line(m.selected); line.Raw != opened {
+		t.Errorf("back on %q, want the line that was opened, %q", line.Raw, opened)
 	}
 }
