@@ -43,12 +43,18 @@ func Parse(raw []byte, composeDir string) Result {
 // prints warnings on stderr, which this section deliberately captures, and a
 // host that answered its version is a host whose daemon answered whatever else
 // it also said.
+//
+// The same captured stderr is why no single line decides the rest. A refused
+// socket can follow a warning about the CLI's own config file, and a denial
+// can be about something other than the socket — a config file this user may
+// not read, an ssh:// endpoint refusing a key. Every line is read, and only a
+// denial that names the daemon is the `docker` group's business.
 func classifyDaemon(dockerPath, section string) (Docker, string, string) {
 	if dockerPath == "" {
 		// No binary. Anything the section holds is the shell's, not docker's.
 		return DockerAbsent, "", ""
 	}
-	var message string
+	var first, diagnosis, denial string
 	for line := range strings.Lines(section) {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -57,21 +63,46 @@ func classifyDaemon(dockerPath, section string) (Docker, string, string) {
 		if isVersion(line) {
 			return DockerReady, line, ""
 		}
-		if message == "" {
-			// The first line, not the last: docker leads with the diagnosis
-			// and follows it with hints, which is the opposite of a shell
-			// pipeline, where the last line is the one that failed.
-			message = line
+		if first == "" {
+			first = line
+		}
+		// The first line that is not a warning, not the last: docker leads
+		// with the diagnosis and follows it with hints, which is the opposite
+		// of a shell pipeline, where the last line is the one that failed.
+		if diagnosis == "" && !isWarning(line) {
+			diagnosis = line
+		}
+		if denial == "" && isSocketDenial(line) {
+			denial = line
 		}
 	}
 	switch {
-	case message == "":
-		return DockerUnknown, "", ""
-	case strings.Contains(strings.ToLower(message), "permission denied"):
-		return DockerDenied, "", message
+	case denial != "":
+		return DockerDenied, "", denial
+	case diagnosis != "":
+		return DockerUnreachable, "", diagnosis
+	case first != "":
+		return DockerUnreachable, "", first
 	default:
-		return DockerUnreachable, "", message
+		return DockerUnknown, "", ""
 	}
+}
+
+// isSocketDenial reports whether a line is the daemon's socket refusing this
+// user. docker has worded it as "permission denied while trying to connect to
+// the Docker daemon socket at unix://…" and, more recently, "… to the docker
+// API at unix://…"; both name the socket they tried.
+func isSocketDenial(line string) bool {
+	lower := strings.ToLower(line)
+	return strings.Contains(lower, "permission denied") &&
+		(strings.Contains(lower, "while trying to connect to the docker") ||
+			strings.Contains(lower, "docker.sock"))
+}
+
+// isWarning reports whether a line is one of the CLI's warnings, which say
+// something about the CLI and nothing about why the daemon did not answer.
+func isWarning(line string) bool {
+	return strings.HasPrefix(strings.ToUpper(line), "WARNING")
 }
 
 // classifyCompose prefers the plugin, which is the only one this supports.

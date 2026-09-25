@@ -123,6 +123,52 @@ WARNING: daemon is using an insecure registry
 	}
 }
 
+// The daemon section captures stderr, so the refusal is not always the first
+// thing in it: the CLI can warn about its own config first.
+func TestADenialAfterAWarningIsStillADenial(t *testing.T) {
+	result := Parse([]byte(`#docker
+/usr/bin/docker
+#daemon
+WARNING: Error loading config file: /home/deploy/.docker/config.json: is a directory
+permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
+#compose
+5.3.1
+`), "")
+	if result.Docker != DockerDenied {
+		t.Errorf("Docker = %v, want DockerDenied", result.Docker)
+	}
+	if !strings.Contains(result.DaemonMessage, "docker API") {
+		t.Errorf("DaemonMessage = %q, want the denial rather than the warning", result.DaemonMessage)
+	}
+}
+
+// Only a refused socket is the `docker` group's business. A denial about
+// anything else sends the operator to the wrong fix.
+func TestADenialThatIsNotTheSocketIsNotAGroupProblem(t *testing.T) {
+	for name, section := range map[string]string{
+		"ssh endpoint refusing a key": "error during connect: Get \"http://docker.example.com/v1.51/version\": " +
+			"command [ssh -o ConnectTimeout=30 -T -- deploy@prod docker system dial-stdio] has exited " +
+			"with exit status 255, make sure the URL is valid, and Docker 18.09 or later is installed " +
+			"on the remote host: stderr=deploy@prod: Permission denied (publickey).\n",
+		"unreadable config, daemon down": "WARNING: Error loading config file: " +
+			"/home/deploy/.docker/config.json: open /home/deploy/.docker/config.json: permission denied\n" +
+			"Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := Parse([]byte("#docker\n/usr/bin/docker\n#daemon\n"+section+"#compose\n5.3.1\n"), "")
+			if result.Docker != DockerUnreachable {
+				t.Errorf("Docker = %v, want DockerUnreachable", result.Docker)
+			}
+			if strings.Contains(result.ComposeUnavailable(), "group") {
+				t.Errorf("ComposeUnavailable() = %q names the docker group", result.ComposeUnavailable())
+			}
+			if isWarning(result.DaemonMessage) {
+				t.Errorf("DaemonMessage = %q, a warning rather than the diagnosis", result.DaemonMessage)
+			}
+		})
+	}
+}
+
 // v1 is detected so the screen can name it, not adapted to.
 func TestComposeV1IsNamedRatherThanDriven(t *testing.T) {
 	result := Parse([]byte(`#docker

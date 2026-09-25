@@ -117,7 +117,7 @@ func TestComposePreflightNamesTheCondition(t *testing.T) {
 		kind   string
 	}{
 		{name: "denied socket", kind: "docker_permission_denied",
-			output: "#docker\n/usr/bin/docker\n#daemon\npermission denied\n#compose\n5.3.1\n#dir\npresent\n"},
+			output: "#docker\n/usr/bin/docker\n#daemon\npermission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n#compose\n5.3.1\n#dir\npresent\n"},
 		{name: "no docker", kind: "docker_unavailable",
 			output: "#docker\n#daemon\n#compose\n#legacy\n#dir\npresent\n"},
 		{name: "compose v1", kind: "compose_unavailable",

@@ -236,7 +236,7 @@ func TestRunMachineReportsWhatTheHostCannotDo(t *testing.T) {
 		"production": {Host: "production-alias", ComposeDir: "/srv/app"},
 	}})
 	denied := probe.Parse([]byte(
-		"#docker\n/usr/bin/docker\n#daemon\npermission denied\n#compose\n5.3.1\n#dir\npresent\n"),
+		"#docker\n/usr/bin/docker\n#daemon\npermission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n#compose\n5.3.1\n#dir\npresent\n"),
 		"/srv/app")
 	connector := func(context.Context, operations.ConfiguredHost) (cli.SafeOperator, func(), error) {
 		return machineObserver{probe: denied}, func() {}, nil
