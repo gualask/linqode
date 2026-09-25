@@ -152,77 +152,12 @@ func (m *Model) renderBand(width int) string {
 	if len(meters) == 0 {
 		return ""
 	}
-
-	// The tail is what follows the meters: a temperature, how long the
-	// machine has been up, and whether any of it is still current. Each part
-	// is measured plain and rendered styled, because the width arithmetic
-	// below cannot see through an escape sequence.
-	temperature := ""
-	temperatureStyle := theme.Dim
-	if hottest, ok := m.metrics.Hottest(); ok {
-		// A number, not a meter: the band has no width for a fifth gauge,
-		// and the colour carries the judgement a bare temperature cannot
-		// make for itself. The meter is in the view behind it.
-		temperature = fmt.Sprintf("%.0f°C", hottest.Celsius())
-		temperatureStyle = theme.Usage(hottest.Share())
-	}
-	uptime := ""
-	if m.metrics.Uptime > 0 {
-		uptime = "up " + formatUptime(m.metrics.Uptime)
-	}
-	tailParts := func() []string {
-		parts := make([]string, 0, 3)
-		if temperature != "" {
-			parts = append(parts, temperature)
-		}
-		if uptime != "" {
-			parts = append(parts, uptime)
-		}
-		if m.stale {
-			parts = append(parts, "(stale)")
-		}
-		return parts
-	}
-	tail := func() string { return strings.Join(tailParts(), "  ") }
-
-	// fixed is everything the bars do not occupy: the leading marker, the
-	// label before each bar and the amount after it, the gaps between the
-	// meters, and the tail.
-	fixed := func() int {
-		width := 1 + len(bandLabel) + 2 + bandGap*(len(meters)-1)
-		for _, gauge := range meters {
-			width += len(gauge.label) + len(gauge.value) + 2
-		}
-		if text := tail(); text != "" {
-			width += bandGap + len(text)
-		}
-		return width
-	}
-	// Shed the least urgent parts until the bars can have their minimum,
-	// rather than letting the band overflow and wrap the header. Uptime goes
-	// first, then the temperature, then the meters from the bottom up — CPU
-	// is the headline reading and swap the one that is only there when it
-	// matters. The staleness flag stays while anything is drawn at all: a
-	// stale number that looks current is worse than a missing one.
-	available := width
-	for available > 0 && fixed()+meterMinBar*len(meters) > available {
-		switch {
-		case uptime != "":
-			uptime = ""
-		case temperature != "":
-			temperature = ""
-		case len(meters) > 1:
-			meters = meters[:len(meters)-1]
-		default:
-			// Narrower than a single meter can be drawn; give up on fitting
-			// and let the caller's clip deal with it.
-			available = 0
-		}
-	}
+	tail := m.bandTail()
+	meters, available := fitBand(meters, &tail, width)
 
 	barWidth := meterMinBar
 	if available > 0 {
-		barWidth = min(max((available-fixed())/len(meters), meterMinBar), meterMaxBar)
+		barWidth = min(max((available-bandFixed(meters, tail))/len(meters), meterMinBar), meterMaxBar)
 	}
 	gap := strings.Repeat(" ", bandGap)
 	parts := make([]string, len(meters))
@@ -231,18 +166,113 @@ func (m *Model) renderBand(width int) string {
 			styledBar(gauge.percent, barWidth, gauge.style), gauge.value)
 	}
 	line := " " + m.labelStyle().Render(bandLabel) + "  " + strings.Join(parts, gap)
+	if styled := tail.render(); styled != "" {
+		line += gap + styled
+	}
+	return line
+}
+
+// bandTail is what follows the meters: a temperature, how long the machine
+// has been up, and whether any of it is still current. Each part is measured
+// plain and rendered styled, because the width arithmetic cannot see through
+// an escape sequence.
+type bandTail struct {
+	temperature      string
+	temperatureStyle lipgloss.Style
+	uptime           string
+	stale            bool
+}
+
+func (m *Model) bandTail() bandTail {
+	tail := bandTail{temperatureStyle: theme.Dim, stale: m.stale}
+	if hottest, ok := m.metrics.Hottest(); ok {
+		// A number, not a meter: the band has no width for a fifth gauge,
+		// and the colour carries the judgement a bare temperature cannot
+		// make for itself. The meter is in the view behind it.
+		tail.temperature = fmt.Sprintf("%.0f°C", hottest.Celsius())
+		tail.temperatureStyle = theme.Usage(hottest.Share())
+	}
+	if m.metrics.Uptime > 0 {
+		tail.uptime = "up " + formatUptime(m.metrics.Uptime)
+	}
+	return tail
+}
+
+// parts is the tail's pieces still in it, in the order they are drawn.
+func (t bandTail) parts() []string {
+	parts := make([]string, 0, 3)
+	if t.temperature != "" {
+		parts = append(parts, t.temperature)
+	}
+	if t.uptime != "" {
+		parts = append(parts, t.uptime)
+	}
+	if t.stale {
+		parts = append(parts, "(stale)")
+	}
+	return parts
+}
+
+// plain is the tail as the width arithmetic measures it.
+func (t bandTail) plain() string { return strings.Join(t.parts(), "  ") }
+
+// render is the tail as drawn: the temperature in the colour of its reading,
+// the rest recessive.
+func (t bandTail) render() string {
 	styled := make([]string, 0, 3)
-	for _, part := range tailParts() {
-		if part == temperature {
-			styled = append(styled, temperatureStyle.Render(part))
+	for _, part := range t.parts() {
+		if part == t.temperature {
+			styled = append(styled, t.temperatureStyle.Render(part))
 			continue
 		}
 		styled = append(styled, theme.Dim.Render(part))
 	}
-	if len(styled) > 0 {
-		line += gap + strings.Join(styled, theme.Dim.Render("  "))
+	return strings.Join(styled, theme.Dim.Render("  "))
+}
+
+// bandFixed is everything on the band the bars do not occupy: the leading
+// marker, the label before each bar and the amount after it, the gaps between
+// the meters, and the tail.
+func bandFixed(meters []meter, tail bandTail) int {
+	width := 1 + len(bandLabel) + 2 + bandGap*(len(meters)-1)
+	for _, gauge := range meters {
+		width += len(gauge.label) + len(gauge.value) + 2
 	}
-	return line
+	if text := tail.plain(); text != "" {
+		width += bandGap + len(text)
+	}
+	return width
+}
+
+// fitBand sheds the least urgent parts until the bars can have their minimum,
+// rather than letting the band overflow and wrap the header. Uptime goes
+// first, then the temperature, then the meters from the bottom up — CPU is
+// the headline reading and swap the one that is only there when it matters.
+// The staleness flag stays while anything is drawn at all: a stale number
+// that looks current is worse than a missing one.
+//
+// It returns the meters left and the width to lay them out in, which is zero
+// when the terminal is narrower than a single meter can be drawn: fitting is
+// given up on, and the caller's clip deals with it. A width not known yet is
+// returned as it came, with everything in.
+func fitBand(meters []meter, tail *bandTail, width int) ([]meter, int) {
+	if width <= 0 {
+		// No size yet: nothing to fit to, so nothing is shed.
+		return meters, width
+	}
+	for bandFixed(meters, *tail)+meterMinBar*len(meters) > width {
+		switch {
+		case tail.uptime != "":
+			tail.uptime = ""
+		case tail.temperature != "":
+			tail.temperature = ""
+		case len(meters) > 1:
+			meters = meters[:len(meters)-1]
+		default:
+			return meters, 0
+		}
+	}
+	return meters, width
 }
 
 // styledBar is the gauge every meter here is drawn with — the band's and the
