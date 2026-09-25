@@ -97,6 +97,14 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 		DockerEndpoint:     capabilities.DockerEndpoint(),
 		ComposeUnavailable: capabilities.ComposeUnavailable(),
 	}
+	return tui.Run(info, newBackend(ctx, operator, link.local, sel.HostMetrics, capabilities))
+}
+
+// newBackend wires what the screen may ask this host for. A fetch left nil
+// leaves the feature it feeds out of the view, which is how a capability the
+// probe did not find, or a reading the config turned off, is expressed.
+func newBackend(ctx context.Context, operator *operations.HostOperator, local, hostMetrics bool,
+	capabilities probe.Result) tui.Backend {
 	// Scripts and the `!` prompt are here whatever the probe found: neither
 	// has ever needed a daemon, and a host without docker is still a host
 	// worth having a terminal on.
@@ -109,61 +117,13 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 		},
 	}
 	if capabilities.CanCompose() {
-		backend.Services = func() ([]compose.Service, error) {
-			return operator.Status(ctx)
-		}
-		backend.Logs = func(service string, tail int) (operations.Feed, error) {
-			return operator.Logs(ctx, service, tail, true)
-		}
-		backend.ActionPreview = operator.ActionPreview
-		backend.Action = func(action operations.ServiceAction, service string) (operations.Feed, error) {
-			return operator.Action(ctx, action, service)
-		}
-		// The event stream is the daemon's rather than compose's, but what it
-		// is scoped to is a compose project, and there is no project to name
-		// without a service list to read it off.
-		backend.Watch = func(project string) (operations.Feed, error) {
-			return operator.Watch(ctx, project)
-		}
+		wireCompose(ctx, &backend, operator)
 	}
-	// Both resource fetches ride on the same switch, and nil leaves the
-	// feature they feed out of the view: one host that wants no extra
-	// commands wants none of them. See `host_metrics` in the config format.
-	if sel.HostMetrics {
-		switch {
-		// The machine's own readings come off /proc and /sys and owe docker
-		// nothing, so they survive every finding the probe can make.
-		case capabilities.CanReadProc():
-			backend.Host = func() (host.Metrics, error) {
-				return operator.HostMetrics(ctx)
-			}
-			backend.Processes = func() (host.ProcessSample, error) {
-				return operator.HostProcesses(ctx)
-			}
-		// No /proc, and the machine is this one: the readings are taken
-		// natively instead. This is the only branch in the program where a
-		// reading does not ride on the Executor, and the `local` guard is
-		// what keeps it honest — a Mac reached over SSH lands below, with
-		// the filesystems it can still answer for and nothing invented.
-		case link.local:
-			backend.Host = func() (host.Metrics, error) {
-				return host.Sample(ctx)
-			}
-			backend.Processes = func() (host.ProcessSample, error) {
-				return host.SampleProcesses(ctx)
-			}
-		// No /proc and not this machine. The batch still answers `df`, and
-		// the screen draws no meter it has no number for; the process table
-		// would be a panel that could only ever open empty, so it is left
-		// off.
-		default:
-			backend.Host = func() (host.Metrics, error) {
-				return operator.HostMetrics(ctx)
-			}
-		}
-		backend.GPUs = func() ([]host.GPU, error) {
-			return operator.GPUs(ctx)
-		}
+	// Every resource fetch rides on the same switch: one host that wants no
+	// extra commands wants none of them. See `host_metrics` in the config
+	// format.
+	if hostMetrics {
+		wireMachine(ctx, &backend, operator, local, capabilities)
 		// The container readings are addressed by container, so they have
 		// nothing to ask about where there is no service list. What docker
 		// holds on disk goes with them for a different reason: it is drawn
@@ -171,22 +131,93 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 		// on screen — the machine takes the body, and the system view is
 		// about the machine and nothing else.
 		if capabilities.CanCompose() {
-			backend.DiskUsage = func() ([]compose.DiskUsage, error) {
-				return operator.DiskUsage(ctx)
-			}
-			backend.Stats = func(services []compose.Service) (compose.CgroupSample, error) {
-				pids := make([]int, 0, len(services))
-				for _, service := range services {
-					if service.Pid > 0 {
-						pids = append(pids, service.Pid)
-					}
-				}
-				return operator.ContainerCgroups(ctx, pids)
-			}
-			backend.LiveStats = func() (operations.Feed, error) {
-				return operator.FollowStats(ctx)
-			}
+			wireContainerReadings(ctx, &backend, operator)
 		}
 	}
-	return tui.Run(info, backend)
+	return backend
+}
+
+// wireCompose is the project: its services, their logs and lifecycle, and
+// what the daemon reports happening to them.
+func wireCompose(ctx context.Context, backend *tui.Backend, operator *operations.HostOperator) {
+	backend.Services = func() ([]compose.Service, error) {
+		return operator.Status(ctx)
+	}
+	backend.Logs = func(service string, tail int) (operations.Feed, error) {
+		return operator.Logs(ctx, service, tail, true)
+	}
+	backend.ActionPreview = operator.ActionPreview
+	backend.Action = func(action operations.ServiceAction, service string) (operations.Feed, error) {
+		return operator.Action(ctx, action, service)
+	}
+	// The event stream is the daemon's rather than compose's, but what it
+	// is scoped to is a compose project, and there is no project to name
+	// without a service list to read it off.
+	backend.Watch = func(project string) (operations.Feed, error) {
+		return operator.Watch(ctx, project)
+	}
+}
+
+// wireMachine is the machine's own readings, which come off /proc and /sys
+// and owe docker nothing, so they survive every finding the probe can make.
+func wireMachine(ctx context.Context, backend *tui.Backend, operator *operations.HostOperator,
+	local bool, capabilities probe.Result) {
+	switch {
+	case capabilities.CanReadProc():
+		backend.Host = func() (host.Metrics, error) {
+			return operator.HostMetrics(ctx)
+		}
+		backend.Processes = func() (host.ProcessSample, error) {
+			return operator.HostProcesses(ctx)
+		}
+	// No /proc, and the machine is this one: the readings are taken
+	// natively instead. This is the only branch in the program where a
+	// reading does not ride on the Executor, and the `local` guard is
+	// what keeps it honest — a Mac reached over SSH lands below, with
+	// the filesystems it can still answer for and nothing invented.
+	case local:
+		backend.Host = func() (host.Metrics, error) {
+			return host.Sample(ctx)
+		}
+		backend.Processes = func() (host.ProcessSample, error) {
+			return host.SampleProcesses(ctx)
+		}
+	// No /proc and not this machine. The batch still answers `df`, and
+	// the screen draws no meter it has no number for; the process table
+	// would be a panel that could only ever open empty, so it is left
+	// off.
+	default:
+		backend.Host = func() (host.Metrics, error) {
+			return operator.HostMetrics(ctx)
+		}
+	}
+	backend.GPUs = func() ([]host.GPU, error) {
+		return operator.GPUs(ctx)
+	}
+}
+
+// wireContainerReadings is what the services cost: their counters, the live
+// stream, and what docker holds on disk.
+func wireContainerReadings(ctx context.Context, backend *tui.Backend, operator *operations.HostOperator) {
+	backend.DiskUsage = func() ([]compose.DiskUsage, error) {
+		return operator.DiskUsage(ctx)
+	}
+	backend.Stats = func(services []compose.Service) (compose.CgroupSample, error) {
+		return operator.ContainerCgroups(ctx, runningPIDs(services))
+	}
+	backend.LiveStats = func() (operations.Feed, error) {
+		return operator.FollowStats(ctx)
+	}
+}
+
+// runningPIDs is the main process of every service that has one: a stopped
+// container has no process to read counters off.
+func runningPIDs(services []compose.Service) []int {
+	pids := make([]int, 0, len(services))
+	for _, service := range services {
+		if service.Pid > 0 {
+			pids = append(pids, service.Pid)
+		}
+	}
+	return pids
 }
