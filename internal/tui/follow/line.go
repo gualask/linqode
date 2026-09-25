@@ -63,11 +63,7 @@ func (m *Model) selectionStyle() lipgloss.Style {
 func (m *Model) searchText(line logs.LogLine) string {
 	if m.structuredRendering() && line.Record != nil {
 		if segments := structuredSegments(line.Record, 1<<20); len(segments) > 0 {
-			var text strings.Builder
-			for _, seg := range segments {
-				text.WriteString(seg.text)
-			}
-			return text.String()
+			return joinText(segments)
 		}
 	}
 	return terminalText(line.Raw)
@@ -162,11 +158,7 @@ func paint(segments []segment, marks lineMarks, width int) string {
 	if marks.fill != nil {
 		// One segment for the whole bar: its parts share the fill now, and
 		// drawn apart they would be one bar in several pieces.
-		var text strings.Builder
-		for _, seg := range segments {
-			text.WriteString(seg.text)
-		}
-		line := text.String()
+		line := joinText(segments)
 		if pad := width - ansi.StringWidth(line); pad > 0 {
 			line += strings.Repeat(" ", pad)
 		}
@@ -195,50 +187,78 @@ func terminalText(text string) string {
 // query in the text they make up together drawn as a match instead — the
 // first one as the current match when current is set.
 func highlightIn(segments []segment, query string, current bool) string {
-	var line strings.Builder
-	for _, seg := range segments {
-		line.WriteString(seg.text)
-	}
-	text := line.String()
-	// Byte ranges of the matches in text, in order and not overlapping.
-	var matches [][2]int
-	if query != "" {
-		for offset := 0; ; {
-			index := logs.FindASCIICI(text[offset:], query)
-			if index < 0 {
-				break
-			}
-			matches = append(matches, [2]int{offset + index, offset + index + len(query)})
-			offset += index + len(query)
-		}
-	}
-	first := -1
-	if len(matches) > 0 {
-		first = matches[0][0]
+	text := joinText(segments)
+	matches := findMatches(text, query)
+	currentAt := -1
+	if current && len(matches) > 0 {
+		currentAt = matches[0][0]
 	}
 	var b strings.Builder
 	start := 0
 	for _, seg := range segments {
 		end := start + len(seg.text)
-		for at := start; at < end; {
-			// Skip the matches already behind this position.
-			for len(matches) > 0 && matches[0][1] <= at {
-				matches = matches[1:]
-			}
-			style, stop := seg.style, end
-			switch {
-			case len(matches) > 0 && matches[0][0] <= at:
-				style, stop = theme.Match, min(matches[0][1], end)
-				if current && matches[0][0] == first {
-					style = theme.MatchCurrent
-				}
-			case len(matches) > 0:
-				stop = min(matches[0][0], end)
-			}
-			b.WriteString(style.Render(text[at:stop]))
-			at = stop
-		}
+		matches = paintSpan(&b, text[:end], start, seg.style, matches, currentAt)
 		start = end
 	}
 	return b.String()
+}
+
+// findMatches is the byte ranges of query in text, in order and not
+// overlapping.
+func findMatches(text, query string) [][2]int {
+	if query == "" {
+		return nil
+	}
+	var matches [][2]int
+	for offset := 0; ; {
+		index := logs.FindASCIICI(text[offset:], query)
+		if index < 0 {
+			return matches
+		}
+		matches = append(matches, [2]int{offset + index, offset + index + len(query)})
+		offset += index + len(query)
+	}
+}
+
+// paintSpan writes text[start:] — one segment's part of the line — as runs of
+// its own style and of the matches that fall in it, a match crossing into the
+// next segment cut where this one ends. It returns the matches not yet behind
+// it, for the next segment to go on from.
+func paintSpan(b *strings.Builder, text string, start int, style lipgloss.Style,
+	matches [][2]int, currentAt int) [][2]int {
+	for at := start; at < len(text); {
+		for len(matches) > 0 && matches[0][1] <= at {
+			matches = matches[1:]
+		}
+		runStyle, stop := runAt(at, len(text), style, matches, currentAt)
+		b.WriteString(runStyle.Render(text[at:stop]))
+		at = stop
+	}
+	return matches
+}
+
+// runAt is the style of the run starting at `at` and where it stops: a match,
+// up to its end, or the segment's own style up to the next match.
+func runAt(at, end int, style lipgloss.Style, matches [][2]int, currentAt int) (lipgloss.Style, int) {
+	if len(matches) == 0 {
+		return style, end
+	}
+	next := matches[0]
+	switch {
+	case next[0] > at:
+		return style, min(next[0], end)
+	case next[0] == currentAt:
+		return theme.MatchCurrent, min(next[1], end)
+	default:
+		return theme.Match, min(next[1], end)
+	}
+}
+
+// joinText is the line the segments make up.
+func joinText(segments []segment) string {
+	var text strings.Builder
+	for _, seg := range segments {
+		text.WriteString(seg.text)
+	}
+	return text.String()
 }
