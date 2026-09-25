@@ -23,8 +23,8 @@ func Parse(raw []byte, composeDir string) Result {
 			classifyDaemon(strings.TrimSpace(dockerPath), sections[daemonMarker])
 	}
 	if plugin, asked := sections[composeMarker]; asked {
-		result.Compose, result.ComposeVersion =
-			classifyCompose(plugin, sections[legacyMarker])
+		legacy, legacyAsked := sections[legacyMarker]
+		result.Compose, result.ComposeVersion = classifyCompose(plugin, legacy, legacyAsked)
 	}
 	if dir, asked := sections[dirMarker]; asked {
 		result.Directory = classifyDirectory(composeDir, dir)
@@ -108,16 +108,28 @@ func isWarning(line string) bool {
 // classifyCompose prefers the plugin, which is the only one this supports.
 // The standalone binary is reported so the screen can name it; a host with
 // both is a host with v2.
-func classifyCompose(plugin, legacy string) (Compose, string) {
+//
+// No plugin is a finding only once the standalone binary has been asked
+// about too. A batch cut off between the two sections has established that
+// there is no plugin and nothing about the binary, and "no compose here"
+// would be a claim about a host it never finished looking at.
+func classifyCompose(plugin, legacy string, legacyAsked bool) (Compose, string) {
 	for line := range strings.Lines(plugin) {
 		if line = strings.TrimSpace(line); isVersion(line) {
 			return ComposeV2, line
 		}
 	}
-	if strings.TrimSpace(legacy) != "" {
+	if !legacyAsked {
+		return ComposeUnknown, ""
+	}
+	switch standalone := firstLine(legacy); {
+	case standalone == "":
+		return ComposeAbsent, ""
+	case isVersion(standalone):
+		return ComposeLegacy, standalone
+	default:
 		return ComposeLegacy, ""
 	}
-	return ComposeAbsent, ""
 }
 
 func classifyDirectory(composeDir, section string) Directory {

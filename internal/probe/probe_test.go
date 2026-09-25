@@ -176,17 +176,55 @@ func TestComposeV1IsNamedRatherThanDriven(t *testing.T) {
 #daemon
 20.10.24
 #compose
+
 #legacy
-/usr/local/bin/docker-compose
+1.29.2
 #dir
 #os
 `), "")
-	if result.Compose != ComposeLegacy {
-		t.Errorf("Compose = %v, want ComposeLegacy", result.Compose)
+	if result.Compose != ComposeLegacy || result.ComposeVersion != "1.29.2" {
+		t.Errorf("Compose = %v %q, want ComposeLegacy 1.29.2", result.Compose, result.ComposeVersion)
 	}
 	if !strings.Contains(result.ComposeUnavailable(), "docker-compose v1") {
 		t.Errorf("ComposeUnavailable() = %q, which does not name the version",
 			result.ComposeUnavailable())
+	}
+}
+
+// Compose v2 ships as a standalone binary too. A host with only that one needs
+// the plugin linked, not an upgrade, and must not be told it is running v1.
+func TestAStandaloneV2IsNotCalledV1(t *testing.T) {
+	result := Parse([]byte("#docker\n/usr/bin/docker\n#daemon\n29.7.0\n#compose\n\n#legacy\n2.29.7\n"), "")
+	if result.Compose != ComposeLegacy || result.ComposeVersion != "2.29.7" {
+		t.Errorf("Compose = %v %q, want ComposeLegacy 2.29.7", result.Compose, result.ComposeVersion)
+	}
+	why := result.ComposeUnavailable()
+	if strings.Contains(why, "v1") || !strings.Contains(why, "plugin") {
+		t.Errorf("ComposeUnavailable() = %q, want the missing plugin named, not v1", why)
+	}
+	// A binary that would not say its version is still a binary.
+	unsure := Parse([]byte("#docker\n/usr/bin/docker\n#daemon\n29.7.0\n#compose\n\n#legacy\npresent\n"), "")
+	if unsure.Compose != ComposeLegacy || strings.Contains(unsure.ComposeUnavailable(), "v1") {
+		t.Errorf("Compose = %v, %q", unsure.Compose, unsure.ComposeUnavailable())
+	}
+}
+
+// A batch cut off after the plugin's section has not looked for the binary,
+// and a host it never finished looking at must not lose its table.
+func TestNoPluginIsNotAFindingUntilTheBinaryWasAskedAbout(t *testing.T) {
+	result := Parse([]byte("#docker\n/usr/bin/docker\n#daemon\n29.7.0\n#compose\n\n"), "")
+	if result.Compose != ComposeUnknown || !result.CanCompose() {
+		t.Errorf("Compose = %v, %q, want ComposeUnknown carrying on",
+			result.Compose, result.ComposeUnavailable())
+	}
+}
+
+// The binary is asked for its version only when the plugin gave none: v1
+// takes most of a second to start, and a host with both is a host with v2.
+func TestTheStandaloneBinaryIsAskedOnlyWithoutThePlugin(t *testing.T) {
+	command := Command("")
+	if !strings.Contains(command, `if [ -z "$compose_plugin" ] && command -v docker-compose`) {
+		t.Errorf("docker-compose is started on every host: %s", command)
 	}
 }
 

@@ -74,18 +74,25 @@ const (
 	DockerReady
 )
 
-// Compose is which compose the host has. v1 is the standalone `docker-compose`
-// binary, end of life since June 2023; it is detected so the screen can say so,
-// not adapted to. Adapting would put the binary's name in front of every
-// compose command this codebase builds, which is a lot of indirection to carry
-// for a tool its own authors stopped shipping.
+// Compose is which compose the host has. Only the `docker compose` plugin is
+// driven. The standalone `docker-compose` binary is detected so the screen can
+// say so, not adapted to: adapting would put the binary's name in front of
+// every compose command this codebase builds, which is a lot of indirection to
+// carry for what is, in its v1 form, a tool its own authors stopped shipping
+// in June 2023.
+//
+// The standalone binary is not always v1, though. Compose v2 ships as one too,
+// and some distributions and manual installs put it on PATH without the
+// plugin. That host needs the plugin installed or linked, not an upgrade, so
+// the version the binary reports is what the sentence turns on.
 type Compose int
 
 const (
 	ComposeUnknown Compose = iota
 	// ComposeAbsent is a host with neither the plugin nor the old binary.
 	ComposeAbsent
-	// ComposeLegacy is the standalone v1 binary and no plugin.
+	// ComposeLegacy is the standalone `docker-compose` binary and no plugin.
+	// ComposeVersion says which one, when the binary said.
 	ComposeLegacy
 	// ComposeV2 is the `docker compose` plugin.
 	ComposeV2
@@ -140,7 +147,8 @@ type Result struct {
 	DaemonMessage string
 
 	Compose Compose
-	// ComposeVersion is what `compose version --short` reported, when it did.
+	// ComposeVersion is what `compose version --short` reported, when it did:
+	// the plugin's, or the standalone binary's when there is no plugin.
 	ComposeVersion string
 
 	Directory Directory
@@ -214,7 +222,7 @@ func (r Result) ComposeUnavailable() string {
 	}
 	switch r.Compose {
 	case ComposeLegacy:
-		return "this host has docker-compose v1, which linqode does not drive"
+		return standaloneUnavailable(r.ComposeVersion)
 	case ComposeAbsent:
 		return "docker is here, but the compose plugin is not"
 	}
@@ -222,6 +230,21 @@ func (r Result) ComposeUnavailable() string {
 		return "compose_dir " + r.DirectoryPath + " is not a directory on this host"
 	}
 	return ""
+}
+
+// standaloneUnavailable is the sentence for a host whose only compose is the
+// standalone binary. v1 is named as such because there is nothing to link, and
+// a v2 binary is told apart because there is.
+func standaloneUnavailable(version string) string {
+	switch {
+	case version == "":
+		return "this host has only the standalone docker-compose, which linqode does not drive"
+	case strings.HasPrefix(strings.TrimPrefix(version, "v"), "1."):
+		return "this host has docker-compose v1 (" + version + "), which linqode does not drive"
+	default:
+		return "this host has the standalone docker-compose " + version +
+			", but not the compose plugin linqode drives"
+	}
 }
 
 // CanCompose reports whether compose commands are worth offering at all.
@@ -275,15 +298,24 @@ const daemonCommand = "if command -v timeout >/dev/null 2>&1; " +
 // socket refuses this user still reports which compose it has. That is what
 // makes the difference between "no docker here" and "docker is here and will
 // not talk to you" reportable in one sentence.
+//
+// The standalone binary is asked for its version only when the plugin gave
+// none. A host with both is a host with the plugin, and v1 is a Python program
+// that takes most of a second to start — a cost the ordinary host must not pay
+// to answer a question it has no use for. A binary that will not say its
+// version still prints a word, so the section tells "there is one" apart from
+// "there is none".
 func Command(composeDir string) string {
 	var b strings.Builder
 	b.WriteString("echo '" + dockerMarker + "'; command -v docker 2>/dev/null; ")
 	b.WriteString("echo '" + daemonMarker + "'; " +
 		"if command -v docker >/dev/null 2>&1; then " + daemonCommand + "; fi; ")
-	b.WriteString("echo '" + composeMarker + "'; " +
+	b.WriteString("echo '" + composeMarker + "'; compose_plugin=; " +
 		"if command -v docker >/dev/null 2>&1; then " +
-		"docker compose version --short 2>/dev/null; fi; ")
-	b.WriteString("echo '" + legacyMarker + "'; command -v docker-compose 2>/dev/null; ")
+		`compose_plugin=$(docker compose version --short 2>/dev/null); echo "$compose_plugin"; fi; `)
+	b.WriteString("echo '" + legacyMarker + "'; " +
+		`if [ -z "$compose_plugin" ] && command -v docker-compose >/dev/null 2>&1; then ` +
+		"docker-compose version --short 2>/dev/null || echo " + presentWord + "; fi; ")
 	b.WriteString("echo '" + dirMarker + "'; ")
 	if composeDir != "" {
 		b.WriteString("[ -d " + shellQuote(composeDir) + " ] && echo " + presentWord + "; ")
