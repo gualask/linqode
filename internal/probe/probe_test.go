@@ -169,6 +169,22 @@ func TestADenialThatIsNotTheSocketIsNotAGroupProblem(t *testing.T) {
 	}
 }
 
+// A line starting with `#` inside a section is what a tool said, not the start
+// of another section: only the batch's own markers are that.
+func TestAStrayHashLineStaysInItsSection(t *testing.T) {
+	result := Parse([]byte(`#docker
+/usr/bin/docker
+#daemon
+# this host is managed by ansible
+permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
+#compose
+5.3.1
+`), "")
+	if result.Docker != DockerDenied {
+		t.Errorf("Docker = %v, want DockerDenied — the section was cut at the stray line", result.Docker)
+	}
+}
+
 // v1 is detected so the screen can name it, not adapted to.
 func TestComposeV1IsNamedRatherThanDriven(t *testing.T) {
 	result := Parse([]byte(`#docker

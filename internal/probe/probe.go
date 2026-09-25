@@ -45,9 +45,17 @@ const (
 	endpointMarker = "#endpoint"
 	contextMarker  = "#context"
 	// presentWord is what a shell test echoes when it holds: one word, for
-	// the two sections that ask a yes-or-no question.
+	// the sections that ask a yes-or-no question.
 	presentWord = "present"
 )
+
+// markers is every section the batch prints, and the only lines split reads
+// as the start of one.
+var markers = map[string]bool{
+	dockerMarker: true, daemonMarker: true, composeMarker: true,
+	legacyMarker: true, dirMarker: true, osMarker: true, procMarker: true,
+	endpointMarker: true, contextMarker: true,
+}
 
 // Docker is what the daemon answered, which is not the same question as
 // whether docker is installed.

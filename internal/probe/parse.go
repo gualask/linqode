@@ -194,6 +194,11 @@ func prettyName(section string) string {
 // dependency between two packages that otherwise have nothing to say to each
 // other, or a package existing only to hold them. Extract it if a third
 // batch appears.
+//
+// Only this batch's own markers open a section. Every section but two prints
+// what a tool said, and a tool's error or a shell's banner can begin with `#`
+// as easily as with anything else; taken for a marker, it would cut the
+// section it landed in short and file the rest under a key nobody reads.
 func split(raw string) map[string]string {
 	sections := map[string]string{}
 	current := ""
@@ -205,7 +210,7 @@ func split(raw string) map[string]string {
 		body.Reset()
 	}
 	for line := range strings.Lines(raw) {
-		if marker := strings.TrimSpace(line); strings.HasPrefix(marker, "#") {
+		if marker := strings.TrimSpace(line); markers[marker] {
 			flush()
 			current = marker
 			continue
