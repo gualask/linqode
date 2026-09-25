@@ -493,6 +493,22 @@ func (m *Model) selectionStyle() lipgloss.Style {
 	return theme.Reverse
 }
 
+// searchText is a line as the log draws it, uncut: what the search looks in,
+// so that a line it stops on shows the hit. A record's raw JSON holds its
+// keys, its quotes and its escapes, none of which the structured form draws.
+func (m *Model) searchText(line logs.LogLine) string {
+	if m.structuredRendering() && line.Record != nil {
+		if segments := structuredSegments(line.Record, 1<<20); len(segments) > 0 {
+			var text strings.Builder
+			for _, seg := range segments {
+				text.WriteString(seg.text)
+			}
+			return text.String()
+		}
+	}
+	return terminalText(line.Raw)
+}
+
 // renderLogLine draws one log line, cut to width, with its marks.
 func renderLogLine(line logs.LogLine, structured bool, marks lineMarks, width int) string {
 	budget := width - 1

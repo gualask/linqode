@@ -65,7 +65,7 @@ type Model struct {
 	input     inputMode
 	inputText string
 	query     string
-	matchLine int // current match, anchor for n/N; -1 = none
+	matchLine int // current match, drawn apart from the others; -1 = none
 	notice    string
 
 	// detail is the line opened with enter, held by value: the feed goes on

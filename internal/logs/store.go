@@ -155,20 +155,27 @@ func (s *Store) Line(i int) (LogLine, bool) {
 	return s.buffer.Get(i)
 }
 
-// SearchNext returns the first visible line at or after from whose raw
-// text contains query (ASCII case insensitive), wrapping around to the
-// start.
-func (s *Store) SearchNext(query string, from int) (int, bool) {
-	return s.search(query, from, 1)
+// SearchNext returns the first visible line at or after from whose text
+// contains query (ASCII case insensitive), wrapping around to the start.
+//
+// text is what a line is searched as, and nil is its raw text. A view that
+// draws a line some other way passes how it draws it: a search that stops on
+// a line must stop on something the operator can see there, and a record's
+// raw JSON holds keys and escapes its drawn form does not.
+func (s *Store) SearchNext(query string, from int, text func(LogLine) string) (int, bool) {
+	return s.search(query, from, 1, text)
 }
 
 // SearchPrev returns the first visible line at or before from containing
 // query, wrapping around to the end.
-func (s *Store) SearchPrev(query string, from int) (int, bool) {
-	return s.search(query, from, -1)
+func (s *Store) SearchPrev(query string, from int, text func(LogLine) string) (int, bool) {
+	return s.search(query, from, -1, text)
 }
 
-func (s *Store) search(query string, from, direction int) (int, bool) {
+func (s *Store) search(query string, from, direction int, text func(LogLine) string) (int, bool) {
+	if text == nil {
+		text = func(line LogLine) string { return line.Raw }
+	}
 	n := s.Len()
 	if n == 0 {
 		return 0, false
@@ -176,7 +183,7 @@ func (s *Store) search(query string, from, direction int) (int, bool) {
 	from = min(from, n-1)
 	for step := range n {
 		i := ((from+direction*step)%n + n) % n
-		if line, ok := s.Line(i); ok && FindASCIICI(line.Raw, query) >= 0 {
+		if line, ok := s.Line(i); ok && FindASCIICI(text(line), query) >= 0 {
 			return i, true
 		}
 	}

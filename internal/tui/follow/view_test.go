@@ -145,19 +145,21 @@ func TestCurrentMatchIsSetApart(t *testing.T) {
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	current, other := theme.MatchCurrent.Render("alpha"), theme.Match.Render("alpha")
+	// Following, the search lands on the newest match. It leaves the cursor
+	// on the match too; the hits keep their colours on the cursor's bar.
 	lines := strings.Split(m.logBody(80), "\n")
-	// The search leaves the cursor on the match too; the hits keep their
-	// colours on the cursor's bar.
-	if !strings.HasPrefix(lines[0], current) || !strings.Contains(lines[0], other) {
-		t.Errorf("current line = %q, want first hit current, second plain match", lines[0])
+	if !strings.HasPrefix(lines[2], current) {
+		t.Errorf("current line = %q, want its hit current", lines[2])
 	}
-	if strings.Contains(lines[2], current) || !strings.Contains(lines[2], other) {
-		t.Errorf("other line = %q, want only plain matches", lines[2])
+	if strings.Contains(lines[0], current) || !strings.Contains(lines[0], other) {
+		t.Errorf("other line = %q, want only plain matches", lines[0])
 	}
 
-	m.Update(key("n"))
+	m.Update(key("N"))
 	lines = strings.Split(m.logBody(80), "\n")
-	if strings.Contains(lines[0], current) || !strings.Contains(lines[2], current) {
-		t.Errorf("after n the current match did not move:\n%s", strings.Join(lines, "\n"))
+	if !strings.HasPrefix(lines[0], current) || !strings.Contains(lines[0], other) ||
+		strings.Contains(lines[2], current) {
+		t.Errorf("after N the current match did not move, or took both hits:\n%s",
+			strings.Join(lines, "\n"))
 	}
 }

@@ -13,7 +13,7 @@ type inputMode int
 
 const (
 	inputNone inputMode = iota
-	// inputSearch is `/` — text search over raw lines.
+	// inputSearch is `/` — text search over the lines as they are drawn.
 	inputSearch
 	// inputFilter is `f` — field filter expression (`level=error app!=web`),
 	// for what the stats panel cannot pick: a negation, a field it is not
@@ -214,7 +214,7 @@ func (m *Model) commitInput(mode inputMode, text string) {
 		m.matchLine = -1
 		m.query = text
 		if m.query != "" {
-			m.jump(true, m.scroll)
+			m.firstMatch()
 		}
 	case inputFilter:
 		f, err := logs.ParseFilter(text)
@@ -253,6 +253,24 @@ func (m *Model) keepSelectionInView() {
 	m.scroll = min(max(m.scroll, 0), m.maxScroll())
 }
 
+// cursorLine is the line under the log's cursor. While following that is the
+// newest line, whatever the last frame left in selected.
+func (m *Model) cursorLine() int {
+	if m.follow {
+		return max(m.store.Len()-1, 0)
+	}
+	return m.selected
+}
+
+// firstMatch is where a new search lands: the nearest match at or after the
+// cursor, which is the line being read. While following, the cursor is on the
+// newest line and there is nothing after it, so the search goes back from
+// there instead and lands on the most recent match — which in a log is the
+// one that matters, where going forward would wrap round to the oldest.
+func (m *Model) firstMatch() {
+	m.jump(!m.follow, m.cursorLine())
+}
+
 // jump searches from `from` and scrolls to the match.
 func (m *Model) jump(forward bool, from int) {
 	if m.query == "" {
@@ -262,9 +280,9 @@ func (m *Model) jump(forward bool, from int) {
 	var index int
 	var found bool
 	if forward {
-		index, found = m.store.SearchNext(m.query, from)
+		index, found = m.store.SearchNext(m.query, from, m.searchText)
 	} else {
-		index, found = m.store.SearchPrev(m.query, from)
+		index, found = m.store.SearchPrev(m.query, from, m.searchText)
 	}
 	if !found {
 		m.notice = fmt.Sprintf("no match for `%s`", m.query)
@@ -284,15 +302,18 @@ func (m *Model) nextMatch(forward bool) {
 	m.jump(forward, m.nextMatchStart(forward, n))
 }
 
+// nextMatchStart is the line n or N starts looking from: the one after the
+// cursor or the one before it. From the cursor rather than from the last
+// match, because the cursor is where the operator is: moved since, a search
+// that went back to where it last stopped would jump away from what is being
+// read.
 func (m *Model) nextMatchStart(forward bool, lineCount int) int {
-	if m.matchLine < 0 {
-		return m.scroll
-	}
+	cursor := m.cursorLine()
 	if forward {
-		return (m.matchLine + 1) % lineCount
+		return (cursor + 1) % lineCount
 	}
-	if m.matchLine > 0 {
-		return m.matchLine - 1
+	if cursor > 0 {
+		return cursor - 1
 	}
 	return lineCount - 1
 }

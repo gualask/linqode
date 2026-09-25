@@ -89,21 +89,21 @@ func TestSearchRunsOverTheVisibleView(t *testing.T) {
 		`{"level":"info","msg":"alpha"}`,
 		`{"level":"error","msg":"beta"}`,
 	)
-	if i, ok := s.SearchNext("alpha", 0); !ok || i != 0 {
+	if i, ok := s.SearchNext("alpha", 0, nil); !ok || i != 0 {
 		t.Errorf("unfiltered: %d ok=%v", i, ok)
 	}
 	s.SetFilter(filter(t, "level=error"))
 	// Visible view is [alpha(error), beta(error)]: index 1 is beta.
-	if i, ok := s.SearchNext("beta", 0); !ok || i != 1 {
+	if i, ok := s.SearchNext("beta", 0, nil); !ok || i != 1 {
 		t.Errorf("beta: %d ok=%v", i, ok)
 	}
-	if i, ok := s.SearchNext("alpha", 1); !ok || i != 0 { // wrapped
+	if i, ok := s.SearchNext("alpha", 1, nil); !ok || i != 0 { // wrapped
 		t.Errorf("alpha wrapped: %d ok=%v", i, ok)
 	}
-	if i, ok := s.SearchPrev("beta", 0); !ok || i != 1 { // wrapped
+	if i, ok := s.SearchPrev("beta", 0, nil); !ok || i != 1 { // wrapped
 		t.Errorf("beta wrapped back: %d ok=%v", i, ok)
 	}
-	if _, ok := s.SearchNext("info", 0); ok {
+	if _, ok := s.SearchNext("info", 0, nil); ok {
 		t.Error("info is filtered out, must not be found")
 	}
 }

@@ -118,22 +118,22 @@ func TestStoreSearchWrapsBothWays(t *testing.T) {
 	for _, line := range []string{"alpha one", "beta", "ALPHA two"} {
 		s.Push(line)
 	}
-	if i, ok := s.SearchNext("alpha", 0); !ok || i != 0 {
+	if i, ok := s.SearchNext("alpha", 0, nil); !ok || i != 0 {
 		t.Errorf("next from 0: %d ok=%v", i, ok)
 	}
-	if i, ok := s.SearchNext("alpha", 1); !ok || i != 2 {
+	if i, ok := s.SearchNext("alpha", 1, nil); !ok || i != 2 {
 		t.Errorf("next from 1: %d ok=%v", i, ok)
 	}
-	if i, ok := s.SearchNext("beta", 2); !ok || i != 1 { // wrapped
+	if i, ok := s.SearchNext("beta", 2, nil); !ok || i != 1 { // wrapped
 		t.Errorf("next from 2: %d ok=%v", i, ok)
 	}
-	if i, ok := s.SearchPrev("alpha", 1); !ok || i != 0 {
+	if i, ok := s.SearchPrev("alpha", 1, nil); !ok || i != 0 {
 		t.Errorf("prev from 1: %d ok=%v", i, ok)
 	}
-	if i, ok := s.SearchPrev("two", 0); !ok || i != 2 { // wrapped
+	if i, ok := s.SearchPrev("two", 0, nil); !ok || i != 2 { // wrapped
 		t.Errorf("prev from 0: %d ok=%v", i, ok)
 	}
-	if _, ok := s.SearchNext("missing", 0); ok {
+	if _, ok := s.SearchNext("missing", 0, nil); ok {
 		t.Error("found a line that does not exist")
 	}
 }

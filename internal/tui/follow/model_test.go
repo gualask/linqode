@@ -98,28 +98,75 @@ func TestSearchJumpsAndCyclesMatches(t *testing.T) {
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if m.matchLine != 0 {
-		t.Errorf("first match at %d, want 0", m.matchLine)
-	}
-	m.Update(key("n"))
-	if m.matchLine != 2 {
-		t.Errorf("second match at %d, want 2", m.matchLine)
-	}
-	m.Update(key("n"))
+	// Following, the search lands on the most recent match, and N walks
+	// back through the older ones.
 	if m.matchLine != 4 { // case-insensitive
-		t.Errorf("third match at %d, want 4", m.matchLine)
+		t.Errorf("first match at %d, want the newest, 4", m.matchLine)
 	}
-	m.Update(key("n"))
-	if m.matchLine != 0 { // wrapped
-		t.Errorf("wrapped match at %d, want 0", m.matchLine)
+	m.Update(key("N"))
+	if m.matchLine != 2 {
+		t.Errorf("older match at %d, want 2", m.matchLine)
+	}
+	m.Update(key("N"))
+	if m.matchLine != 0 {
+		t.Errorf("oldest match at %d, want 0", m.matchLine)
 	}
 	m.Update(key("N"))
 	if m.matchLine != 4 { // wrapped backwards
-		t.Errorf("backwards match at %d, want 4", m.matchLine)
+		t.Errorf("wrapped match at %d, want 4", m.matchLine)
+	}
+	m.Update(key("n"))
+	if m.matchLine != 0 { // wrapped forwards
+		t.Errorf("wrapped match at %d, want 0", m.matchLine)
 	}
 
 	if !strings.Contains(m.View(), "/alpha") {
 		t.Error("committed query missing from footer")
+	}
+}
+
+// Off the tail, a search starts at the cursor, the line being read — not at
+// the top of the screen, and n not at wherever the last search stopped.
+func TestSearchStartsAtTheCursor(t *testing.T) {
+	m := newTestModel(lineEvents("alpha", "noise", "noise", "alpha", "noise", "alpha")...)
+	m.SetSize(80, 20)
+	m.View()
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m.Update(tea.KeyMsg{Type: tea.KeyUp}) // line 3
+	m.Update(key("/"))
+	typeText(m, "alpha")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.matchLine != 3 {
+		t.Fatalf("first match at %d, want the cursor's own line, 3", m.matchLine)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyHome}) // back to line 0
+	m.Update(key("n"))
+	if m.matchLine != 3 {
+		t.Errorf("n went to %d, want the first match after the cursor, 3", m.matchLine)
+	}
+}
+
+// A record is searched as it is drawn: a key of the raw JSON is not a hit,
+// since no line drawn would show it, and a decoded value is.
+func TestStructuredLinesAreSearchedAsDrawn(t *testing.T) {
+	m := newTestModel(lineEvents(
+		`{"level":"info","msg":"caf\u00e9 open"}`,
+		`{"level":"info","msg":"other"}`,
+		`{"level":"info","msg":"other"}`)...)
+	if !m.structuredRendering() {
+		t.Fatal("the lines were not read as records")
+	}
+	m.Update(key("/"))
+	typeText(m, "msg")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.matchLine >= 0 || !strings.Contains(m.View(), "no match") {
+		t.Errorf("a raw JSON key was a hit, on line %d", m.matchLine)
+	}
+	m.Update(key("/"))
+	typeText(m, "café")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.matchLine != 0 {
+		t.Errorf("the decoded value was not found: match at %d", m.matchLine)
 	}
 }
 

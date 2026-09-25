@@ -109,13 +109,18 @@ colour, tailing recent history — on a streaming exec channel. From there:
    scrolls up. Jumping to the bottom re-enters follow mode.
 
 Search (`/`, then `n`/`N`) runs over the visible lines with wrap-around and
-match highlighting. The highlight is drawn over the line as displayed, so in a
-JSON log a hit is marked wherever it shows — timestamp, message or a field —
-while a hit only in what the layout hides (a key such as `msg`, JSON
-punctuation) finds the line without marking anything on it. The hit `n`/`N`
-stopped on is drawn in orange and underlined, the others in yellow, the way a
-browser's find bar does it; since `n`/`N` step from line to line, the current
-hit is the first one on the current line.
+match highlighting. It looks in each line **as it is drawn**, uncut, and the
+highlight is drawn over the same text, so a line the search stops on is a line
+showing the hit: in a JSON log that is the timestamp, the level, the message
+and the fields, with their values decoded, and not the raw JSON's keys such as
+`msg`, its quotes or its escapes. A hit past the terminal's width is found and
+not seen until `enter` opens the line. It starts **from the cursor**: `/` lands
+on the first match at or after the line being read, and `n`/`N` on the next
+or previous one from there. While following, the cursor is on the newest line
+and there is nothing after it, so `/` looks back instead and lands on the most
+recent match. The hit `n`/`N` stopped on is drawn in orange and underlined, the
+others in yellow, the way a browser's find bar does it; since `n`/`N` step from
+line to line, the current hit is the first one on the current line.
 
 The log has a **cursor**: the arrows move it over the lines, and the view
 scrolls only when it would leave the screen. While following it rides the
