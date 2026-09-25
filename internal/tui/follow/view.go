@@ -353,14 +353,30 @@ func (m *Model) footer() string {
 		return m.inputFooter()
 	}
 	if m.notice != "" {
-		return theme.Yellow.Render(" " + terminalText(m.notice))
+		return m.fitFooter(theme.Yellow.Render(" " + terminalText(m.notice)))
 	}
 	if m.ended {
-		return m.endedFooter()
+		return m.fitFooter(m.endedFooter())
 	}
 	return m.activeFooter()
 }
 
+// fitFooter cuts a footer to the terminal's width. A footer that wraps is two
+// rows, and the frame one row taller than the screen, which scrolls the header
+// off the top — panel.Footer lays the keys out not to, and what it does not
+// lay out is cut here.
+func (m *Model) fitFooter(line string) string {
+	if m.width <= 0 {
+		return line
+	}
+	return ansi.Truncate(line, m.width, "…")
+}
+
+// inputFooter is the prompt being typed into. It is fitted to the width by
+// what it can spare: the hint goes first, then the start of what was typed,
+// so the end — where the cursor is, and where the typing happens — always
+// shows. `f` opens with the whole filter in it, which is easily wider than
+// the hint leaves room for.
 func (m *Model) inputFooter() string {
 	prompt, hint := "", ""
 	switch m.input {
@@ -369,7 +385,18 @@ func (m *Model) inputFooter() string {
 	case inputFilter:
 		prompt, hint = " filter: ", `  key=value key!=value key="a b" · empty clears · esc cancel`
 	}
-	return prompt + terminalText(m.inputText) + "▏" + theme.Dim.Render(hint)
+	text := terminalText(m.inputText)
+	if m.width > 0 {
+		room := max(m.width-ansi.StringWidth(prompt)-1, 1) // the cursor's cell
+		width := ansi.StringWidth(text)
+		if width+ansi.StringWidth(hint) > room {
+			hint = ""
+		}
+		if width > room {
+			text = ansi.TruncateLeft(text, width-room+1, "…")
+		}
+	}
+	return m.fitFooter(prompt + text + "▏" + theme.Dim.Render(hint))
 }
 
 func (m *Model) endedFooter() string {
@@ -561,26 +588,29 @@ type structuredLineRenderer struct {
 	budget   int
 }
 
+// emit adds a segment and spends its width from the budget. Width is cells,
+// not characters: a CJK character or an emoji takes two, and a line cut by
+// counting characters comes out twice the width it was given, which beside
+// the stats panel wraps it onto a second row and pushes the footer off the
+// screen.
 func (r *structuredLineRenderer) emit(text string, style lipgloss.Style) {
 	text = terminalText(text)
 	if r.budget <= 0 || text == "" {
 		return
 	}
-	if runes := []rune(text); len(runes) > r.budget {
-		text = string(runes[:max(r.budget-1, 0)]) + "…"
+	if width := ansi.StringWidth(text); width > r.budget {
+		text = ansi.Truncate(text, r.budget, "…")
 		r.budget = 0
 	} else {
-		r.budget -= len(runes)
+		r.budget -= width
 	}
 	r.segments = append(r.segments, segment{text, style})
 }
 
 func rawSegments(line string, width int) []segment {
 	line = terminalText(line)
-	if width > 1 {
-		if runes := []rune(line); len(runes) > width-1 {
-			line = string(runes[:width-2]) + "…"
-		}
+	if width > 1 && ansi.StringWidth(line) > width-1 {
+		line = ansi.Truncate(line, width-1, "…")
 	}
 	return []segment{{line, lipgloss.NewStyle()}}
 }

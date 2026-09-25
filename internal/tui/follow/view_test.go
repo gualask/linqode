@@ -163,3 +163,61 @@ func TestCurrentMatchIsSetApart(t *testing.T) {
 			strings.Join(lines, "\n"))
 	}
 }
+
+// A line is cut by the cells it takes, not by its characters: wide ones take
+// two, and cut by count the line would be twice its width — beside the stats
+// panel, a second row that pushes the footer off the screen.
+func TestWideCharactersAreCutByWidth(t *testing.T) {
+	wide := strings.Repeat("日本語", 40)
+	for _, structured := range []bool{false, true} {
+		line := logs.LogLine{Raw: wide}
+		if structured {
+			line = logs.LogLine{Raw: `{"msg":"` + wide + `"}`, Record: logs.ParseRecord(`{"msg":"` + wide + `"}`)}
+		}
+		got := renderLogLine(line, structured, lineMarks{}, 40)
+		if width := ansi.StringWidth(got); width > 40 {
+			t.Errorf("structured=%v: a line for 40 cells is %d wide: %q", structured, width, got)
+		}
+	}
+	var many []string
+	for range 20 {
+		many = append(many, wide)
+	}
+	m := newTestModel(lineEvents(many...)...)
+	m.SetSize(80, 10)
+	m.Update(key("a"))
+	rows := strings.Split(m.View(), "\n")
+	if len(rows) > 10 {
+		t.Errorf("the frame is %d rows on a 10-row terminal:\n%s", len(rows), m.View())
+	}
+	for _, row := range rows {
+		if width := ansi.StringWidth(row); width > 80 {
+			t.Errorf("a row is %d wide on 80 columns: %q", width, row)
+		}
+	}
+}
+
+// A footer never wraps: the filter prompt, opened with a whole filter in it,
+// keeps the end of what is typed and drops the hint first.
+func TestTheFilterPromptFitsTheWidth(t *testing.T) {
+	m := newTestModel(jsonlEvents(3, "error")...)
+	m.SetSize(40, 10)
+	filter, err := logs.ParseFilter(`level=error route=/api/login/with/a/long/path`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.store.SetFilter(filter)
+	m.Update(key("f"))
+	footer := m.footer()
+	if width := ansi.StringWidth(footer); width > 40 {
+		t.Errorf("the prompt is %d wide on 40 columns: %q", width, footer)
+	}
+	if !strings.Contains(footer, "long/path▏") {
+		t.Errorf("the end of the filter, where the typing is, was cut: %q", ansi.Strip(footer))
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m.notice = strings.Repeat("a very long notice ", 10)
+	if width := ansi.StringWidth(m.footer()); width > 40 {
+		t.Errorf("the notice is %d wide on 40 columns", width)
+	}
+}
