@@ -66,8 +66,8 @@ it moves.
 **The title line names the session, and sometimes a fourth thing.** It is
 `linqode`, the host, and the project directory — plus, in yellow, the docker
 endpoint when it is not the host's own socket. That last one exists for the
-local target: a session that inherited an exported `DOCKER_HOST` says `local`
-and drives production, and this is the only place on the screen that would
+local target: a session that inherited an exported `DOCKER_HOST`, or a context
+picked with `docker context use`, says `local` and drives production, and this is the only place on the screen that would
 say so. It is yellow because it is neither an error nor decoration.
 
 ```

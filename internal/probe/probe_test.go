@@ -294,9 +294,14 @@ func TestCommandAsksForEverySection(t *testing.T) {
 	if !strings.Contains(command, "timeout 5 docker version") {
 		t.Errorf("the daemon is asked without a bound: %s", command)
 	}
+	// The context `docker context use` saved is in the CLI's config, where
+	// DOCKER_CONTEXT alone would never see it.
+	if !strings.Contains(command, "docker context show") {
+		t.Errorf("only the environment is asked for the context: %s", command)
+	}
 	// A host without docker must not have the shell report a missing binary
-	// on stderr for each of the two commands that would have used it.
-	if strings.Count(command, "command -v docker >/dev/null 2>&1") != 2 {
+	// on stderr for any of the commands that would have used it.
+	if strings.Count(command, "command -v docker >/dev/null 2>&1") != 3 {
 		t.Errorf("docker is invoked unguarded: %s", command)
 	}
 	// A path with a quote in it is one shell word, not an injection.
@@ -367,6 +372,9 @@ func TestTheDockerEndpointIsReportedWhenItIsNotTheSocket(t *testing.T) {
 		// docker reads DOCKER_HOST before it reads the context, and so does
 		// this: a session with both set reaches the one docker will.
 		{"both", "#endpoint\ntcp://10.0.0.2:2375\n#context\ncolima\n", "tcp://10.0.0.2:2375"},
+		// Spelling out the socket docker would have used anyway is not
+		// another daemon.
+		{"DOCKER_HOST naming the default socket", "#endpoint\nunix:///var/run/docker.sock\n#context\ndefault\n", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := Parse([]byte(tc.section), "").DockerEndpoint(); got != tc.want {

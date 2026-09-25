@@ -162,8 +162,12 @@ type Result struct {
 
 	Proc Proc
 
-	// DockerHost and DockerContext are DOCKER_HOST and DOCKER_CONTEXT as the
-	// session's environment has them, and empty when it does not.
+	// DockerHost is DOCKER_HOST as the session's environment has it, and
+	// DockerContext the context docker will use: what `docker context show`
+	// says, which is DOCKER_CONTEXT when that is exported and otherwise the
+	// one `docker context use` saved in the CLI's config — the common way to
+	// pick one, and one an environment variable alone would never see. Where
+	// the CLI is too old to answer, it is DOCKER_CONTEXT again.
 	//
 	// They are read because a local session inherits the operator's
 	// environment: with DOCKER_HOST=ssh://prod exported, a session whose
@@ -178,9 +182,14 @@ type Result struct {
 
 // DockerEndpoint is the daemon this session will reach when it is not the
 // local socket, and empty when it is. DOCKER_HOST wins: docker reads it
-// before it reads the context.
+// before it reads the context. A DOCKER_HOST spelling out the socket docker
+// would have used anyway is the local socket, and saying it would put a
+// warning on the one session that has nothing to warn about.
 func (r Result) DockerEndpoint() string {
 	if r.DockerHost != "" {
+		if r.DockerHost == defaultSocket {
+			return ""
+		}
 		return r.DockerHost
 	}
 	if r.DockerContext != "" && r.DockerContext != "default" {
@@ -188,6 +197,9 @@ func (r Result) DockerEndpoint() string {
 	}
 	return ""
 }
+
+// defaultSocket is where docker looks when nothing says otherwise.
+const defaultSocket = "unix:///var/run/docker.sock"
 
 // CanReadProc reports whether the readings made of /proc are worth asking
 // for. Unknown counts as yes, as everywhere else here: a probe that
@@ -328,6 +340,12 @@ func Command(composeDir string) string {
 	// than nothing at all — the difference between "no endpoint set" and "the
 	// host never got this far".
 	b.WriteString("echo '" + endpointMarker + `'; echo "$DOCKER_HOST"; `)
-	b.WriteString("echo '" + contextMarker + `'; echo "$DOCKER_CONTEXT"`)
+	// The context is docker's to resolve, not the environment's: `docker
+	// context use` saves it in the CLI's config, where no variable shows it.
+	// It reads that config and asks no daemon, so it needs no bound.
+	b.WriteString("echo '" + contextMarker + "'; " +
+		"if command -v docker >/dev/null 2>&1; then " +
+		`docker context show 2>/dev/null || echo "$DOCKER_CONTEXT"; ` +
+		`else echo "$DOCKER_CONTEXT"; fi`)
 	return b.String()
 }

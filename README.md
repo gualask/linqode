@@ -46,8 +46,8 @@ On macOS the readings are taken natively, because there is no `/proc` to read
 and no command that makes up for it. What that costs, and what a Mac reports
 that a Linux host does not, is in [docs/monitoring.md](docs/monitoring.md).
 
-Two things to know. If you have `DOCKER_HOST` or a docker context exported,
-this session drives *that* daemon, not a local one — the header says which,
+Two things to know. If you have `DOCKER_HOST` exported or a docker context
+selected, this session drives *that* daemon, not a local one — the header says which,
 in yellow, whenever it is not the plain socket. And the machine interface
 below never accepts a local host: an agent on this machine already has a
 shell, so Linqode grants it nothing, and `linqode hosts` does not list one.

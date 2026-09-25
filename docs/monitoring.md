@@ -57,13 +57,15 @@ One round trip at connect, before anything else runs, establishing what
 decides whether the rest of this document even applies: whether docker is
 installed, whether this user may reach the daemon, which compose the host has,
 whether the configured `compose_dir` exists, whether the host has the `/proc`
-every reading below is made of, and which daemon `DOCKER_HOST` or
-`DOCKER_CONTEXT` will send those commands to. **39 ms and 183 bytes**,
+every reading below is made of, and which daemon `DOCKER_HOST` or the current
+docker context will send those commands to. **39 ms and 183 bytes**,
 measured, once per session — against the 66 ms `compose ps` pays every minute.
 The three sections added last cost 35 bytes of answer, two shell builtins and
 no round trip: the time is the same 39 ms it was at 148 bytes, because what
 this pays for is the daemon round trip and the compose CLI start, not the
-shell.
+shell. Since then the context has been asked of `docker context show` rather
+than of `DOCKER_CONTEXT`, which is one more CLI start and no daemon: about
+10 ms, measured on a Mac rather than against the fixture.
 
 It is on no tier because none of it is a reading. A tier is a cadence, and a
 cadence assumes the answer changes; these do not change while a session is
@@ -92,8 +94,10 @@ driving production through an exported `DOCKER_HOST`, and nothing else on the
 screen would give that away; the header says so when it is set (see
 [interface.md](interface.md)). Over SSH the variables are almost always unset,
 sshd's environment being minimal — but a host that does set one is a host
-where the same sentence is worth showing, and asking costs one `echo` either
-way. There is no second batch for a second transport.
+where the same sentence is worth showing. There is no second batch for a
+second transport. The context is asked of docker rather than of the
+environment, because `docker context use` saves it in the CLI's config, where
+no variable shows it — and that is the usual way one is picked.
 
 **One section of the batch is not a condition at all**, and is the one
 deliberate exception to that rule: the last one reads `PRETTY_NAME` out of

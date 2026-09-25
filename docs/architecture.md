@@ -157,7 +157,7 @@ what is not built yet, is in `LOCAL.md`.
   It establishes whether docker is installed, whether this user may reach the
   daemon, which compose the host has, whether the configured `compose_dir`
   exists, whether the host has a readable `/proc`, and which daemon
-  `DOCKER_HOST` or `DOCKER_CONTEXT` points at — conditions that hold for the
+  `DOCKER_HOST` or the current docker context points at — conditions that hold for the
   life of the session and that a command hitting one of them can only report
   opaquely. The same batch also
   carries the host's own name, `PRETTY_NAME` from `/etc/os-release`, which
