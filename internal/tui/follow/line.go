@@ -1,0 +1,244 @@
+package follow
+
+// One log line on screen: laid out as a record or as text, cut to its width
+// in cells, and painted with the cursor and the search's hits.
+
+import (
+	"fmt"
+	"strings"
+	"unicode"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/gualask/linqode/internal/logs"
+	"github.com/gualask/linqode/internal/tui/theme"
+)
+
+func levelStyle(level string) lipgloss.Style {
+	// The two severities are the log engine's, so the level a line is painted
+	// in and the colour its slice of the timeline takes cannot disagree.
+	switch logs.SeverityOf(level) {
+	case logs.SeverityError:
+		return theme.Red
+	case logs.SeverityWarning:
+		return theme.Yellow
+	}
+	switch strings.ToLower(level) {
+	case "info":
+		return theme.Green
+	case "debug":
+		return theme.Blue
+	case "trace":
+		return theme.Dim
+	default:
+		return lipgloss.NewStyle()
+	}
+}
+
+// lineMarks is what a log line carries beyond its text: the search hits,
+// whether it holds the current one, and the cursor's fill when it is the
+// selected line.
+type lineMarks struct {
+	query string
+	// current: the first hit on this line is the current match — n/N step
+	// from line to line, so that is the hit they stopped on.
+	current bool
+	// fill is the cursor's style on the selected line, nil elsewhere.
+	fill *lipgloss.Style
+}
+
+// selectionStyle marks the log's cursor line: a lit bar while the log has
+// the keys, a quiet fill while the stats panel does.
+func (m *Model) selectionStyle() lipgloss.Style {
+	if m.statsKeys() {
+		return theme.SelectedIdle
+	}
+	return theme.Reverse
+}
+
+// searchText is a line as the log draws it, uncut: what the search looks in,
+// so that a line it stops on shows the hit. A record's raw JSON holds its
+// keys, its quotes and its escapes, none of which the structured form draws.
+func (m *Model) searchText(line logs.LogLine) string {
+	if m.structuredRendering() && line.Record != nil {
+		if segments := structuredSegments(line.Record, 1<<20); len(segments) > 0 {
+			var text strings.Builder
+			for _, seg := range segments {
+				text.WriteString(seg.text)
+			}
+			return text.String()
+		}
+	}
+	return terminalText(line.Raw)
+}
+
+// renderLogLine draws one log line, cut to width, with its marks.
+func renderLogLine(line logs.LogLine, structured bool, marks lineMarks, width int) string {
+	budget := width - 1
+	if width <= 0 {
+		budget = 1 << 20
+	}
+	var segments []segment
+	if structured && line.Record != nil {
+		segments = structuredSegments(line.Record, budget)
+	}
+	if len(segments) == 0 {
+		segments = rawSegments(line.Raw, width)
+	}
+	return paint(segments, marks, budget)
+}
+
+// structuredSegments lays a record out as timestamp, level, message and the
+// remaining fields, within budget cells.
+func structuredSegments(record *logs.Record, budget int) []segment {
+	renderer := structuredLineRenderer{budget: budget}
+	if timestamp, ok := record.Timestamp(); ok {
+		renderer.emit(timestamp+" ", theme.Dim)
+	}
+	if level, ok := record.Level(); ok {
+		renderer.emit(fmt.Sprintf("%-5s ", level), levelStyle(level).Bold(true))
+	}
+	if message, ok := record.Message(); ok {
+		renderer.emit(message, lipgloss.NewStyle())
+	}
+	for _, field := range record.Fields() {
+		if !logs.IsWellKnownKey(field.Key) {
+			renderer.emit(" "+field.Key+"="+field.Value, theme.Dim)
+		}
+	}
+	return renderer.segments
+}
+
+// segment is a run of text drawn in one style.
+type segment struct {
+	text  string
+	style lipgloss.Style
+}
+
+// structuredLineRenderer lays a record out as styled segments within the
+// width budget. Highlighting happens afterwards, over the line as drawn, so a
+// match is marked wherever it shows — in a field, in the timestamp, or across
+// the boundary between two parts.
+type structuredLineRenderer struct {
+	segments []segment
+	budget   int
+}
+
+// emit adds a segment and spends its width from the budget. Width is cells,
+// not characters: a CJK character or an emoji takes two, and a line cut by
+// counting characters comes out twice the width it was given, which beside
+// the stats panel wraps it onto a second row and pushes the footer off the
+// screen.
+func (r *structuredLineRenderer) emit(text string, style lipgloss.Style) {
+	text = terminalText(text)
+	if r.budget <= 0 || text == "" {
+		return
+	}
+	if width := ansi.StringWidth(text); width > r.budget {
+		text = ansi.Truncate(text, r.budget, "…")
+		r.budget = 0
+	} else {
+		r.budget -= width
+	}
+	r.segments = append(r.segments, segment{text, style})
+}
+
+func rawSegments(line string, width int) []segment {
+	line = terminalText(line)
+	if width > 1 && ansi.StringWidth(line) > width-1 {
+		line = ansi.Truncate(line, width-1, "…")
+	}
+	return []segment{{line, lipgloss.NewStyle()}}
+}
+
+// paint draws the segments with their marks. On the selected line every
+// segment is drawn in the cursor's fill instead of its own colours, and the
+// fill runs on to width — each segment rendered whole in one style, so the
+// bar never ends where some colour inside it resets. The hits keep their own
+// colours on top of it: the line the cursor is on is most often the one the
+// search just stopped on.
+func paint(segments []segment, marks lineMarks, width int) string {
+	if marks.fill != nil {
+		// One segment for the whole bar: its parts share the fill now, and
+		// drawn apart they would be one bar in several pieces.
+		var text strings.Builder
+		for _, seg := range segments {
+			text.WriteString(seg.text)
+		}
+		line := text.String()
+		if pad := width - ansi.StringWidth(line); pad > 0 {
+			line += strings.Repeat(" ", pad)
+		}
+		segments = []segment{{line, *marks.fill}}
+	}
+	return highlightIn(segments, marks.query, marks.current)
+}
+
+// terminalText treats remote output as one line of text, never as terminal
+// instructions. Sanitize before adding our own styles, leaving the stored
+// record intact for search, filters, and statistics.
+func terminalText(text string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '\n', '\r', '\t':
+			return ' '
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, ansi.Strip(text))
+}
+
+// highlightIn renders the segments in their styles, with every occurrence of
+// query in the text they make up together drawn as a match instead — the
+// first one as the current match when current is set.
+func highlightIn(segments []segment, query string, current bool) string {
+	var line strings.Builder
+	for _, seg := range segments {
+		line.WriteString(seg.text)
+	}
+	text := line.String()
+	// Byte ranges of the matches in text, in order and not overlapping.
+	var matches [][2]int
+	if query != "" {
+		for offset := 0; ; {
+			index := logs.FindASCIICI(text[offset:], query)
+			if index < 0 {
+				break
+			}
+			matches = append(matches, [2]int{offset + index, offset + index + len(query)})
+			offset += index + len(query)
+		}
+	}
+	first := -1
+	if len(matches) > 0 {
+		first = matches[0][0]
+	}
+	var b strings.Builder
+	start := 0
+	for _, seg := range segments {
+		end := start + len(seg.text)
+		for at := start; at < end; {
+			// Skip the matches already behind this position.
+			for len(matches) > 0 && matches[0][1] <= at {
+				matches = matches[1:]
+			}
+			style, stop := seg.style, end
+			switch {
+			case len(matches) > 0 && matches[0][0] <= at:
+				style, stop = theme.Match, min(matches[0][1], end)
+				if current && matches[0][0] == first {
+					style = theme.MatchCurrent
+				}
+			case len(matches) > 0:
+				stop = min(matches[0][0], end)
+			}
+			b.WriteString(style.Render(text[at:stop]))
+			at = stop
+		}
+		start = end
+	}
+	return b.String()
+}
