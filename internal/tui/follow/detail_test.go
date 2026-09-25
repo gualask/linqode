@@ -157,21 +157,21 @@ func TestDetailScrollsAndQQuits(t *testing.T) {
 	}
 }
 
-// Moving the cursor stops following; F picks it up again, and the footer
+// Moving the cursor stops following; l picks it up again, and the footer
 // offers it only while there is something to pick up.
-func TestFResumesFollowing(t *testing.T) {
+func TestLResumesFollowing(t *testing.T) {
 	m := newTestModel(numberedLines(30)...)
-	if strings.Contains(m.View(), "F follow") {
-		t.Error("F follow offered while already following")
+	if strings.Contains(m.View(), "l live") {
+		t.Error("l live offered while already following")
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	m.Update(tea.KeyMsg{Type: tea.KeyUp})
-	if view := m.View(); m.follow || !strings.Contains(view, "F follow") {
-		t.Fatalf("after moving up: follow=%v, footer should offer F:\n%s", m.follow, view)
+	if view := m.View(); m.follow || !strings.Contains(view, "l live") {
+		t.Fatalf("after moving up: follow=%v, footer should offer l:\n%s", m.follow, view)
 	}
-	m.Update(key("F"))
+	m.Update(key("l"))
 	m.View()
 	if !m.follow || m.selected != 29 {
-		t.Errorf("F: follow=%v selected=%d, want following on line 29", m.follow, m.selected)
+		t.Errorf("l: follow=%v selected=%d, want following on line 29", m.follow, m.selected)
 	}
 }

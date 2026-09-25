@@ -363,8 +363,9 @@ func (m *Model) globalHints() []panel.Hint {
 		panel.Hint{Text: "q quit", Drop: 0})
 }
 
-// focusedHints are what the log or the panel answers to. Editing the filter
-// and resetting are offered only once there is something to edit or reset;
+// focusedHints are what the log or the panel answers to. Resetting is offered
+// only once there is something to reset; `f` always, since without it an
+// operator who has not picked from the panel never learns the prompt exists;
 // `s` is not offered at all, since detection gets it right and the key is a
 // correction for when it does not.
 func (m *Model) focusedHints() []panel.Hint {
@@ -381,14 +382,12 @@ func (m *Model) focusedHints() []panel.Hint {
 		// the header's `following` already says when there is nothing to
 		// go back to.
 		if !m.follow && m.store.Len() > 0 {
-			hints = append(hints, panel.Hint{Text: "F follow", Drop: 2})
+			hints = append(hints, panel.Hint{Text: "l live", Drop: 2})
 		}
 		if m.query != "" {
 			hints = append(hints, panel.Hint{Text: "n/N next", Drop: 6})
 		}
-		if m.store.Filter() != nil {
-			hints = append(hints, panel.Hint{Text: "f filter", Drop: 5})
-		}
+		hints = append(hints, panel.Hint{Text: "f filter", Drop: 5})
 	}
 	if m.store.Filter() != nil || m.query != "" {
 		hints = append(hints, panel.Hint{Text: "x reset", Drop: 4})

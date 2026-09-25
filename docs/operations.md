@@ -121,8 +121,8 @@ The log has a **cursor**: the arrows move it over the lines, and the view
 scrolls only when it would leave the screen. While following it rides the
 newest line; moved off, it stays on its own line as new ones arrive — the
 events panel's rule — and reaching the newest line again resumes following,
-as does `F` (as in `less`) or `end` from anywhere. The footer offers `F follow`
-only while following has stopped. A
+as does `l` (live) or `end` from anywhere. The footer offers `l live` only
+while following has stopped. A
 search leaves it on the match, so `/`, `enter`, `enter` opens what was found.
 
 `enter` opens the line under it **in full**. The log cuts every line to the
@@ -153,7 +153,8 @@ object becomes a record whose nested fields are flattened to dotted paths
   hidden while one is active. They are **picked from the stats panel**:
   `enter` on a level or a value adds it, again takes it out, and a dot marks
   what the filter holds; `x` clears it, and the search with it. Values of one field are alternatives (`error` or
-  `warn`); different fields must all hold. `f` types one instead, for what
+  `warn`); different fields must all hold. `f` types one instead — always in the
+  footer, so the prompt can be found without a filter to edit — for what
   the panel cannot pick — a negation, a field it is not counting:
   `key=value`, `key!=value`, `key="a b"`, case-insensitive; `level` finds
   whichever level field a record uses. Scroll, search and follow operate on

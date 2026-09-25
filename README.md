@@ -191,8 +191,9 @@ remembered too, so a memory leak is already a climb when the panel opens.
 
 | Key | Action |
 | --- | ------ |
-| `↑`/`↓`, `PgUp`/`PgDn` | scroll (leaves follow mode) |
-| `End` / `Home` | jump to bottom (follow) / top |
+| `↑`/`↓`, `PgUp`/`PgDn` | move the cursor over the lines (leaves follow mode) |
+| `Enter` | open the line under the cursor in full: whole message, one field per row |
+| `l` or `End` / `Home` | back to live (follow) / jump to the top |
 | `/` then `n`/`N` | search, next/previous match |
 | `a` | open or close the stats panel: counts by level and by a field, recently and in all |
 | `tab` | move the keys between the log and the stats panel |
@@ -201,7 +202,7 @@ remembered too, so a memory leak is already a climb when the panel opens.
 | `f` | type a filter (`level=error route!=/healthz msg="a b"`) |
 | `x` | reset: clear the filter and the search |
 | `s` | toggle structured rendering, when detection gets it wrong |
-| `Esc` | back to the status view (from the panel: back to the log) |
+| `Esc` | back to the status view (from the panel or an open line: back to the log) |
 | `q` | quit |
 
 While a search or a filter is being typed, every key types:

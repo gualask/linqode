@@ -39,7 +39,7 @@ func (m *Model) handleKey(key tea.KeyMsg) tea.Cmd {
 		return func() tea.Msg { return CloseMsg{} }
 	case "q", "ctrl+c":
 		return tea.Quit
-	case "down", "up", "pgdown", "pgup", "home", "end", "F":
+	case "down", "up", "pgdown", "pgup", "home", "end", "l":
 		m.handleNavigationKey(key.String())
 	case "enter":
 		m.openDetail()
@@ -85,9 +85,9 @@ func (m *Model) handleNavigationKey(key string) {
 	case "home":
 		m.follow = false
 		m.selected, m.scroll = 0, 0
-	case "end", "F":
-		// F as in less: back on the tail, following. end does the same, but
-		// a laptop keyboard has no end key.
+	case "end", "l":
+		// l for live: back on the tail, following. end does the same, but a
+		// laptop keyboard has no end key.
 		m.follow = true
 	}
 }
