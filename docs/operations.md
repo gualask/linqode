@@ -115,7 +115,22 @@ while a hit only in what the layout hides (a key such as `msg`, JSON
 punctuation) finds the line without marking anything on it. The hit `n`/`N`
 stopped on is drawn in orange and underlined, the others in yellow, the way a
 browser's find bar does it; since `n`/`N` step from line to line, the current
-hit is the first one on the current line. Closing the view cancels the remote command — terminate
+hit is the first one on the current line.
+
+The log has a **cursor**: the arrows move it over the lines, and the view
+scrolls only when it would leave the screen. While following it rides the
+newest line; moved off, it stays on its own line as new ones arrive — the
+events panel's rule — and reaching the newest line again resumes following. A
+search leaves it on the match, so `/`, `enter`, `enter` opens what was found.
+
+`enter` opens the line under it **in full**. The log cuts every line to the
+terminal's width, and this is where the rest is: a record as its timestamp and
+level, its message wrapped whole, then one field per row with long values
+wrapped under themselves and their own line breaks kept, so a stack trace
+reads as one; any other line as its text, wrapped. The search's hits are
+marked there too. The line is held by value, so the tail moving underneath —
+new lines, the oldest dropped, a filter — never changes what is being read.
+The arrows scroll it, `esc` goes back to the log where it was left. Closing the view cancels the remote command — terminate
 signal, then channel close — and tears down the pipeline.
 
 The log engine is deliberately **Docker-agnostic**: it consumes generic

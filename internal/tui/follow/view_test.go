@@ -27,7 +27,7 @@ func TestLogRenderingTreatsTerminalControlsAsData(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			raw := "before" + control + "after"
-			view := renderLogLine(logs.ParseLine(raw), false, "after", false, 200)
+			view := renderLogLine(logs.ParseLine(raw), false, lineMarks{query: "after"}, 200)
 			assertSafeTerminalOutput(t, view, false)
 			if text := ansi.Strip(view); !strings.Contains(text, "before") || !strings.Contains(text, "after") {
 				t.Fatalf("lost surrounding text: %q", text)
@@ -40,7 +40,7 @@ func TestLogRenderingTreatsTerminalControlsAsData(t *testing.T) {
 				t.Fatal(err)
 			}
 			line := logs.ParseLine(string(data))
-			view = renderLogLine(line, true, "after", false, 200)
+			view = renderLogLine(line, true, lineMarks{query: "after"}, 200)
 			assertSafeTerminalOutput(t, view, false)
 			if !strings.Contains(ansi.Strip(view), "after") {
 				t.Fatalf("lost structured message: %q", view)
@@ -146,8 +146,10 @@ func TestCurrentMatchIsSetApart(t *testing.T) {
 
 	current, other := theme.MatchCurrent.Render("alpha"), theme.Match.Render("alpha")
 	lines := strings.Split(m.logBody(80), "\n")
-	if want := current + " one " + other; lines[0] != want {
-		t.Errorf("current line = %q, want first hit current, second plain match %q", lines[0], want)
+	// The search leaves the cursor on the match too; the hits keep their
+	// colours on the cursor's bar.
+	if !strings.HasPrefix(lines[0], current) || !strings.Contains(lines[0], other) {
+		t.Errorf("current line = %q, want first hit current, second plain match", lines[0])
 	}
 	if strings.Contains(lines[2], current) || !strings.Contains(lines[2], other) {
 		t.Errorf("other line = %q, want only plain matches", lines[2])

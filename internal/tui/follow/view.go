@@ -25,6 +25,9 @@ func (m *Model) structuredRendering() bool {
 
 // View renders the followed feed.
 func (m *Model) View() string {
+	if m.detail != nil {
+		return m.detailView()
+	}
 	var b strings.Builder
 	b.WriteString(theme.Bold.Render(" linqode "))
 	b.WriteString(terminalText(m.target))
@@ -61,8 +64,11 @@ func (m *Model) View() string {
 func (m *Model) logBody(width int) string {
 	if m.follow {
 		m.scroll = m.maxScroll()
+		m.selected = max(m.store.Len()-1, 0)
 	} else {
+		m.selected = min(m.selected, max(m.store.Len()-1, 0))
 		m.scroll = min(m.scroll, m.maxScroll())
+		m.keepSelectionInView()
 	}
 	if m.store.Len() == 0 {
 		message := "(waiting for logs …)"
@@ -78,7 +84,12 @@ func (m *Model) logBody(width int) string {
 	var lines []string
 	for i := m.scroll; i < min(m.store.Len(), m.scroll+m.viewport); i++ {
 		line, _ := m.store.Line(i)
-		lines = append(lines, renderLogLine(line, structured, m.query, i == m.matchLine, width))
+		marks := lineMarks{query: m.query, current: i == m.matchLine}
+		if i == m.selected {
+			fill := m.selectionStyle()
+			marks.fill = &fill
+		}
+		lines = append(lines, renderLogLine(line, structured, marks, width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -363,6 +374,9 @@ func (m *Model) focusedHints() []panel.Hint {
 			{Text: "↑↓ move", Drop: 4}, {Text: "enter filter", Drop: 1}, {Text: "t field", Drop: 6}}
 	} else {
 		hints = []panel.Hint{{Text: "esc back", Drop: 1}}
+		if m.store.Len() > 0 {
+			hints = append(hints, panel.Hint{Text: "enter open", Drop: 3})
+		}
 		if m.query != "" {
 			hints = append(hints, panel.Hint{Text: "n/N next", Drop: 6})
 		}
@@ -397,18 +411,47 @@ func levelStyle(level string) lipgloss.Style {
 	}
 }
 
-// renderLogLine draws one log line with the query's hits marked. On the
-// current match line the first hit is the current one: n/N step from line to
-// line, so that is the hit they stopped on.
-func renderLogLine(line logs.LogLine, structured bool, query string, current bool, width int) string {
-	if !structured || line.Record == nil {
-		return renderRaw(line.Raw, query, current, width)
+// lineMarks is what a log line carries beyond its text: the search hits,
+// whether it holds the current one, and the cursor's fill when it is the
+// selected line.
+type lineMarks struct {
+	query string
+	// current: the first hit on this line is the current match — n/N step
+	// from line to line, so that is the hit they stopped on.
+	current bool
+	// fill is the cursor's style on the selected line, nil elsewhere.
+	fill *lipgloss.Style
+}
+
+// selectionStyle marks the log's cursor line: a lit bar while the log has
+// the keys, a quiet fill while the stats panel does.
+func (m *Model) selectionStyle() lipgloss.Style {
+	if m.statsFocus {
+		return theme.SelectedIdle
 	}
-	renderer := structuredLineRenderer{budget: width - 1}
+	return theme.Reverse
+}
+
+// renderLogLine draws one log line, cut to width, with its marks.
+func renderLogLine(line logs.LogLine, structured bool, marks lineMarks, width int) string {
+	budget := width - 1
 	if width <= 0 {
-		renderer.budget = 1 << 20
+		budget = 1 << 20
 	}
-	record := line.Record
+	var segments []segment
+	if structured && line.Record != nil {
+		segments = structuredSegments(line.Record, budget)
+	}
+	if len(segments) == 0 {
+		segments = rawSegments(line.Raw, width)
+	}
+	return paint(segments, marks, budget)
+}
+
+// structuredSegments lays a record out as timestamp, level, message and the
+// remaining fields, within budget cells.
+func structuredSegments(record *logs.Record, budget int) []segment {
+	renderer := structuredLineRenderer{budget: budget}
 	if timestamp, ok := record.Timestamp(); ok {
 		renderer.emit(timestamp+" ", theme.Dim)
 	}
@@ -423,10 +466,7 @@ func renderLogLine(line logs.LogLine, structured bool, query string, current boo
 			renderer.emit(" "+field.Key+"="+field.Value, theme.Dim)
 		}
 	}
-	if len(renderer.segments) == 0 {
-		return renderRaw(line.Raw, query, current, width)
-	}
-	return highlightIn(renderer.segments, query, current)
+	return renderer.segments
 }
 
 // segment is a run of text drawn in one style.
@@ -458,17 +498,37 @@ func (r *structuredLineRenderer) emit(text string, style lipgloss.Style) {
 	r.segments = append(r.segments, segment{text, style})
 }
 
-func renderRaw(line, query string, current bool, width int) string {
+func rawSegments(line string, width int) []segment {
 	line = terminalText(line)
 	if width > 1 {
 		if runes := []rune(line); len(runes) > width-1 {
 			line = string(runes[:width-2]) + "…"
 		}
 	}
-	if query == "" {
-		return line
+	return []segment{{line, lipgloss.NewStyle()}}
+}
+
+// paint draws the segments with their marks. On the selected line every
+// segment is drawn in the cursor's fill instead of its own colours, and the
+// fill runs on to width — each segment rendered whole in one style, so the
+// bar never ends where some colour inside it resets. The hits keep their own
+// colours on top of it: the line the cursor is on is most often the one the
+// search just stopped on.
+func paint(segments []segment, marks lineMarks, width int) string {
+	if marks.fill != nil {
+		// One segment for the whole bar: its parts share the fill now, and
+		// drawn apart they would be one bar in several pieces.
+		var text strings.Builder
+		for _, seg := range segments {
+			text.WriteString(seg.text)
+		}
+		line := text.String()
+		if pad := width - ansi.StringWidth(line); pad > 0 {
+			line += strings.Repeat(" ", pad)
+		}
+		segments = []segment{{line, *marks.fill}}
 	}
-	return highlightIn([]segment{{line, lipgloss.NewStyle()}}, query, current)
+	return highlightIn(segments, marks.query, marks.current)
 }
 
 // terminalText treats remote output as one line of text, never as terminal

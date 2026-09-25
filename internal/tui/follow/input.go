@@ -25,6 +25,9 @@ func (m *Model) handleKey(key tea.KeyMsg) tea.Cmd {
 	if m.input != inputNone {
 		return m.handleInputKey(key)
 	}
+	if m.detail != nil {
+		return m.handleDetailKey(key.String())
+	}
 
 	if m.statsFocus && m.handleStatsKey(key.String()) {
 		return nil
@@ -38,6 +41,8 @@ func (m *Model) handleKey(key tea.KeyMsg) tea.Cmd {
 		return tea.Quit
 	case "down", "up", "pgdown", "pgup", "home", "end":
 		m.handleNavigationKey(key.String())
+	case "enter":
+		m.openDetail()
 	case "/", "n", "N", "f", "x", "s", "a", "t", "tab":
 		m.handleToolKey(key.String())
 	}
@@ -65,19 +70,21 @@ func (m *Model) handleStatsKey(key string) bool {
 	return true
 }
 
+// handleNavigationKey moves the log's cursor; the view scrolls only when the
+// cursor would leave it.
 func (m *Model) handleNavigationKey(key string) {
 	switch key {
 	case "down":
-		m.scrollBy(1)
+		m.moveSelection(1)
 	case "up":
-		m.scrollBy(-1)
+		m.moveSelection(-1)
 	case "pgdown":
-		m.scrollBy(m.viewport)
+		m.moveSelection(m.viewport)
 	case "pgup":
-		m.scrollBy(-m.viewport)
+		m.moveSelection(-m.viewport)
 	case "home":
 		m.follow = false
-		m.scroll = 0
+		m.selected, m.scroll = 0, 0
 	case "end":
 		m.follow = true
 	}
@@ -223,11 +230,25 @@ func (m *Model) maxScroll() int {
 	return max(m.store.Len()-m.viewport, 0)
 }
 
-func (m *Model) scrollBy(delta int) {
-	limit := m.maxScroll()
-	m.scroll = min(max(m.scroll+delta, 0), limit)
-	// Scrolling up leaves follow mode; hitting bottom re-enters it.
-	m.follow = delta > 0 && m.scroll >= limit
+func (m *Model) moveSelection(delta int) {
+	last := m.store.Len() - 1
+	if last < 0 {
+		return
+	}
+	m.selected = min(max(m.selected+delta, 0), last)
+	// Moving up leaves follow mode; reaching the newest line re-enters it.
+	m.follow = delta > 0 && m.selected == last
+	m.keepSelectionInView()
+}
+
+// keepSelectionInView scrolls just enough for the cursor to be on screen.
+func (m *Model) keepSelectionInView() {
+	if m.selected < m.scroll {
+		m.scroll = m.selected
+	} else if m.selected >= m.scroll+m.viewport {
+		m.scroll = m.selected - m.viewport + 1
+	}
+	m.scroll = min(max(m.scroll, 0), m.maxScroll())
 }
 
 // jump searches from `from` and scrolls to the match.
@@ -247,7 +268,7 @@ func (m *Model) jump(forward bool, from int) {
 		m.notice = fmt.Sprintf("no match for `%s`", m.query)
 		return
 	}
-	m.matchLine = index
+	m.matchLine, m.selected = index, index
 	m.follow = false
 	m.scroll = max(index-m.viewport/3, 0)
 	m.notice = ""

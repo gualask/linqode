@@ -45,9 +45,12 @@ type Model struct {
 	store *logs.Store
 
 	// scroll is the index of the top visible line; recomputed on view when
-	// following.
+	// following. selected is the line under the log's cursor, what enter
+	// opens: it sits on the newest line while following and stays on its
+	// own line once moved off, so a line being read never slides away.
 	follow   bool
 	scroll   int
+	selected int
 	viewport int
 	width    int
 	height   int
@@ -64,6 +67,13 @@ type Model struct {
 	query     string
 	matchLine int // current match, anchor for n/N; -1 = none
 	notice    string
+
+	// detail is the line opened with enter, held by value: the feed goes on
+	// arriving underneath, and the tail dropping its oldest lines or a filter
+	// changing must not swap the record being read. detailScroll is the top
+	// row of it on screen.
+	detail       *logs.LogLine
+	detailScroll int
 
 	// structured: nil follows JSONL auto-detection, otherwise a manual
 	// override (`s`).
@@ -212,6 +222,7 @@ func (m *Model) adjustForDroppedLines(dropped int) {
 		return
 	}
 	m.scroll = max(m.scroll-dropped, 0)
+	m.selected = max(m.selected-dropped, 0)
 	if m.matchLine >= 0 {
 		m.matchLine = max(m.matchLine-dropped, -1)
 	}

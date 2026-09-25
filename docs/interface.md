@@ -675,6 +675,12 @@ divider.
 **The log view's footer is built the same way**, by the same function: `tab
 panels`, `/ search`, `a stats` and `q quit` on the left; on the right the
 filter and the search in force, then the log's keys or the stats panel's. The
+log's cursor is a lit bar while the log has the keys and the quiet fill while
+the panel does, like any selected row; the search's hits keep their colours on
+it, since the line the cursor is on is most often the one the search stopped
+on. `enter open` opens that line in full, taking the whole body; its footer is
+`q quit` on the left and `esc back`, with `↑↓ scroll` when it runs longer than
+the screen. The
 line count is not repeated here: it is the stats panel's first row. `x reset` appears there only while a filter or a search is set, and
 clears both at once.
 
