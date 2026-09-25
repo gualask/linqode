@@ -1,3 +1,5 @@
+//go:build !windows
+
 package local_test
 
 // The production Executor against real processes on this machine. Every test

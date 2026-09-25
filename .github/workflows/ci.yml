@@ -14,6 +14,12 @@ jobs:
         with:
           go-version: stable
       - run: go build ./...
+      # Every target the release builds, so a platform-specific call is
+      # caught on the push that adds it rather than on the tag.
+      - run: |
+          for target in darwin/amd64 darwin/arm64 linux/arm64 windows/amd64 windows/arm64; do
+            GOOS=${target%/*} GOARCH=${target#*/} go build ./... || exit 1
+          done
       - run: go vet ./...
       # The e2e package is behind a build tag, so nothing above compiles it.
       # Vetting it keeps the fixture code from rotting; running it needs a

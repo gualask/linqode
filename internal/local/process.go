@@ -13,7 +13,9 @@ package local
 //
 // So the command gets a process group of its own and the signal goes to the
 // group. That is the negative pid in Kill, and it is the only interesting
-// line here.
+// line here. It lives in process_unix.go: process groups are a Unix idea, and
+// Windows, where the local target is not offered, gets the one process killed
+// instead (process_windows.go), so that the binary still builds there.
 
 import (
 	"context"
@@ -50,7 +52,7 @@ func (s *Session) command(command string) *exec.Cmd {
 	// alternative is a rule nobody can state.
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	// A group of its own, so that terminate can reach the children too.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	ownGroup(cmd)
 	cmd.WaitDelay = pipeGrace
 	return cmd
 }
@@ -107,14 +109,4 @@ func terminate(cmd *exec.Cmd, finished <-chan struct{}) {
 	case <-timer.C:
 		signalGroup(cmd, syscall.SIGKILL)
 	}
-}
-
-// signalGroup sends sig to the command's process group. The negative pid is
-// what makes it the group rather than the one process, and the group's id is
-// the started process's pid because it is the one that created it.
-func signalGroup(cmd *exec.Cmd, sig syscall.Signal) {
-	if cmd.Process == nil {
-		return
-	}
-	_ = syscall.Kill(-cmd.Process.Pid, sig)
 }

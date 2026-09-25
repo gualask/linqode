@@ -1,3 +1,5 @@
+//go:build !windows
+
 package local_test
 
 // Cancellation, which is the whole reason this package is not three lines.

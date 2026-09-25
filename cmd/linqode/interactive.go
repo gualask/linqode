@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"runtime"
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/config"
@@ -35,6 +37,12 @@ type transport struct {
 // noticeable moment and can fail in ways worth naming, and neither is true
 // of starting a process here.
 func openTransport(ctx context.Context, spec string, stderr io.Writer) (transport, error) {
+	if spec == config.LocalSpec && runtime.GOOS == "windows" {
+		// Every command runs under `sh -c` and every reading is a Unix
+		// one; there is no local target to offer here, and saying so beats
+		// a screen of commands that cannot start.
+		return transport{}, errors.New("the local target is not supported on Windows; connect to a host over SSH")
+	}
 	if spec == config.LocalSpec {
 		return transport{
 			executor: local.New(),
