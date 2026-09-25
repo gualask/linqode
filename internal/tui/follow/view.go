@@ -40,7 +40,7 @@ func (m *Model) View() string {
 		b.WriteString(theme.Green.Render("  · following"))
 	}
 	b.WriteString("\n")
-	statsOn := m.showStats && m.width > statsWidth+20
+	statsOn := m.statsDrawn()
 	logWidth := m.width
 	if statsOn {
 		logWidth = m.width - statsWidth
@@ -94,6 +94,21 @@ func (m *Model) logBody(width int) string {
 	return strings.Join(lines, "\n")
 }
 
+// statsDrawn reports whether the stats panel is on screen: open, and on a
+// terminal wide enough to leave the log some room beside it.
+func (m *Model) statsDrawn() bool {
+	return m.showStats && m.width > statsWidth+20
+}
+
+// statsKeys reports whether the keys go to the stats panel. Having been handed
+// them is not enough: a panel the terminal is too narrow to draw would take
+// the arrows and enter for a cursor nobody can see, and change the filter
+// from a row nobody read. The keys come back to it, focus kept, when the
+// terminal is widened.
+func (m *Model) statsKeys() bool {
+	return m.statsFocus && m.statsDrawn()
+}
+
 // statsView is the side panel: how many lines, and how they divide between
 // levels and between the values of a field. Its rows are what the filter is
 // picked from: a dot marks the ones the filter holds, and with the panel
@@ -117,8 +132,8 @@ func (m *Model) statsView() string {
 		"",
 	}
 	cursor := -1
-	if m.statsFocus {
-		cursor = m.cursorIndex(m.picksOf(levels, values))
+	if m.statsKeys() {
+		cursor = m.cursorIndex(m.drawnPicks(levels, values))
 	}
 	mark := func(field string, offset int) func(index int, key string) (bool, bool) {
 		return func(index int, key string) (bool, bool) {
@@ -172,7 +187,48 @@ func (m *Model) statsRows() (logs.Stats, []logs.Count, []logs.Count) {
 // picks is every row the cursor can stand on, top to bottom.
 func (m *Model) picks() []pick {
 	_, levels, values := m.statsRows()
-	return m.picksOf(levels, values)
+	return m.drawnPicks(levels, values)
+}
+
+// statsHead is the panel's rows above the levels: the lines held, the window,
+// and a blank.
+const statsHead = 3
+
+// pickRows is the panel row each pick is drawn on, in the order picksOf
+// lists them: under the levels' heading and their bar, then under a blank and
+// the field's heading. It is statsView's layout written as arithmetic, and a
+// test holds the two together.
+func pickRows(levels, values int) []int {
+	rows := make([]int, 0, levels+values)
+	first := statsHead + 1 // the heading
+	if levels > 0 {
+		first++ // the bar
+	}
+	for index := range levels {
+		rows = append(rows, first+index)
+	}
+	first += max(levels, 1) + 2 // the rows or "(none)", a blank, the heading
+	for index := range values {
+		rows = append(rows, first+index)
+	}
+	return rows
+}
+
+// drawnPicks is the picks the panel has room to draw. It is cut to the height
+// of the log beside it, from the bottom, and a row that is not drawn is not
+// one the cursor may stand on: enter would put in the filter a value the
+// operator never saw.
+func (m *Model) drawnPicks(levels, values []logs.Count) []pick {
+	picks := m.picksOf(levels, values)
+	if m.viewport <= 0 {
+		return picks
+	}
+	for index, row := range pickRows(len(levels), len(values)) {
+		if row >= m.viewport {
+			return picks[:index]
+		}
+	}
+	return picks
 }
 
 func (m *Model) picksOf(levels, values []logs.Count) []pick {
@@ -354,7 +410,7 @@ func (m *Model) activeFooter() string {
 // dashboard.
 func (m *Model) globalHints() []panel.Hint {
 	var hints []panel.Hint
-	if m.showStats {
+	if m.statsDrawn() {
 		hints = append(hints, panel.Hint{Text: "tab panels", Drop: 7})
 	}
 	return append(hints,
@@ -370,7 +426,7 @@ func (m *Model) globalHints() []panel.Hint {
 // correction for when it does not.
 func (m *Model) focusedHints() []panel.Hint {
 	var hints []panel.Hint
-	if m.statsFocus {
+	if m.statsKeys() {
 		hints = []panel.Hint{{Text: "esc log", Drop: 5},
 			{Text: "↑↓ move", Drop: 4}, {Text: "enter filter", Drop: 1}, {Text: "t field", Drop: 6}}
 	} else {
@@ -431,7 +487,7 @@ type lineMarks struct {
 // selectionStyle marks the log's cursor line: a lit bar while the log has
 // the keys, a quiet fill while the stats panel does.
 func (m *Model) selectionStyle() lipgloss.Style {
-	if m.statsFocus {
+	if m.statsKeys() {
 		return theme.SelectedIdle
 	}
 	return theme.Reverse

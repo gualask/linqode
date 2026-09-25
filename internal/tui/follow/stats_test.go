@@ -218,6 +218,68 @@ func TestStatsPanelPicksTheFilter(t *testing.T) {
 	}
 }
 
+// A panel too narrow to draw does not take the keys it was handed: the arrows
+// go to the log, and enter cannot put in the filter a row nobody can see.
+func TestAPanelThatIsNotDrawnDoesNotTakeTheKeys(t *testing.T) {
+	m := statsModel(t, 30, stamped(3, "error"), stamped(2, "info"), stamped(1, "info"))
+	m.SetSize(statsWidth+20, 30)
+	if strings.Contains(m.View(), "levels") {
+		t.Fatalf("the panel is drawn at %d columns:\n%s", m.width, m.View())
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.store.Filter() != nil {
+		t.Errorf("an unseen panel set the filter %q", m.store.Filter().Expr())
+	}
+	if m.follow {
+		t.Error("up did not reach the log")
+	}
+	if view := m.View(); strings.Contains(view, "enter filter") || strings.Contains(view, "tab panels") {
+		t.Errorf("the footer offers a panel that is not on screen:\n%s", view)
+	}
+	// Widened again, the panel has the keys it was given.
+	m.detail = nil
+	m.SetSize(120, 30)
+	if !m.statsKeys() {
+		t.Error("the panel lost its focus to a narrow moment")
+	}
+}
+
+// On a short terminal the panel is cut from the bottom, and the cursor stops
+// at the last row drawn: what enter picks is always a row on screen.
+func TestTheCursorStaysOnRowsTheTerminalHasRoomFor(t *testing.T) {
+	var lines []string
+	for _, level := range []string{"error", "warn", "info", "debug"} {
+		lines = append(lines, fmt.Sprintf(`{"level":%q,"route":"/login"}`, level))
+	}
+	m := statsModel(t, 12, lines...)
+	for range 10 {
+		m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	_, levels, _ := m.statsRows()
+	last := levels[len(levels)-1].Key
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := m.store.Filter().Expr(); got != "level="+last {
+		t.Errorf("filter = %q, want the last row drawn, level=%s:\n%s", got, last, m.View())
+	}
+}
+
+// pickRows is the panel's layout restated; each pick must sit on the row that
+// draws it.
+func TestPickRowsMatchTheDrawnPanel(t *testing.T) {
+	m := statsModel(t, 40,
+		`{"level":"error","route":"/a"}`, `{"level":"info","route":"/b"}`, `{"level":"info","route":"/b"}`)
+	_, levels, values := m.statsRows()
+	rows := strings.Split(m.statsView(), "\n")
+	for index, row := range pickRows(len(levels), len(values)) {
+		want := m.picksOf(levels, values)[index].value
+		if row >= len(rows) || !strings.Contains(rows[row], want) {
+			t.Errorf("pick %q placed on row %d, which is not where it is drawn:\n%s",
+				want, row, m.statsView())
+		}
+	}
+}
+
 // The cursor stays on the row it names while the counts reorder under it.
 func TestStatsCursorFollowsItsRow(t *testing.T) {
 	m := statsModel(t, 30, stamped(3, "info"), stamped(2, "debug"), stamped(2, "debug"))

@@ -29,7 +29,7 @@ func (m *Model) handleKey(key tea.KeyMsg) tea.Cmd {
 		return m.handleDetailKey(key.String())
 	}
 
-	if m.statsFocus && m.handleStatsKey(key.String()) {
+	if m.statsKeys() && m.handleStatsKey(key.String()) {
 		return nil
 	}
 	switch key.String() {
