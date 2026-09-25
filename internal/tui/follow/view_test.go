@@ -27,7 +27,7 @@ func TestLogRenderingTreatsTerminalControlsAsData(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			raw := "before" + control + "after"
-			view := renderLogLine(logs.ParseLine(raw), false, "after", 200)
+			view := renderLogLine(logs.ParseLine(raw), false, "after", false, 200)
 			assertSafeTerminalOutput(t, view, false)
 			if text := ansi.Strip(view); !strings.Contains(text, "before") || !strings.Contains(text, "after") {
 				t.Fatalf("lost surrounding text: %q", text)
@@ -40,7 +40,7 @@ func TestLogRenderingTreatsTerminalControlsAsData(t *testing.T) {
 				t.Fatal(err)
 			}
 			line := logs.ParseLine(string(data))
-			view = renderLogLine(line, true, "after", 200)
+			view = renderLogLine(line, true, "after", false, 200)
 			assertSafeTerminalOutput(t, view, false)
 			if !strings.Contains(ansi.Strip(view), "after") {
 				t.Fatalf("lost structured message: %q", view)
@@ -131,5 +131,31 @@ func TestSearchHighlightsMatchesAnywhereInStructuredLine(t *testing.T) {
 		if got := ansi.Strip(body); !strings.Contains(got, "12:00:01 info  started user=alice") {
 			t.Errorf("query %q changed the text: %q", query, got)
 		}
+	}
+}
+
+// The hit n/N stopped on is drawn apart from the others, and moves with them.
+func TestCurrentMatchIsSetApart(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+
+	m := newTestModel(lineEvents("alpha one alpha", "noise", "alpha two")...)
+	m.Update(key("/"))
+	typeText(m, "alpha")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	current, other := theme.MatchCurrent.Render("alpha"), theme.Match.Render("alpha")
+	lines := strings.Split(m.logBody(80), "\n")
+	if want := current + " one " + other; lines[0] != want {
+		t.Errorf("current line = %q, want first hit current, second plain match %q", lines[0], want)
+	}
+	if strings.Contains(lines[2], current) || !strings.Contains(lines[2], other) {
+		t.Errorf("other line = %q, want only plain matches", lines[2])
+	}
+
+	m.Update(key("n"))
+	lines = strings.Split(m.logBody(80), "\n")
+	if strings.Contains(lines[0], current) || !strings.Contains(lines[2], current) {
+		t.Errorf("after n the current match did not move:\n%s", strings.Join(lines, "\n"))
 	}
 }

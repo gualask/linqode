@@ -78,7 +78,7 @@ func (m *Model) logBody(width int) string {
 	var lines []string
 	for i := m.scroll; i < min(m.store.Len(), m.scroll+m.viewport); i++ {
 		line, _ := m.store.Line(i)
-		lines = append(lines, renderLogLine(line, structured, m.query, width))
+		lines = append(lines, renderLogLine(line, structured, m.query, i == m.matchLine, width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -397,9 +397,12 @@ func levelStyle(level string) lipgloss.Style {
 	}
 }
 
-func renderLogLine(line logs.LogLine, structured bool, query string, width int) string {
+// renderLogLine draws one log line with the query's hits marked. On the
+// current match line the first hit is the current one: n/N step from line to
+// line, so that is the hit they stopped on.
+func renderLogLine(line logs.LogLine, structured bool, query string, current bool, width int) string {
 	if !structured || line.Record == nil {
-		return renderRaw(line.Raw, query, width)
+		return renderRaw(line.Raw, query, current, width)
 	}
 	renderer := structuredLineRenderer{budget: width - 1}
 	if width <= 0 {
@@ -421,9 +424,9 @@ func renderLogLine(line logs.LogLine, structured bool, query string, width int) 
 		}
 	}
 	if len(renderer.segments) == 0 {
-		return renderRaw(line.Raw, query, width)
+		return renderRaw(line.Raw, query, current, width)
 	}
-	return highlightIn(renderer.segments, query)
+	return highlightIn(renderer.segments, query, current)
 }
 
 // segment is a run of text drawn in one style.
@@ -455,7 +458,7 @@ func (r *structuredLineRenderer) emit(text string, style lipgloss.Style) {
 	r.segments = append(r.segments, segment{text, style})
 }
 
-func renderRaw(line, query string, width int) string {
+func renderRaw(line, query string, current bool, width int) string {
 	line = terminalText(line)
 	if width > 1 {
 		if runes := []rune(line); len(runes) > width-1 {
@@ -465,7 +468,7 @@ func renderRaw(line, query string, width int) string {
 	if query == "" {
 		return line
 	}
-	return highlightIn([]segment{{line, lipgloss.NewStyle()}}, query)
+	return highlightIn([]segment{{line, lipgloss.NewStyle()}}, query, current)
 }
 
 // terminalText treats remote output as one line of text, never as terminal
@@ -485,8 +488,9 @@ func terminalText(text string) string {
 }
 
 // highlightIn renders the segments in their styles, with every occurrence of
-// query in the text they make up together drawn as a match instead.
-func highlightIn(segments []segment, query string) string {
+// query in the text they make up together drawn as a match instead — the
+// first one as the current match when current is set.
+func highlightIn(segments []segment, query string, current bool) string {
 	var line strings.Builder
 	for _, seg := range segments {
 		line.WriteString(seg.text)
@@ -504,6 +508,10 @@ func highlightIn(segments []segment, query string) string {
 			offset += index + len(query)
 		}
 	}
+	first := -1
+	if len(matches) > 0 {
+		first = matches[0][0]
+	}
 	var b strings.Builder
 	start := 0
 	for _, seg := range segments {
@@ -517,6 +525,9 @@ func highlightIn(segments []segment, query string) string {
 			switch {
 			case len(matches) > 0 && matches[0][0] <= at:
 				style, stop = theme.Match, min(matches[0][1], end)
+				if current && matches[0][0] == first {
+					style = theme.MatchCurrent
+				}
 			case len(matches) > 0:
 				stop = min(matches[0][0], end)
 			}

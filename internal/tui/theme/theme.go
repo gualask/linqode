@@ -32,6 +32,7 @@ var (
 	blue    = lipgloss.AdaptiveColor{Light: "#1a73e8", Dark: "#4d9fff"}
 	magenta = lipgloss.AdaptiveColor{Light: "#b5179e", Dark: "#e56ce5"}
 	cyan    = lipgloss.AdaptiveColor{Light: "#0a7ea4", Dark: "#22d7e8"}
+	orange  = lipgloss.AdaptiveColor{Light: "#e0700f", Dark: "#ff8a1f"}
 
 	// grey carries everything recessive. It replaced Faint(true), which is
 	// an attribute terminals implement by blending the text toward the
@@ -71,6 +72,11 @@ var (
 	TableHeader = lipgloss.NewStyle().Bold(true).Foreground(paper).Background(blue)
 	// Match highlights a search hit, dark on the attention color.
 	Match = lipgloss.NewStyle().Foreground(ink).Background(yellow)
+	// MatchCurrent is the hit n/N stopped on, set apart from the others the
+	// way a browser's find bar does it: orange among the yellow. Underlined
+	// too, because a sixteen-color terminal folds orange and yellow into
+	// the same slot.
+	MatchCurrent = lipgloss.NewStyle().Foreground(ink).Background(orange).Underline(true)
 )
 
 // Panel chrome. A panel is named by its border and its title, and focus is
