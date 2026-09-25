@@ -33,6 +33,10 @@ var (
 	magenta = lipgloss.AdaptiveColor{Light: "#b5179e", Dark: "#e56ce5"}
 	cyan    = lipgloss.AdaptiveColor{Light: "#0a7ea4", Dark: "#22d7e8"}
 	orange  = lipgloss.AdaptiveColor{Light: "#e0700f", Dark: "#ff8a1f"}
+	// violet belongs to the table heading alone. Every other hue already
+	// means something — state, focus, a search hit — and a heading that
+	// borrowed one said that thing too.
+	violet = lipgloss.AdaptiveColor{Light: "#6a42d6", Dark: "#7d56f4"}
 
 	// grey carries everything recessive. It replaced Faint(true), which is
 	// an attribute terminals implement by blending the text toward the
@@ -69,7 +73,13 @@ var (
 	// mid-way. Colored, not just shaded: Reverse marks the selected row as
 	// a pale bar, and a grey heading was near enough to it that the two
 	// read as the same thing on screen.
-	TableHeader = lipgloss.NewStyle().Bold(true).Foreground(paper).Background(blue)
+	//
+	// Not blue: that is the focus accent, and a blue band inside a panel
+	// without focus claimed the focus the panel's grey border had just
+	// declined. Not a neutral shade either: the selected row of an idle
+	// panel is a grey fill, and directly under a grey band the two merged
+	// into one block.
+	TableHeader = lipgloss.NewStyle().Bold(true).Foreground(paper).Background(violet)
 	// Match highlights a search hit, dark on the attention color.
 	Match = lipgloss.NewStyle().Foreground(ink).Background(yellow)
 	// MatchCurrent is the hit n/N stopped on, set apart from the others the

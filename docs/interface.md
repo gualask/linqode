@@ -697,6 +697,7 @@ rendered in colour and looked at**. See [tests.md](tests.md), "Looking at the
 UI". Defects that shipped and were obvious the moment a frame was rendered:
 a gauge whose empty track took the same saturated colour as its fill, a
 heading band shaded so close to the selected row that the two read as one
-thing, a focus flag that was never passed, a process list drawing one row more
+thing, the same band recoloured in the focus accent and so claiming focus for
+a panel that did not have it, a focus flag that was never passed, a process list drawing one row more
 than it had been given, and every container column sitting empty because a
 source that declined to read was left in flight forever.
