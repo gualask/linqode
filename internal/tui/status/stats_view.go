@@ -213,33 +213,19 @@ func trendStrip(points []point, width int, read trendReading, scale func([]float
 	if width <= 0 {
 		return "", 0
 	}
+	// The points this reading has, each with when it was taken, so the
+	// strip's span is the span of what it draws.
 	var values, percents []float64
-	var first, last time.Time
+	var times []time.Time
 	for _, p := range points {
 		value, percent, ok := read(p)
 		if !ok {
 			continue
 		}
-		values, percents = append(values, value), append(percents, percent)
-		if first.IsZero() {
-			first = p.at
-		}
-		last = p.at
+		values, percents, times = append(values, value), append(percents, percent), append(times, p.at)
 	}
-	if len(values) > width {
-		// The first drawn point is the one width from the end.
-		drop := len(values) - width
-		kept := 0
-		for _, p := range points {
-			if _, _, ok := read(p); ok {
-				if kept == drop {
-					first = p.at
-					break
-				}
-				kept++
-			}
-		}
-		values, percents = values[drop:], percents[drop:]
+	if drop := len(values) - width; drop > 0 {
+		values, percents, times = values[drop:], percents[drop:], times[drop:]
 	}
 	floor, ceiling := scale(values)
 	strip := spark.Strip(values, floor, ceiling,
@@ -249,7 +235,7 @@ func trendStrip(points []point, width int, read trendReading, scale func([]float
 	if len(values) < 2 {
 		return strip, 0
 	}
-	return strip, last.Sub(first).Seconds()
+	return strip, times[len(times)-1].Sub(times[0]).Seconds()
 }
 
 func peakCPU(points []point) float64 {

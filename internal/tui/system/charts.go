@@ -213,24 +213,40 @@ func (m *Model) chartLines(height int) []string {
 	var lines []string
 	for start := 0; start < len(charts); start += perRow {
 		row := charts[start:min(start+perRow, len(charts))]
-		drawn := make([][]string, len(row))
-		for index, c := range row {
-			drawn[index] = m.drawChart(c, chartWidth, height)
-		}
-		for line := range height {
-			var b strings.Builder
-			for index := range row {
-				cell := drawn[index][line]
-				b.WriteString(cell)
-				if index < len(row)-1 {
-					b.WriteString(strings.Repeat(" ",
-						max(chartWidth-lipgloss.Width(cell), 0)+chartGap))
-				}
-			}
-			lines = append(lines, b.String())
-		}
+		lines = append(lines, m.chartRow(row, chartWidth, height)...)
 	}
 	return lines
+}
+
+// chartRow draws a row of charts side by side, each in chartWidth cells and
+// the gap between them, height lines tall.
+func (m *Model) chartRow(row []chart, chartWidth, height int) []string {
+	drawn := make([][]string, len(row))
+	for index, c := range row {
+		drawn[index] = m.drawChart(c, chartWidth, height)
+	}
+	lines := make([]string, height)
+	for line := range height {
+		cells := make([]string, len(drawn))
+		for index := range drawn {
+			cells[index] = drawn[index][line]
+		}
+		lines[line] = besideCharts(cells, chartWidth)
+	}
+	return lines
+}
+
+// besideCharts joins one line of each chart in a row, padding every one but
+// the last out to its width and the gap.
+func besideCharts(cells []string, chartWidth int) string {
+	var b strings.Builder
+	for index, cell := range cells {
+		b.WriteString(cell)
+		if index < len(cells)-1 {
+			b.WriteString(strings.Repeat(" ", max(chartWidth-lipgloss.Width(cell), 0)+chartGap))
+		}
+	}
+	return b.String()
 }
 
 // drawChart is one chart in exactly height lines: its title, with the reading
