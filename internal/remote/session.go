@@ -89,7 +89,8 @@ func prepareConnection(target Target, prompter Prompter, opts ConnectOptions) (c
 			return connectionSetup{}, err
 		}
 	}
-	policy, err := newHostKeyPolicy(target, knownHosts, prompter)
+	addr := net.JoinHostPort(target.Host, strconv.Itoa(int(target.Port)))
+	policy, err := newHostKeyPolicy(target, addr, knownHosts, prompter)
 	if err != nil {
 		return connectionSetup{}, err
 	}
@@ -101,6 +102,9 @@ func prepareConnection(target Target, prompter Prompter, opts ConnectOptions) (c
 			User:            target.User,
 			AuthCallback:    auth,
 			HostKeyCallback: policy.callback,
+			// Must match the hostname x/crypto hands the callback, which is
+			// the address dialSSHClient passes to the handshake.
+			HostKeyAlgorithms: policy.hostKeyAlgorithms(addr),
 		},
 		policy: policy, authErr: authErr, cleanup: cleanup,
 	}, nil
@@ -159,6 +163,8 @@ func classifyHandshakeError(err error, target Target, setup connectionSetup) err
 	switch {
 	case setup.policy.err != nil:
 		return setup.policy.err
+	case setup.policy.negotiationError(err) != nil:
+		return setup.policy.negotiationError(err)
 	case *setup.authErr != nil:
 		return *setup.authErr
 	case strings.Contains(err.Error(), "unable to authenticate"):

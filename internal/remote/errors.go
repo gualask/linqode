@@ -1,6 +1,9 @@
 package remote
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // UnknownHostKeyError reports an untrusted key to a non-interactive caller.
 // It contains enough information for a human to verify and establish trust
@@ -41,6 +44,31 @@ func (e *HostKeyChangedError) Error() string {
 		"host key for %s:%d changed (conflicts with known_hosts line %d); "+
 			"refusing to connect — this may be a man-in-the-middle attack",
 		e.Host, e.Port, e.Line)
+}
+
+// HostKeyTypeNotRecordedError reports a server that could not show a key of
+// any type known_hosts records for it, while it does record keys of other
+// types. A key of a new type is not learned on the spot — it is the shape a
+// man-in-the-middle without the pinned key would take — so connecting is
+// refused until the new key is verified and recorded separately.
+type HostKeyTypeNotRecordedError struct {
+	Host string
+	Port uint16
+	// Offered is the type the server showed; empty when it offered none of
+	// the recorded types at all.
+	Offered  string
+	Recorded []string
+}
+
+func (e *HostKeyTypeNotRecordedError) Error() string {
+	offered := "none of them"
+	if e.Offered != "" {
+		offered = "a " + e.Offered + " key"
+	}
+	return fmt.Sprintf(
+		"known_hosts records %s keys for %s:%d and the server offered %s; "+
+			"refusing to connect — verify the server's new key and add it to known_hosts",
+		strings.Join(e.Recorded, ", "), e.Host, e.Port, offered)
 }
 
 // AuthFailedError reports that every authentication attempt was refused.

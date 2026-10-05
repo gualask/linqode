@@ -145,7 +145,13 @@ what is not built yet, is in `LOCAL.md`.
   host as OpenSSH does — servers already trusted via plain `ssh` are
   recognized. Unknown host → show the fingerprint, ask for confirmation,
   persist on accept (trust-on-first-use). Key mismatch → refuse with the
-  conflicting line number, never bypassable.
+  conflicting line number, never bypassable. As OpenSSH does, the host key
+  algorithms offered are narrowed to the types `known_hosts` records for the
+  host (an RSA key allowing its SHA-2 signatures; certificates only when a
+  `@cert-authority` line applies), so a server holding ed25519 and ECDSA
+  keys shows the pinned one. A server that cannot show any recorded type is
+  refused as well, rather than learned: a new key type in place of the pinned
+  one is verified separately, like a changed key.
 - **Auth**: SSH agent first, then the target's identity files, loaded
   lazily so no passphrase is asked for if the agent suffices; encrypted
   keys prompt with OpenSSH-style retries. Password auth is out of scope for
