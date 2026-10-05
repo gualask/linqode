@@ -1,6 +1,6 @@
 # Monitoring
 
-_Last updated: 2026-09-15._
+_Last updated: 2026-10-05._
 
 What Linqode reads off a remote host, how often, and why each reading is on
 the tier it is on. The screen those readings are drawn on is
