@@ -113,6 +113,7 @@ func SelectionFailure(operation string, err error) *Failure {
 func ConnectionFailure(operation string, err error) *Failure {
 	var unknown *remote.UnknownHostKeyError
 	var changed *remote.HostKeyChangedError
+	var typeNotRecorded *remote.HostKeyTypeNotRecordedError
 	var passphrase *remote.PassphraseRequiredError
 	var auth *remote.AuthFailedError
 	var badPassphrase *remote.BadPassphraseError
@@ -122,7 +123,9 @@ func ConnectionFailure(operation string, err error) *Failure {
 		return interruptedFailure(operation)
 	case errors.As(err, &unknown):
 		return OperationalFailure(operation, "unknown_host_key", err)
-	case errors.As(err, &changed):
+	case errors.As(err, &changed), errors.As(err, &typeNotRecorded):
+		// A key of a type known_hosts does not pin is refused for the same
+		// reason a different key is: only a person can verify it.
 		return OperationalFailure(operation, "changed_host_key", err)
 	case errors.As(err, &passphrase):
 		return OperationalFailure(operation, "passphrase_required", err)
