@@ -150,7 +150,9 @@ what is not built yet, is in `LOCAL.md`.
   lazily so no passphrase is asked for if the agent suffices; encrypted
   keys prompt with OpenSSH-style retries. Password auth is out of scope for
   the MVP.
-- Prompts run in the terminal before the TUI takes over the screen. The machine
+- Prompts run in the terminal before the TUI takes over the screen, and are
+  waits the run can abandon: Ctrl-C at either one, or a signal while it
+  waits, ends the connect at once rather than at the next Enter. The machine
   connector instead fails closed: it never learns an unknown key or requests a
   passphrase, and maps authentication failures to typed JSON.
 - **The capability probe**: one round trip, once, before anything else runs.
