@@ -1,8 +1,16 @@
 package tui
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
 	"testing"
+	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/operations"
 )
 
@@ -57,6 +65,46 @@ func TestQuittingStopsEveryStreamOpenOrStarting(t *testing.T) {
 	feed.Stop()
 	if late.stops != 1 {
 		t.Error("a stream was stopped twice")
+	}
+}
+
+// A context that ends ends the program the way quitting does: Run returns the
+// context's error, and what the session had open on the host is stopped.
+func TestACancelledContextEndsTheProgramAndItsStreams(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var watch counter
+	opened := make(chan struct{})
+	backend := Backend{
+		Services: func() ([]compose.Service, error) {
+			return []compose.Service{{Service: "web", Name: "app-web-1", Project: "app"}}, nil
+		},
+		Watch: func(string) (operations.Feed, error) {
+			defer close(opened)
+			return watch.feed(), nil
+		},
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- run(ctx, Info{Target: "deploy@prod"}, backend,
+			tea.WithInput(&bytes.Buffer{}), tea.WithOutput(io.Discard))
+	}()
+	select {
+	case <-opened:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the program never opened the stream")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("Run returned %v, want the context's error", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelling the context did not end the program")
+	}
+	if watch.stops != 1 {
+		t.Errorf("the daemon's stream was stopped %d times, want once", watch.stops)
 	}
 }
 

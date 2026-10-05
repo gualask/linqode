@@ -2,6 +2,9 @@
 package tui
 
 import (
+	"context"
+	"errors"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/gualask/linqode/internal/compose"
@@ -109,7 +112,10 @@ type appModel struct {
 	width, height int
 }
 
-// Run shows the application until the user quits.
+// Run shows the application until the user quits or ctx ends. A context that
+// ends — the process asked to stop, the connection gone — ends the program as
+// quitting does, with the same teardown, and Run then returns ctx.Err()
+// rather than Bubble Tea's own error for a program it was told to kill.
 //
 // A nil field is a capability this session does not have, and the screen is
 // built around what is left rather than around what is missing: nil
@@ -118,7 +124,13 @@ type appModel struct {
 // are nil — the `host_metrics` opt-out in the config, and what the
 // connect-time probe found on the host — and the screen is told the reason
 // for the second so it can say it where the panel would have been.
-func Run(info Info, backend Backend) error {
+func Run(ctx context.Context, info Info, backend Backend) error {
+	return run(ctx, info, backend, tea.WithAltScreen())
+}
+
+// run is Run with the program's options named, so a test can give it an
+// input and an output that are not a terminal.
+func run(ctx context.Context, info Info, backend Backend, options ...tea.ProgramOption) error {
 	// Quitting leaves every model as it was, streams and all; what is still
 	// running on the host when the program returns is stopped here, and what
 	// was still starting is stopped as it lands.
@@ -148,7 +160,11 @@ func Run(info Info, backend Backend) error {
 		Watch:              backend.Watch,
 	}, services)
 	app := appModel{info: info, backend: backend, home: screen}
-	_, err := tea.NewProgram(app, tea.WithAltScreen()).Run()
+	options = append(options, tea.WithContext(ctx))
+	_, err := tea.NewProgram(app, options...).Run()
+	if errors.Is(err, tea.ErrProgramKilled) && ctx.Err() != nil {
+		return ctx.Err()
+	}
 	return err
 }
 
