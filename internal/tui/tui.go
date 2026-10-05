@@ -131,13 +131,6 @@ func Run(ctx context.Context, info Info, backend Backend) error {
 // run is Run with the program's options named, so a test can give it an
 // input and an output that are not a terminal.
 func run(ctx context.Context, info Info, backend Backend, options ...tea.ProgramOption) error {
-	// Quitting leaves every model as it was, streams and all; what is still
-	// running on the host when the program returns is stopped here, and what
-	// was still starting is stopped as it lands.
-	streams := newStreams()
-	defer streams.stopAll()
-	backend = streams.wrap(backend)
-
 	services := status.New(status.Config{
 		Stats:       backend.Stats != nil,
 		LiveStats:   backend.LiveStats != nil,

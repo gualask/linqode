@@ -225,7 +225,8 @@ eventually returns is stopped as it lands.
 
 Quitting stops everything this session started on the host — the log view's
 command, the daemon's event stream, the live stats — including a feed that
-was still opening when `q` was pressed.
+was still opening when `q` was pressed: every one of them was opened on the
+run's context, which is cancelled once the screen returns.
 
 **Maximising a panel is a separate gesture and is deliberately unbound.**
 Opening a detail changes context; making a box full-screen changes layout
