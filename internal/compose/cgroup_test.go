@@ -254,6 +254,46 @@ func TestStatsCgroupCommandCoversBothLayouts(t *testing.T) {
 	}
 }
 
+// v1 with the systemd driver, and rootless docker under the user's own
+// systemd manager, put a container where neither of the layouts above looks.
+// Both must be asked for, and both must reach the container.
+func TestTheSystemdV1AndRootlessLayoutsReachTheirContainers(t *testing.T) {
+	command := StatsCgroupCommand(nil)
+	for _, want := range []string{
+		"/sys/fs/cgroup/cpuacct/system.slice/docker-*.scope/cpuacct.usage",
+		"/sys/fs/cgroup/memory/system.slice/docker-*.scope/memory.usage_in_bytes",
+		"/sys/fs/cgroup/memory/system.slice/docker-*.scope/memory.stat",
+		"/sys/fs/cgroup/memory/system.slice/docker-*.scope/memory.limit_in_bytes",
+		"/sys/fs/cgroup/blkio/system.slice/docker-*.scope/blkio.throttle.io_service_bytes",
+		"/sys/fs/cgroup/pids/system.slice/docker-*.scope/pids.current",
+		"/sys/fs/cgroup/user.slice/user-*.slice/user@*.service/user.slice/docker-*.scope/cpu.stat",
+		"/sys/fs/cgroup/user.slice/user-*.slice/user@*.service/user.slice/docker-*.scope/memory.current",
+	} {
+		if !strings.Contains(command, want) {
+			t.Errorf("%q missing from the command", want)
+		}
+	}
+
+	const v1 = "/sys/fs/cgroup/%s/system.slice/docker-cccccccccccc3333.scope/"
+	const rootless = "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/user.slice/docker-dddddddddddd4444.scope/"
+	raw := strings.NewReplacer("%s", "cpuacct").Replace("#cgcpu\n"+v1+"cpuacct.usage:2000000000\n") +
+		rootless + "cpu.stat:usage_usec 3000000\n" +
+		"#cgmem\n" + strings.Replace(v1, "%s", "memory", 1) + "memory.usage_in_bytes:4096\n" +
+		rootless + "memory.current:8192\n" +
+		"#cgpids\n" + strings.Replace(v1, "%s", "pids", 1) + "pids.current:3\n"
+	sample := ParseCgroupSample([]byte(raw), time.Unix(100, 0))
+
+	if got := sample.Containers["cccccccccccc3333"]; got.CPUMicros != 2_000_000 || got.MemBytes != 4096 || got.PIDs != 3 {
+		t.Errorf("v1 systemd container = %+v", got)
+	}
+	if got := sample.Containers["dddddddddddd4444"]; got.CPUMicros != 3_000_000 || got.MemBytes != 8192 {
+		t.Errorf("rootless container = %+v", got)
+	}
+	if len(sample.Containers) != 2 {
+		t.Errorf("containers = %+v, want exactly the two", sample.Containers)
+	}
+}
+
 // Formatting matches what docker prints, because the live stream still comes
 // from docker and one table must not show two shapes of the same number.
 func TestByteFormatting(t *testing.T) {

@@ -260,8 +260,13 @@ privilege it did not already have — including the network counters, which
 look as though they should need one and do not: the ptrace check that guards
 `/proc/<pid>/environ` does not apply to `net`.
 
-Both cgroup v1 and v2 layouts are read, and both drivers of v2 (`docker/<id>`
-with cgroupfs, `system.slice/docker-<id>.scope` with systemd). `compose ps`
+Both cgroup v1 and v2 layouts are read, each with both drivers (`docker/<id>`
+with cgroupfs, `system.slice/docker-<id>.scope` with systemd — under v1, in
+every controller's own hierarchy), and rootless docker, whose scopes sit under
+the user's own manager at
+`user.slice/user-<uid>.slice/user@<uid>.service/user.slice/`. Every layout is
+one more glob in the same `grep`: one that matches nothing costs nothing.
+`compose ps`
 reports a twelve-character id and the cgroup directory carries the full one,
 so readings are matched by prefix with a twelve-character floor.
 
