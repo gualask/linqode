@@ -15,7 +15,8 @@ import (
 const passphraseAttempts = 3
 
 // authCallback builds the MVP authentication ladder: SSH agent identities
-// first (unless identitiesOnly), then the target's identity files, prompting
+// first (with identitiesOnly, only those of the target's identity files),
+// then the target's identity files, prompting
 // for a passphrase only when a key is encrypted. The returned cleanup closes
 // the agent connection once the handshake is over.
 //
@@ -25,10 +26,14 @@ const passphraseAttempts = 3
 func authCallback(target Target, identitiesOnly bool, prompter Prompter, state *authState) (ssh.ClientAuthCallback, func()) {
 	var methods []ssh.AuthMethod
 	cleanup := func() {}
-	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" && !identitiesOnly {
+	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		if conn, err := net.Dial("unix", sock); err == nil {
 			cleanup = func() { conn.Close() }
-			methods = append(methods, ssh.PublicKeysCallback(agent.NewClient(conn).Signers))
+			signers := agent.NewClient(conn).Signers
+			if identitiesOnly {
+				signers = configuredSigners(signers, target.IdentityFiles)
+			}
+			methods = append(methods, ssh.PublicKeysCallback(signers))
 		}
 	}
 	for _, path := range target.IdentityFiles {
@@ -68,6 +73,55 @@ func authCallback(target Target, identitiesOnly bool, prompter Prompter, state *
 		return method, nil
 	}
 	return next, cleanup
+}
+
+// configuredSigners keeps the agent's signers for the keys of files, as
+// OpenSSH's IdentitiesOnly does: the agent signs, but only as an identity
+// the configuration names.
+func configuredSigners(signers func() ([]ssh.Signer, error), files []string) func() ([]ssh.Signer, error) {
+	return func() ([]ssh.Signer, error) {
+		all, err := signers()
+		if err != nil {
+			return nil, err
+		}
+		wanted := map[string]bool{}
+		for _, path := range files {
+			if key := identityPublicKey(path); key != nil {
+				wanted[string(key.Marshal())] = true
+			}
+		}
+		return slices.DeleteFunc(all, func(s ssh.Signer) bool {
+			key := s.PublicKey()
+			if cert, ok := key.(*ssh.Certificate); ok {
+				key = cert.Key
+			}
+			return !wanted[string(key.Marshal())]
+		}), nil
+	}
+}
+
+// identityPublicKey is the public half of an identity file without asking
+// for a passphrase: from the .pub beside it, else from the file itself,
+// where an OpenSSH-format key keeps it unencrypted. Nil when neither says.
+func identityPublicKey(path string) ssh.PublicKey {
+	if raw, err := os.ReadFile(path + ".pub"); err == nil {
+		if key, _, _, _, err := ssh.ParseAuthorizedKey(raw); err == nil {
+			return key
+		}
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	signer, err := ssh.ParsePrivateKey(raw)
+	if err == nil {
+		return signer.PublicKey()
+	}
+	var missing *ssh.PassphraseMissingError
+	if errors.As(err, &missing) {
+		return missing.PublicKey
+	}
+	return nil
 }
 
 // authState is what the authentication ladder ran into, for Connect to

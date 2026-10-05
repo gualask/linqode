@@ -31,10 +31,12 @@ type Prompter interface {
 // the user's agent).
 type ConnectOptions struct {
 	// KnownHostsFile is an alternative known_hosts file, like OpenSSH's
-	// UserKnownHostsFile. Empty uses ~/.ssh/known_hosts.
+	// UserKnownHostsFile, taking the place of the target's. Empty uses the
+	// target's KnownHostsFiles, or ~/.ssh/known_hosts.
 	KnownHostsFile string
-	// IdentitiesOnly skips SSH agent authentication and uses only the
-	// target's identity files, like OpenSSH's IdentitiesOnly.
+	// IdentitiesOnly limits the SSH agent to the keys of the target's
+	// identity files, like OpenSSH's IdentitiesOnly; so does the target's
+	// own IdentitiesOnly.
 	IdentitiesOnly bool
 }
 
@@ -88,23 +90,27 @@ type connectionSetup struct {
 }
 
 func prepareConnection(target Target, prompter Prompter, opts ConnectOptions) (connectionSetup, error) {
-	knownHosts := opts.KnownHostsFile
-	if knownHosts == "" {
-		var err error
-		if knownHosts, err = defaultKnownHostsFile(); err != nil {
+	knownHosts := target.KnownHostsFiles
+	if opts.KnownHostsFile != "" {
+		knownHosts = []string{opts.KnownHostsFile}
+	}
+	if len(knownHosts) == 0 {
+		file, err := defaultKnownHostsFile()
+		if err != nil {
 			return connectionSetup{}, err
 		}
+		knownHosts = []string{file}
 	}
 	deadline := &handshakeDeadline{limit: target.connectTimeout()}
 	prompter = pausingPrompter{Prompter: prompter, deadline: deadline}
 	addr := net.JoinHostPort(target.Host, strconv.Itoa(int(target.Port)))
-	policy, err := newHostKeyPolicy(target, addr, knownHosts, prompter)
+	policy, err := newHostKeyPolicy(target, addr, knownHosts, target.GlobalKnownHostsFiles, prompter)
 	if err != nil {
 		return connectionSetup{}, err
 	}
 
 	state := new(authState)
-	auth, cleanup := authCallback(target, opts.IdentitiesOnly, prompter, state)
+	auth, cleanup := authCallback(target, opts.IdentitiesOnly || target.IdentitiesOnly, prompter, state)
 	return connectionSetup{
 		config: &ssh.ClientConfig{
 			User:            target.User,

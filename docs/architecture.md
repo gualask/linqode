@@ -117,8 +117,12 @@ their own, or none at all.
 The human route is `linqode [host]` or `linqode tui [host]`. It accepts a
 configured name or inline `[user@]host[:port]`, permits a TUI-only `--config`,
 and can infer the host when the config contains exactly one. The selected spec
-is resolved against `~/.ssh/config`, including aliases, user, port, and
-identity files.
+is resolved against `~/.ssh/config`, including aliases, user, port,
+identity files, `IdentitiesOnly`, the known_hosts files, the connect timeout
+and the keepalive (the list is in the [README](../README.md#getting-started)).
+`ProxyJump` and `ProxyCommand` are not supported: a host that sets either is
+refused at resolution, because connecting directly instead would take
+another path than `ssh` does, or reach nothing.
 
 Top-level machine command names are reserved. Those routes always load the
 default TOML and accept exact configured host names only; unknown values never
@@ -141,7 +145,9 @@ including the probe. The machine interface refuses such a host
 [operations.md](operations.md). The rest of the plan for local targets, and
 what is not built yet, is in `LOCAL.md`.
 
-- **Host key**: checked against `~/.ssh/known_hosts`, keyed by the resolved
+- **Host key**: checked against `~/.ssh/known_hosts` (or every
+  `UserKnownHostsFile`, the first being where new keys are written) and the
+  read-only global `/etc/ssh/ssh_known_hosts`, keyed by the resolved
   host as OpenSSH does — servers already trusted via plain `ssh` are
   recognized. Unknown host → show the fingerprint, ask for confirmation,
   persist on accept (trust-on-first-use). Key mismatch → refuse with the
@@ -152,8 +158,10 @@ what is not built yet, is in `LOCAL.md`.
   keys shows the pinned one. A server that cannot show any recorded type is
   refused as well, rather than learned: a new key type in place of the pinned
   one is verified separately, like a changed key.
-- **Auth**: SSH agent first, then the target's identity files, loaded
-  lazily so no passphrase is asked for if the agent suffices; encrypted
+- **Auth**: SSH agent first — with `IdentitiesOnly`, only its keys that
+  match a configured identity file (by the `.pub` beside it, or the public
+  half an OpenSSH key file carries unencrypted) — then the target's identity
+  files, loaded lazily so no passphrase is asked for if the agent suffices; encrypted
   keys prompt with OpenSSH-style retries. Password auth is out of scope for
   the MVP.
 - **Liveness**: the TCP connect and the SSH handshake share one deadline,

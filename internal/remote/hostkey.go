@@ -38,8 +38,10 @@ type hostKeyPolicy struct {
 }
 
 // newHostKeyPolicy reads the known_hosts files for addr, the host:port about
-// to be dialed. file is created if missing, since TOFU writes there.
-func newHostKeyPolicy(target Target, addr, file string, prompter Prompter) (*hostKeyPolicy, error) {
+// to be dialed. The first user file is created if missing, since TOFU writes
+// there; the other files, and the global ones, are read when they exist.
+func newHostKeyPolicy(target Target, addr string, userFiles, globalFiles []string, prompter Prompter) (*hostKeyPolicy, error) {
+	file := userFiles[0]
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		return nil, fmt.Errorf("cannot prepare known_hosts: %w", err)
 	}
@@ -48,7 +50,13 @@ func newHostKeyPolicy(target Target, addr, file string, prompter Prompter) (*hos
 		return nil, fmt.Errorf("cannot prepare known_hosts: %w", err)
 	}
 	f.Close()
-	db, err := loadKnownHosts([]string{file})
+	files := []string{file}
+	for _, other := range append(slices.Clone(userFiles[1:]), globalFiles...) {
+		if readable(other) {
+			files = append(files, other)
+		}
+	}
+	db, err := loadKnownHosts(files)
 	if err != nil {
 		return nil, err
 	}
@@ -194,6 +202,17 @@ func (p *hostKeyPolicy) learn(hostname string, key ssh.PublicKey) error {
 		return fmt.Errorf("cannot persist host key: %w", err)
 	}
 	return nil
+}
+
+// readable reports whether path is a regular file this user can open.
+func readable(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	return err == nil && info.Mode().IsRegular()
 }
 
 // knownHostsDB is the parsed known_hosts files. knownhosts keeps its lines

@@ -20,6 +20,10 @@ import (
 // configured, mirroring OpenSSH.
 var defaultIdentities = []string{"id_ed25519", "id_ecdsa", "id_rsa"}
 
+// defaultGlobalKnownHostsFiles are OpenSSH's system-wide known_hosts files,
+// read when they exist.
+var defaultGlobalKnownHostsFiles = []string{"/etc/ssh/ssh_known_hosts", "/etc/ssh/ssh_known_hosts2"}
+
 // Target is a fully resolved connection target.
 type Target struct {
 	// Host name or address to connect to (after ~/.ssh/config resolution).
@@ -31,6 +35,15 @@ type Target struct {
 	User        string
 	// IdentityFiles to try after the agent, in order. Only existing files.
 	IdentityFiles []string
+	// IdentitiesOnly limits the agent to the keys of IdentityFiles, like
+	// OpenSSH's IdentitiesOnly.
+	IdentitiesOnly bool
+	// KnownHostsFiles are the user's known_hosts files, like OpenSSH's
+	// UserKnownHostsFile: all are consulted, trust-on-first-use writes to
+	// the first. Empty uses ~/.ssh/known_hosts.
+	KnownHostsFiles []string
+	// GlobalKnownHostsFiles are consulted too, never written.
+	GlobalKnownHostsFiles []string
 	// ConnectTimeout bounds the TCP connect and the SSH handshake, time
 	// spent at a prompt excluded. Zero uses defaultConnectTimeout.
 	ConnectTimeout time.Duration
@@ -103,6 +116,16 @@ func resolveWith(spec string, cfg lookup, home string) (Target, error) {
 		return ""
 	}
 
+	// Jump hosts are not supported. Connecting directly instead would take
+	// another network path than ssh does, or reach nothing at all.
+	for _, key := range []string{"ProxyJump", "ProxyCommand"} {
+		if v := first(key); v != "" && !strings.EqualFold(v, "none") {
+			return Target{}, fmt.Errorf(
+				"%s: ~/.ssh/config sets %s, which is not supported yet: "+
+					"Linqode only connects directly", parsed.host, key)
+		}
+	}
+
 	t := Target{Host: parsed.host, DisplayHost: parsed.host, Port: 22, User: parsed.user}
 	if h := first("HostName"); h != "" {
 		t.Host = h
@@ -133,6 +156,13 @@ func resolveWith(spec string, cfg lookup, home string) (Target, error) {
 	}
 	if n, err := strconv.Atoi(first("ServerAliveCountMax")); err == nil && n > 0 {
 		t.ServerAliveCountMax = n
+	}
+
+	t.IdentitiesOnly = strings.EqualFold(first("IdentitiesOnly"), "yes")
+	t.KnownHostsFiles = pathList(cfg(parsed.host, "UserKnownHostsFile"), home)
+	t.GlobalKnownHostsFiles = pathList(cfg(parsed.host, "GlobalKnownHostsFile"), home)
+	if t.GlobalKnownHostsFiles == nil {
+		t.GlobalKnownHostsFiles = defaultGlobalKnownHostsFiles
 	}
 
 	files := cfg(parsed.host, "IdentityFile")
@@ -178,6 +208,20 @@ func configLookup(cfg *ssh_config.Config) lookup {
 		}
 		return vals
 	}
+}
+
+// pathList splits ssh_config values that hold several paths each, as the
+// known_hosts options do, expanding a leading ~/. "none" names no file.
+func pathList(values []string, home string) []string {
+	var paths []string
+	for _, v := range values {
+		for _, path := range strings.Fields(v) {
+			if !strings.EqualFold(path, "none") {
+				paths = append(paths, expandHome(path, home))
+			}
+		}
+	}
+	return paths
 }
 
 // seconds parses an ssh_config duration given in whole seconds.

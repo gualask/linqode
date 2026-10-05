@@ -3,6 +3,7 @@ package remote
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -162,5 +163,45 @@ func TestTimeoutsAndKeepalivesFromSSHConfig(t *testing.T) {
 	}
 	if interval, count := tgt.serverAlive(); interval != defaultServerAliveInterval || count != defaultServerAliveCountMax {
 		t.Errorf("defaults: serverAlive() = %s, %d", interval, count)
+	}
+}
+
+func TestSSHConfigIdentitiesOnlyAndKnownHostsFiles(t *testing.T) {
+	home := t.TempDir()
+	cfg := decode(t, "Host pinned\n  IdentitiesOnly yes\n"+
+		"  UserKnownHostsFile ~/.ssh/team_hosts /srv/hosts\n  UserKnownHostsFile ~/.ssh/third\n"+
+		"  GlobalKnownHostsFile /opt/ssh/global_hosts\n")
+	tgt, err := resolveWith("user@pinned", cfg, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantUser := []string{filepath.Join(home, ".ssh", "team_hosts"), "/srv/hosts", filepath.Join(home, ".ssh", "third")}
+	if !tgt.IdentitiesOnly || !slices.Equal(tgt.KnownHostsFiles, wantUser) ||
+		!slices.Equal(tgt.GlobalKnownHostsFiles, []string{"/opt/ssh/global_hosts"}) {
+		t.Errorf("got %+v", tgt)
+	}
+
+	tgt, err = resolveWith("user@plain", cfg, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tgt.IdentitiesOnly || tgt.KnownHostsFiles != nil ||
+		!slices.Equal(tgt.GlobalKnownHostsFiles, defaultGlobalKnownHostsFiles) {
+		t.Errorf("unconfigured host got %+v", tgt)
+	}
+}
+
+func TestJumpHostsAreRefusedNotBypassed(t *testing.T) {
+	cfg := decode(t, "Host behind\n  ProxyJump bastion\n"+
+		"Host piped\n  ProxyCommand ssh -W %h:%p bastion\n"+
+		"Host direct\n  ProxyCommand none\n  ProxyJump none\n")
+	for _, host := range []string{"behind", "piped"} {
+		_, err := resolveWith("user@"+host, cfg, "")
+		if err == nil || !strings.Contains(err.Error(), "not supported") {
+			t.Errorf("%s: got %v, want an unsupported-proxy error", host, err)
+		}
+	}
+	if _, err := resolveWith("user@direct", cfg, ""); err != nil {
+		t.Errorf("explicit none refused: %v", err)
 	}
 }

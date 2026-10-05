@@ -23,6 +23,15 @@ aliases from `~/.ssh/config`, host verification against `~/.ssh/known_hosts`
 (unknown hosts prompt for confirmation, like OpenSSH). If `ssh user@host`
 works, Linqode works.
 
+From `~/.ssh/config` it reads `HostName`, `User`, `Port`, `IdentityFile`,
+`IdentitiesOnly`, `UserKnownHostsFile` (new hosts are written to the first),
+`GlobalKnownHostsFile` (default `/etc/ssh/ssh_known_hosts`, read only),
+`ConnectTimeout` and `ServerAliveInterval` / `ServerAliveCountMax` (default
+15 seconds, 15 seconds and 3: a server that stops answering is given up
+rather than waited on). Jump hosts are not supported yet: a host whose entry
+sets `ProxyJump` or `ProxyCommand` is refused with an error saying so, never
+reached directly behind your back.
+
 ```bash
 linqode deploy@203.0.113.10        # inline host, no config needed
 linqode myapp                      # a host from the config file
