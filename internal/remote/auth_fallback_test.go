@@ -1,6 +1,7 @@
 package remote_test
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"golang.org/x/crypto/ssh/agent"
 
+	"github.com/gualask/linqode/internal/cli"
 	"github.com/gualask/linqode/internal/remote"
 )
 
@@ -37,6 +39,35 @@ func TestAuthFallsBackToLaterIdentity(t *testing.T) {
 			}
 			session.Close()
 		})
+	}
+}
+
+// Machine mode cannot unlock an encrypted key, but that is no reason to stop
+// at it: a later plain identity may be the authorized one. Only when nothing
+// gets in is the locked key the failure worth naming.
+func TestNonInteractiveSkipsEncryptedIdentity(t *testing.T) {
+	server := spawn(t, nil)
+	other, _ := genKeyPair(t)
+	encrypted := filepath.Join(server.dir, "id_encrypted")
+	writeKey(t, encrypted, other, "secret")
+	server.pin(t, server.hostKey.PublicKey())
+
+	target := server.target()
+	target.IdentityFiles = []string{encrypted, server.keyFile}
+	session, err := remote.ConnectWith(testContext(t), target, cli.NonInteractivePrompter{}, server.options())
+	if err != nil {
+		t.Fatalf("plain identity after an encrypted one was not tried: %v", err)
+	}
+	session.Close()
+
+	unauthorized, _ := genKeyPair(t)
+	plain := filepath.Join(server.dir, "id_plain")
+	writeKey(t, plain, unauthorized, "")
+	target.IdentityFiles = []string{encrypted, plain}
+	_, err = remote.ConnectWith(testContext(t), target, cli.NonInteractivePrompter{}, server.options())
+	var required *remote.PassphraseRequiredError
+	if !errors.As(err, &required) || required.Path != encrypted {
+		t.Fatalf("got %v, want PassphraseRequiredError for %s", err, encrypted)
 	}
 }
 

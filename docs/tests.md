@@ -81,6 +81,7 @@ regression hangs the test, not CI.
 | `TestHostCertificateFromKnownAuthority` | A host certificate signed by a `@cert-authority` in `known_hosts` is accepted without a prompt |
 | `TestUnauthorizedKeyFailsAuth` | An unaccepted identity yields `AuthFailedError` |
 | `TestAuthFallsBackToLaterIdentity` | Missing, invalid, rejected, or skipped keys do not hide a later authorized identity |
+| `TestNonInteractiveSkipsEncryptedIdentity` | Machine mode passes over an encrypted identity to a later plain one, and reports `PassphraseRequiredError` only when nothing else is accepted |
 | `TestAuthAgentFallbackAndLazyPassphrase` | An empty or unauthorized agent falls back to identity files; agent success avoids unlocking an encrypted file |
 | `TestConnectCancellationInterruptsSSHHandshake` | Cancelling during handshake returns promptly instead of waiting for the SSH timeout |
 | `TestCommandCancellationDuringSSHWaits` | Both exec modes honor cancellation during channel creation, exec acknowledgement, and the wait for exit after output EOF |

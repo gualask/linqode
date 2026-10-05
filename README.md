@@ -120,6 +120,9 @@ temperatures, processes and scripts.
 
 Machine authentication does not prompt, accept an unknown host key, or ask for
 a key passphrase. Prepare trust and credentials with OpenSSH or the TUI first.
+An encrypted key is passed over and the next identity tried, so a plain key or
+one the agent holds still gets in; the locked key is reported only when none
+does.
 Script arguments cannot be supplied at runtime: put every allowed variant in
 the TOML as its own named command. This boundary assumes the agent cannot
 modify the operator-controlled config or SSH files, and that the process

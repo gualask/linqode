@@ -77,7 +77,7 @@ func ConnectWith(ctx context.Context, target Target, prompter Prompter, opts Con
 type connectionSetup struct {
 	config  *ssh.ClientConfig
 	policy  *hostKeyPolicy
-	authErr *error
+	auth    *authState
 	cleanup func()
 }
 
@@ -95,8 +95,8 @@ func prepareConnection(target Target, prompter Prompter, opts ConnectOptions) (c
 		return connectionSetup{}, err
 	}
 
-	authErr := new(error)
-	auth, cleanup := authCallback(target, opts.IdentitiesOnly, prompter, authErr)
+	state := new(authState)
+	auth, cleanup := authCallback(target, opts.IdentitiesOnly, prompter, state)
 	return connectionSetup{
 		config: &ssh.ClientConfig{
 			User:            target.User,
@@ -106,7 +106,7 @@ func prepareConnection(target Target, prompter Prompter, opts ConnectOptions) (c
 			// the address dialSSHClient passes to the handshake.
 			HostKeyAlgorithms: policy.hostKeyAlgorithms(addr),
 		},
-		policy: policy, authErr: authErr, cleanup: cleanup,
+		policy: policy, auth: state, cleanup: cleanup,
 	}, nil
 }
 
@@ -165,9 +165,12 @@ func classifyHandshakeError(err error, target Target, setup connectionSetup) err
 		return setup.policy.err
 	case setup.policy.negotiationError(err) != nil:
 		return setup.policy.negotiationError(err)
-	case *setup.authErr != nil:
-		return *setup.authErr
+	case setup.auth.fatal != nil:
+		return setup.auth.fatal
 	case strings.Contains(err.Error(), "unable to authenticate"):
+		if setup.auth.locked != nil {
+			return setup.auth.locked
+		}
 		return &AuthFailedError{User: target.User, Host: target.DisplayHost}
 	default:
 		return err

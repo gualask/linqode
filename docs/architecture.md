@@ -158,7 +158,9 @@ what is not built yet, is in `LOCAL.md`.
   the MVP.
 - Prompts run in the terminal before the TUI takes over the screen. The machine
   connector instead fails closed: it never learns an unknown key or requests a
-  passphrase, and maps authentication failures to typed JSON.
+  passphrase, and maps authentication failures to typed JSON. An encrypted
+  identity is skipped rather than ending authentication, and named as the
+  failure only when no later identity is accepted.
 - **The capability probe**: one round trip, once, before anything else runs.
   It establishes whether docker is installed, whether this user may reach the
   daemon, which compose the host has, whether the configured `compose_dir`
