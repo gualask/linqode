@@ -157,12 +157,21 @@ func consumeExit(
 		return 0
 	}
 	if policy == propagateRemoteExit {
-		return code
+		return processExitCode(code)
 	}
 	return Report(stderr, ReadFailure(operation, operations.RemoteCommandError{
 		ExitCode: code,
 		Message:  fmt.Sprintf("remote command failed with exit code %d", code),
 	}))
+}
+
+// processExitCode is a non-zero remote status as this process can exit with
+// it. SSH carries 32 bits and a process exit code is one byte, so above 255
+// the status would be truncated, and 256 truncated is 0 — a failure exiting
+// as success. Such a status exits 255 instead: still a failure, and the exit
+// event on stdout has already said exactly which one.
+func processExitCode(remote int) int {
+	return min(remote, 255)
 }
 
 func reportFeedEnd(ctx context.Context, operation string, stderr io.Writer) int {
