@@ -18,6 +18,7 @@ package events
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -72,11 +73,21 @@ func (m *Model) Add(event compose.Event, readAt time.Time) {
 		event.At = readAt
 	}
 	m.entries = append([]compose.Event{event}, m.entries...)
-	if len(m.entries) > depth {
-		m.entries = m.entries[:depth]
-	}
 	if m.cursor > 0 {
-		m.cursor = min(m.cursor+1, len(m.entries)-1)
+		m.cursor++
+	}
+	if len(m.entries) > depth {
+		// The oldest goes, unless it is the one being read: then the one
+		// before it does. Clamping the cursor instead put it on a different
+		// event while the operator was reading this one.
+		drop := len(m.entries) - 1
+		if m.cursor == drop {
+			drop--
+		}
+		m.entries = slices.Delete(m.entries, drop, drop+1)
+		if m.cursor > drop {
+			m.cursor--
+		}
 	}
 }
 

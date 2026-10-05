@@ -547,7 +547,11 @@ container the project no longer has keeps the name the daemon gave it.
 
 The selection follows the newest event while it is on the newest event, and
 stays on its own entry once it has been moved off — the log view's rule, and
-for the same reason: something being read must not slide away.
+for the same reason: something being read must not slide away. That holds at
+the feed's depth of two hundred as well: the oldest event goes when a new one
+arrives, unless it is the one selected, and then the one before it goes
+instead. The cursor used to be clamped onto the next-oldest event, which put
+it on a different one while the first was being read.
 
 It is laid out whenever the session has a stream at all, empty or not. An
 empty feed says the daemon is being watched, which is worth knowing, and a
