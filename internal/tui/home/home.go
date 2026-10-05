@@ -198,6 +198,12 @@ type Model struct {
 	// watch is the daemon's event stream while it is up, nil otherwise.
 	watch         *operations.Feed
 	watchStarting bool
+	// watchOpened is when the stream now up was opened. watchRetry is how
+	// long the last one that ended quickly, or was refused, put the next
+	// attempt off, and watchRetryAt is when that wait is over.
+	watchOpened  time.Time
+	watchRetry   time.Duration
+	watchRetryAt time.Time
 	// containers is the service list the last reading described, kept
 	// because the counters are addressed by container id and by process.
 	containers []compose.Service
@@ -426,6 +432,10 @@ func (m *Model) applySample(msg tea.Msg) tea.Cmd {
 	case servicesSampleMsg:
 		m.services.SetServices(msg.services, msg.err)
 		m.sampler.finished(sourceServices)
+		// Only a read that answered is a reason to watch: one that failed
+		// says the daemon is not there to be watched, and the project it
+		// would scope the stream to is the last good read's anyway.
+		var watch tea.Cmd
 		if msg.err == nil {
 			m.containers = msg.services
 			if m.events != nil {
@@ -436,14 +446,15 @@ func (m *Model) applySample(msg tea.Msg) tea.Cmd {
 			if len(msg.services) > 0 {
 				m.project = msg.services[0].Project
 			}
+			watch = m.startWatching()
 		}
 		if m.servicesStale {
 			// News arrived while this read was in flight, so it answers a
 			// question that is already out of date.
 			m.servicesStale = false
-			return tea.Batch(m.startWatching(), m.sampler.read(sourceServices))
+			return tea.Batch(watch, m.sampler.read(sourceServices))
 		}
-		return m.startWatching()
+		return watch
 	case hostSampleMsg:
 		m.system.SetSample(msg.metrics, msg.err)
 		m.sampler.finished(sourceHost)
