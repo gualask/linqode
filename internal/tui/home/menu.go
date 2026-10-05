@@ -14,13 +14,14 @@ package home
 // (docs/PROJECT.md, decided policies).
 
 import (
-	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gualask/linqode/internal/operations"
+	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/theme"
 )
 
@@ -98,18 +99,48 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
+// menuChrome is what the menu's box costs on each axis: a border cell on
+// either side, and a cell of padding inside each of those across.
+const (
+	menuChromeWidth  = 4
+	menuChromeHeight = 2
+)
+
+// renderMenu draws the open menu as a box centred in the body, fitted to it.
+//
+// The rows are cut to the box rather than left to wrap, and the list scrolls
+// with the selection where there are more entries than rows. What a row
+// shows is the command it will run, and a script's command is whatever the
+// operator wrote in the TOML — a multi-line one wrapped the box, pushed the
+// frame past the bottom of the screen and turned the preview into a puzzle. It
+// is drawn on one line, its breaks as spaces, the way the log view draws a
+// line.
 func (m *Model) renderMenu(width, height int) string {
+	room, rows := 0, len(m.menu.entries)
+	if width > 0 && height > 0 {
+		room = max(width-menuChromeWidth, 1)
+		rows = max(height-menuChromeHeight, 1)
+	}
 	labelWidth := 0
 	for _, entry := range m.menu.entries {
-		labelWidth = max(labelWidth, len(entry.label))
+		labelWidth = max(labelWidth, lipgloss.Width(panel.Plain(entry.label)))
 	}
-	lines := make([]string, 0, len(m.menu.entries))
-	for index, entry := range m.menu.entries {
-		line := fmt.Sprintf(" %-*s  ", labelWidth, entry.label)
+	first := max(m.menu.selected-rows+1, 0)
+	last := min(first+rows, len(m.menu.entries))
+	lines := make([]string, 0, last-first)
+	for index := first; index < last; index++ {
+		entry := m.menu.entries[index]
+		label := panel.Plain(entry.label)
+		head := " " + label + strings.Repeat(" ", labelWidth-lipgloss.Width(label)) + "  "
+		detail := panel.Plain(entry.detail) + " "
+		if room > 0 {
+			head = cutMenu(head, room)
+			detail = cutMenu(detail, room-lipgloss.Width(head))
+		}
 		if index == m.menu.selected {
-			lines = append(lines, theme.Reverse.Render(line+entry.detail+" "))
+			lines = append(lines, theme.Reverse.Render(head+detail))
 		} else {
-			lines = append(lines, theme.Bold.Render(line)+theme.Dim.Render(entry.detail+" "))
+			lines = append(lines, theme.Bold.Render(head)+theme.Dim.Render(detail))
 		}
 	}
 	view := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1).
@@ -118,6 +149,17 @@ func (m *Model) renderMenu(width, height int) string {
 		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, view)
 	}
 	return view
+}
+
+// cutMenu cuts a menu row's part to the cells left for it.
+func cutMenu(text string, room int) string {
+	if room <= 0 {
+		return ""
+	}
+	if lipgloss.Width(text) <= room {
+		return text
+	}
+	return ansi.Truncate(text, room, "…")
 }
 
 func (m *Model) handleCommandKey(key tea.KeyMsg) tea.Cmd {
@@ -135,8 +177,12 @@ func (m *Model) handleCommandKey(key tea.KeyMsg) tea.Cmd {
 			m.commandText = string(runes[:len(runes)-1])
 		}
 	default:
+		// What is typed — or pasted, which arrives as one key of many
+		// runes — is kept as one line of text: a pasted line break would
+		// otherwise be run as a second command, and an escape would be
+		// drawn back at the terminal in the footer.
 		if len(key.Runes) > 0 {
-			m.commandText += string(key.Runes)
+			m.commandText += panel.Plain(string(key.Runes))
 		}
 	}
 	return nil
