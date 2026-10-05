@@ -135,11 +135,16 @@ func dialSSHClient(ctx context.Context, target Target, setup connectionSetup) (*
 	setup.deadline.arm(conn)
 	result, err := negotiateSSH(ctx, conn, addr, setup.config)
 	setup.deadline.disarm()
-	if err != nil {
-		if ctx.Err() == nil && setup.deadline.hasExpired() {
-			return nil, fmt.Errorf("no SSH handshake with %s within %s: %w",
-				addr, setup.deadline.limit, os.ErrDeadlineExceeded)
+	if ctx.Err() == nil && setup.deadline.hasExpired() {
+		// Even a handshake that finished as the deadline closed the
+		// connection has nothing left to run on.
+		if err == nil {
+			_ = result.conn.Close()
 		}
+		return nil, fmt.Errorf("no SSH handshake with %s within %s: %w",
+			addr, setup.deadline.limit, os.ErrDeadlineExceeded)
+	}
+	if err != nil {
 		return nil, classifyHandshakeError(err, target, setup)
 	}
 	return ssh.NewClient(result.conn, result.channels, result.requests), nil
