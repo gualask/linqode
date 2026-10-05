@@ -103,7 +103,8 @@ One-shot results are JSON; streams are JSON Lines. Remote stdout and stderr
 are typed events on stdout, followed by an `exit` event when the server
 supplies a status. Linqode diagnostics are JSON on stderr. Exit codes are `0`
 for success, `2` for invalid input or an unknown configured name, `1` for a
-Linqode/configuration/transport failure, and `130` for local interruption.
+Linqode/configuration/transport failure, and `130` for local interruption
+(`SIGINT`, `SIGTERM` or `SIGHUP`).
 Lifecycle actions and scripts instead propagate a reported non-zero remote
 exit code, as `255` when it does not fit in one (the `exit` event carries it
 exactly). Those ranges overlap — a script that exits `1`, `2` or `130` is

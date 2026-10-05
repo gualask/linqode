@@ -21,8 +21,23 @@ import (
 // Like the remote path, the stream ends with the *output*, not with the
 // process: a command that exits leaving a background child holding the pipe
 // keeps the stream open, exactly as `ssh host 'daemon &'` hangs. The caller's
-// context is what ends it.
+// context is what ends it — or the session's: Close ends every stream.
 func (s *Session) ExecStream(ctx context.Context, command string) (<-chan remote.ExecEvent, error) {
+	ctx, leave, err := s.enter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	events, err := s.stream(ctx, command, leave)
+	if err != nil {
+		leave()
+		return nil, err
+	}
+	return events, nil
+}
+
+// stream is ExecStream once the command is bound to the session; leave is
+// called when the command has been reaped and the channel closed.
+func (s *Session) stream(ctx context.Context, command string, leave func()) (<-chan remote.ExecEvent, error) {
 	cmd := s.command(command)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -34,6 +49,8 @@ func (s *Session) ExecStream(ctx context.Context, command string) (<-chan remote
 		return nil, err
 	}
 	if err := start(ctx, cmd); err != nil {
+		stdout.Close()
+		stderr.Close()
 		return nil, err
 	}
 
@@ -43,7 +60,10 @@ func (s *Session) ExecStream(ctx context.Context, command string) (<-chan remote
 	go pump(ctx, stdout, remote.ExecStdout, events, &readers)
 	go pump(ctx, stderr, remote.ExecStderr, events, &readers)
 
-	go finish(ctx, cmd, events, &readers, stdout, stderr)
+	go func() {
+		defer leave()
+		finish(ctx, cmd, events, &readers, stdout, stderr)
+	}()
 	return events, nil
 }
 

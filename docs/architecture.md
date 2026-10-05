@@ -1,6 +1,6 @@
 # Architecture
 
-_Last updated: 2026-09-10._
+_Last updated: 2026-10-05._
 
 The shape of the codebase: what the pieces are, which way they depend, and
 how a session starts. The behaviour they implement is documented by
@@ -58,7 +58,7 @@ Four principles shape the design:
 | `internal/operations` | shared configured catalog and connected status/stats/log/action/script workflows; presentation-neutral streams |
 | `internal/config` | `config.toml` loading and host selection |
 | `internal/remote` | SSH: target resolution, connect, host-key policy, auth, one-shot and streaming exec with cancellation |
-| `internal/local` | the same one-shot and streaming exec on the machine Linqode itself runs on, cancelled by signalling the command's own process group so that nothing it started outlives it |
+| `internal/local` | the same one-shot and streaming exec on the machine Linqode itself runs on, cancelled by signalling the command's own process group so that nothing it started outlives it — or the session, whose `Close` ends every command it started |
 | `internal/compose` | `docker compose` command builders (with shell quoting) and the parsers for what they return: `ps` output, the daemon's event stream, container cgroup counters, `docker system df`, and both `docker stats` forms |
 | `internal/probe` | the connect-time capability probe: what the host can be asked for, established once in one round trip and degrading to unknown rather than to a finding |
 | `internal/host` | everything about the machine itself, read out of `/proc` and `/sys`: the marker-sectioned host batch, the client-side deltas that turn its counters into percentages and rates, and the on-demand process table and graphics cards. Plus the one exception to all of that: a native reader for a local macOS target, where those files do not exist |
@@ -175,6 +175,26 @@ what is not built yet, is in `LOCAL.md`.
   filesystem and nothing else; the docker endpoint turns nothing off and is
   shown in the header. What it does *not* establish turns nothing off: Unknown reads
   as "carry on".
+
+### Teardown
+
+Nothing a run started outlives it. `SIGINT`, `SIGTERM` and `SIGHUP` cancel
+the run's context instead of killing the process, and `main` exits only after
+everything below it has returned, so the deferred cleanup always runs. When
+the screen returns — the operator quit, or a signal ended it — the context
+every feed was opened on is cancelled first and the session closed second.
+Bubble Tea answers `SIGINT` and `SIGTERM` itself but not `SIGHUP`, and the
+screen takes no context, so a cancelled run asks it to quit with a `SIGTERM`
+of its own.
+
+The local session is the one where this is load-bearing. Closing an SSH
+connection ends every channel on it at the far end; a local command is a
+process group of its own, which neither the terminal's `SIGINT` nor its
+`SIGHUP` reaches. So every command a local session starts runs under the
+session's context as well as its caller's, and `Close` cancels them all and
+waits, bounded, until each has been reaped. A descendant that left the group
+on purpose (`setsid daemon &`) is out of reach; its stream still closes,
+because once the group is dead the read ends of its pipes are closed too.
 
 ### And then
 

@@ -1,6 +1,6 @@
 # Testing
 
-_Last updated: 2026-09-15._
+_Last updated: 2026-10-05._
 
 How Linqode is tested, what each layer covers, and how to extend it. The
 strategy in short: pure logic is unit-tested against captured fixtures with
@@ -39,6 +39,8 @@ hardened them first:
 | ------- | --------------- |
 | `internal/config` | Config parsing (documented format, tolerance of future sections, missing-`host` rejection, scripts sorted by name), host selection rules, default-path loading |
 | `internal/cli` | Human/machine routing, exact operands and option placement, strict machine boundaries, JSON/JSONL payloads, streaming without whole-output buffering, typed failures, cancellation, and exit mapping |
+| `internal/local` | The local Executor against real processes (Unix only): output and exit codes, the C locale, the home directory, cancellation ending the command and its children at every stage, `SIGKILL` for a group that ignores `SIGTERM`, a stream closing despite a descendant that left the group (skipped without `setsid`), and `Close` ending every command the session started before it returns |
+| `cmd/linqode` | Composition: machine routing before connecting, and a cancelled run asking the screen to quit with `SIGTERM` until it returns (Unix only) |
 | `internal/operations` | Strict configured catalog, shared status/stats/log workflows, exact lifecycle/script selection, service validation, stream assembly/cancellation, and no mutation retry |
 | `internal/remote` | `[user@]host[:port]` spec parsing (IPv6, last-`@` rule, rejects incl. port 0), `~/.ssh/config` alias resolution and precedence, identity-file discovery limited to existing files, tilde expansion |
 | `internal/compose` | Command builders (`ps`, `logs`, actions, restart inspect) incl. shell quoting of hostile paths and container names; `ps --format json` parsing in both shapes (NDJSON ≥ 2.21, legacy array), null `Publishers`, sorting; port summaries collapsing IPv4/IPv6 duplicates; restart counts parsed leniently (leading slash stripped, a vanished container's error line skipped without losing the rest) and an absent count staying unknown rather than zero |

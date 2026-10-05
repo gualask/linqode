@@ -21,20 +21,37 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"sync"
+	"time"
 
 	"github.com/gualask/linqode/internal/remote"
 )
 
 // Session is the local machine wearing the shape of a connection, so that
 // the composition root can hold either one. There is nothing to establish
-// and nothing to authenticate; what little state there is says where
-// commands run.
+// and nothing to authenticate; what state there is says where commands run,
+// and which of them are still running.
 type Session struct {
 	// dir is the operator's home, matching the remote rule that scripts and
 	// `!` run in the login directory, like `ssh host 'command'`. Compose
 	// commands are unaffected: they carry their own directory.
 	dir string
+
+	// scope ends with the session, and every command runs under it as well
+	// as under its caller's context. Closing an SSH connection takes every
+	// channel on it down at the far end; here nothing does that for free —
+	// each command is a process group of its own, out of reach of the
+	// terminal's SIGINT and SIGHUP — so Close has to do it, and running is
+	// how it knows when it has.
+	scope   context.Context
+	end     context.CancelFunc
+	mu      sync.Mutex // orders closed against running.Add
+	closed  bool
+	running sync.WaitGroup
 }
+
+// errClosed is what a command asked of a closed session gets.
+var errClosed = errors.New("the local session is closed")
 
 // New opens a session on this machine. A machine with no home directory —
 // $HOME unset — is not one Linqode is running on in any ordinary sense, and
@@ -45,17 +62,62 @@ func New() *Session {
 	if err != nil {
 		home = ""
 	}
-	return &Session{dir: home}
+	scope, end := context.WithCancel(context.Background())
+	return &Session{dir: home, scope: scope, end: end}
 }
 
-// Close releases nothing. It exists because the caller's other option has
-// one, and a local session that had to be special-cased at teardown would be
-// a seam that leaks.
-func (s *Session) Close() {}
+// Close ends every command the session started, whether or not its caller
+// ever cancelled it, and waits for them to be reaped — bounded, because a
+// teardown that could hang is worse than one that gives up. The bound covers
+// the slowest path a command can take to end: the kill grace, then the wait
+// for its pipes. Closing twice is harmless.
+func (s *Session) Close() {
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+	s.end()
+
+	reaped := make(chan struct{})
+	go func() {
+		s.running.Wait()
+		close(reaped)
+	}()
+	timer := time.NewTimer(closeGrace)
+	defer timer.Stop()
+	select {
+	case <-reaped:
+	case <-timer.C:
+	}
+}
+
+// enter binds one command to the session: the context it returns ends with
+// whichever of ctx and the session ends first, and the command counts as
+// running until leave is called, once it has been reaped.
+func (s *Session) enter(ctx context.Context) (bound context.Context, leave func(), err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil, nil, errClosed
+	}
+	bound, cancel := context.WithCancel(ctx)
+	unbind := context.AfterFunc(s.scope, cancel)
+	s.running.Add(1)
+	return bound, func() {
+		unbind()
+		cancel()
+		s.running.Done()
+	}, nil
+}
 
 // Exec runs command and collects its output until it finishes or ctx is
 // cancelled.
 func (s *Session) Exec(ctx context.Context, command string) (remote.ExecOutput, error) {
+	ctx, leave, err := s.enter(ctx)
+	if err != nil {
+		return remote.ExecOutput{}, err
+	}
+	defer leave()
+
 	cmd := s.command(command)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -63,7 +125,7 @@ func (s *Session) Exec(ctx context.Context, command string) (remote.ExecOutput, 
 	if err := start(ctx, cmd); err != nil {
 		return remote.ExecOutput{}, err
 	}
-	err := wait(ctx, cmd)
+	err = wait(ctx, cmd)
 	if ctx.Err() != nil {
 		return remote.ExecOutput{}, ctx.Err()
 	}

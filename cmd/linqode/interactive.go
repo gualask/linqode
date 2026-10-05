@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"runtime"
+	"syscall"
+	"time"
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/config"
@@ -84,6 +87,12 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 		return err
 	}
 	defer link.close()
+	// Every feed the screen opens runs on this context, and the screen's
+	// return is the end of all of them: cancelling it here, before the
+	// session closes (defers run in reverse), ends whatever a view left
+	// running rather than leaving it to be cut off underneath.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	operator := operations.NewHostOperator(link.executor, sel.ComposeDir, sel.Scripts...)
 
@@ -105,7 +114,54 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 		DockerEndpoint:     capabilities.DockerEndpoint(),
 		ComposeUnavailable: capabilities.ComposeUnavailable(),
 	}
+	if err := ctx.Err(); err != nil {
+		return err // a signal while connecting: there is no screen to open
+	}
+	defer quitOnCancel(ctx)()
 	return tui.Run(info, newBackend(ctx, operator, link.local, sel.HostMetrics, capabilities))
+}
+
+// quitOnCancel makes a cancelled run end the screen too, and returns what
+// stops it watching. Bubble Tea answers SIGINT and SIGTERM itself, but not
+// SIGHUP: a terminal that goes away would cancel every feed and leave the
+// screen running on nothing, holding the session open for good. The screen
+// takes no context, so it is asked the way it already listens — with a
+// SIGTERM of our own, repeated until it returns, because the first one may
+// land before its handler is installed. One that arrives after is harmless:
+// the run's own signal handler is still registered and swallows it.
+func quitOnCancel(ctx context.Context) (stop func()) {
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+		}
+		self, err := os.FindProcess(os.Getpid())
+		if err != nil {
+			return
+		}
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			// Windows cannot be sent SIGTERM; it is never sent SIGHUP
+			// either, and Bubble Tea answers what it is sent.
+			if self.Signal(syscall.SIGTERM) != nil {
+				return
+			}
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-finished
+	}
 }
 
 // newBackend wires what the screen may ask this host for. A fetch left nil
