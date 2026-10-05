@@ -348,7 +348,14 @@ func (m *Model) systemShown() bool {
 // diskUsageShown reports whether the services panel is on screen with room for
 // what docker holds on disk. The section only takes rows the table leaves
 // empty, so a project long enough to fill the panel pays nothing for it.
+//
+// A terminal too short to give the panel a row inside its border has no room
+// for it either, and is asked here rather than of the panel: the panel is not
+// told a size of zero, which it would take for a size not known yet.
 func (m *Model) diskUsageShown() bool {
+	if frame := m.frame(); frame.known && frame.body.content().height == 0 {
+		return false
+	}
 	return m.detail == nil && m.panels[m.anchor] == panel.Panel(m.services) &&
 		m.services.DiskUsageRoom()
 }

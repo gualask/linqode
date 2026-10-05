@@ -45,6 +45,10 @@ const eventsBox = 6
 const anchorFloor = 8
 
 type frame struct {
+	// known reports whether the terminal's size has been told yet. A body of
+	// zero rows on a known terminal is a body with no room, and draws
+	// nothing; on an unknown one it is a body with no limit yet.
+	known bool
 	// headerBox reports whether the header is a box with the meters in it,
 	// which it is wherever this host reports any. It is never given up to buy
 	// space for a panel: the meters are the first thing an operator reads.
@@ -75,9 +79,10 @@ func layoutFor(width, height int, headerBox, events bool) frame {
 	}
 	body := box{width: width, height: max(height-header-footerLine, 0)}
 	if !events || body.height < anchorFloor+eventsBox {
-		return frame{headerBox: headerBox, body: body}
+		return frame{known: true, headerBox: headerBox, body: body}
 	}
 	return frame{
+		known:     true,
 		headerBox: headerBox,
 		body:      box{width: width, height: body.height - eventsBox},
 		events:    box{width: width, height: eventsBox},

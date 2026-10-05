@@ -116,6 +116,12 @@ the size arithmetic live in `internal/tui/panel`; a feature package owns what
 is inside its own panel and nothing beyond it, so adding a panel is adding a
 panel rather than editing a screen.
 
+A size of zero is not an unknown size. Before the first resize a panel has no
+limit and draws everything; on a terminal so short that a panel has no row
+inside its border it draws the border and nothing in it, and with no row for
+the body at all the screen is the header and the footer. What such a panel
+would have read — docker's disk under the table — is not read either.
+
 `tab` and `shift+tab` move focus around the ring — band, table, events, in the
 order they sit on the screen, so `shift+tab` from the table reaches the band
 and `enter` there opens the machine's readings.
