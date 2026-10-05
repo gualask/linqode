@@ -35,6 +35,10 @@ const (
 	// something it started still holds the output pipe — a script ending
 	// in `daemon &`. Without it that wait never ends.
 	pipeGrace = time.Second
+	// closeGrace bounds Close: the kill grace and then the pipe grace are
+	// the longest a cancelled command takes to be reaped, and the rest is
+	// margin for a loaded machine.
+	closeGrace = killGrace + pipeGrace + time.Second
 )
 
 // command builds one command. Everything runs under `sh -c`, matching the

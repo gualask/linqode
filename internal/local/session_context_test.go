@@ -9,6 +9,7 @@ package local_test
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -159,4 +160,44 @@ func TestACancelledStreamClosesItsChannel(t *testing.T) {
 		}
 	}()
 	awaitReturn(t, closed)
+}
+
+// A descendant that left the process group is out of the signal's reach and
+// still holds the output pipe. The stream must close anyway: what the
+// cancellation cannot kill, it stops listening to.
+func TestACancelledStreamClosesDespiteADescendantOutsideTheGroup(t *testing.T) {
+	if _, err := exec.LookPath("setsid"); err != nil {
+		t.Skip("setsid is not available here")
+	}
+	pidfile := filepath.Join(t.TempDir(), "escaped.pid")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	events, err := local.New().ExecStream(ctx,
+		"setsid sleep 30 & echo $! > "+pidfile+"; echo started; sleep 30")
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitPIDFile(t, pidfile) // killed at cleanup: nothing here can reach it
+	select {
+	case event := <-events:
+		if event.Kind != remote.ExecStdout || string(event.Data) != "started\n" {
+			t.Fatalf("first event is %+v", event)
+		}
+	case <-time.After(guardTimeout):
+		t.Fatal("no output before the cancellation")
+	}
+
+	start := time.Now()
+	cancel()
+	closed := make(chan struct{})
+	go func() {
+		defer close(closed)
+		for range events {
+		}
+	}()
+	awaitReturn(t, closed)
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("the channel closed %s after the cancellation", elapsed)
+	}
 }

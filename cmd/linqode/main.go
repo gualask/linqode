@@ -8,16 +8,31 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/gualask/linqode/internal/cli"
 	"github.com/gualask/linqode/internal/config"
 	"github.com/gualask/linqode/internal/operations"
 )
 
+// shutdownSignals end a run by cancelling its context rather than by killing
+// the process, so that teardown runs: a local command lives in a process
+// group of its own, which neither the terminal's SIGINT nor its SIGHUP
+// reaches, and only the session closing it stands between it and outliving
+// Linqode. SIGHUP is the terminal going away, SIGTERM a polite kill. Every
+// one of them exists on Windows too, where the last two are never sent.
+var shutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
+
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	os.Exit(run())
+}
+
+// run is main with its deferred cleanup intact: os.Exit runs no defers, so
+// it is called only once everything here has returned.
+func run() int {
+	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals...)
 	defer stop()
-	os.Exit(execute(ctx, os.Args[1:], os.Stdout, os.Stderr))
+	return execute(ctx, os.Args[1:], os.Stdout, os.Stderr)
 }
 
 // execute is the process composition root. Parsing and machine presentation

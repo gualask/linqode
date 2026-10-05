@@ -103,9 +103,16 @@ One-shot results are JSON; streams are JSON Lines. Remote stdout and stderr
 are typed events on stdout, followed by an `exit` event when the server
 supplies a status. Linqode diagnostics are JSON on stderr. Exit codes are `0`
 for success, `2` for invalid input or an unknown configured name, `1` for a
-Linqode/configuration/transport failure, and `130` for local interruption.
+Linqode/configuration/transport failure, and `130` for local interruption
+(`SIGINT`, `SIGTERM` or `SIGHUP`).
 Lifecycle actions and scripts instead propagate a reported non-zero remote
-exit code exactly. Logs default to 200 lines; `--tail` accepts values from 1
+exit code, as `255` when it does not fit in one (the `exit` event carries it
+exactly). Those ranges overlap — a script that exits `1`, `2` or `130` is
+indistinguishable by exit code from a Linqode failure — so the process exit
+code says only whether something failed. What failed is in the output: an
+`exit` event on stdout is the remote command's status, and a JSON error
+document on stderr is Linqode's own failure. Read those, not the exit code,
+to tell them apart. Logs default to 200 lines; `--tail` accepts values from 1
 through 10,000.
 
 Connecting establishes what the host can be asked for, once. A command that
