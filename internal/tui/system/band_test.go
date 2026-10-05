@@ -542,3 +542,18 @@ func TestLongMountPointsKeepTheEndThatIdentifiesThem(t *testing.T) {
 		}
 	}
 }
+
+// A mount point in a script whose characters take two cells each is cut by
+// cells, not by characters: counting one against the other walked the cut off
+// the front of the label and panicked.
+func TestWideMountPointsAreCutByCells(t *testing.T) {
+	for _, column := range []int{4, 5, 8, 12, 16} {
+		got := pad("/データボリュームディスク", column)
+		if width := lipgloss.Width(got); width != column {
+			t.Errorf("pad(wide, %d) is %d cells: %q", column, width, got)
+		}
+		if !strings.HasPrefix(got, "…") || !strings.Contains(got, "ク") {
+			t.Errorf("pad(wide, %d) = %q, want the tail behind an ellipsis", column, got)
+		}
+	}
+}

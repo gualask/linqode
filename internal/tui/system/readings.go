@@ -417,10 +417,16 @@ func trimPath(label string, column int) string {
 			return trimmed
 		}
 	}
-	for cut := len(runes) - column + 1; cut < len(runes); cut++ {
-		if trimmed := "…" + string(runes[cut:]); lipgloss.Width(trimmed) <= column {
-			return trimmed
+	// Otherwise as much of the last segment as fits, walked back from the end
+	// by cells: a character is not a cell, and a mount point in a script that
+	// takes two per character would otherwise put the cut before the start.
+	cut, used := len(runes), lipgloss.Width("…")
+	for cut > 0 {
+		width := lipgloss.Width(string(runes[cut-1]))
+		if used+width > column {
+			break
 		}
+		cut, used = cut-1, used+width
 	}
-	return label
+	return "…" + string(runes[cut:])
 }
