@@ -190,44 +190,18 @@ func (p *hostKeyPolicy) negotiationError(err error) error {
 	return nil
 }
 
-// learn appends the accepted key to the known_hosts file, hashing the host
-// name when the file already holds hashed entries: a file kept hashed
-// (OpenSSH's HashKnownHosts) does not gain a host in clear.
+// learn appends the accepted key to the known_hosts file.
 func (p *hostKeyPolicy) learn(hostname string, key ssh.PublicKey) error {
-	hashed, err := holdsHashedHosts(p.file)
-	if err != nil {
-		return fmt.Errorf("cannot persist host key: %w", err)
-	}
 	f, err := os.OpenFile(p.file, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("cannot persist host key: %w", err)
 	}
 	defer f.Close()
-	host := knownhosts.Normalize(hostname)
-	if hashed {
-		host = knownhosts.HashHostname(host)
-	}
-	line := knownhosts.Line([]string{host}, key)
+	line := knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key)
 	if _, err := fmt.Fprintln(f, line); err != nil {
 		return fmt.Errorf("cannot persist host key: %w", err)
 	}
 	return nil
-}
-
-// holdsHashedHosts reports whether a known_hosts file has a hashed entry.
-func holdsHashedHosts(file string) (bool, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		return false, err
-	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		if bytes.HasPrefix(bytes.TrimLeft(scanner.Bytes(), " \t"), []byte("|1|")) {
-			return true, nil
-		}
-	}
-	return false, scanner.Err()
 }
 
 // readable reports whether path is a regular file this user can open.

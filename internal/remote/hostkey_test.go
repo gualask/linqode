@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"strconv"
-	"strings"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
@@ -72,35 +71,6 @@ func TestChangedKeyOfRecordedTypeIsRefusedAmongOthers(t *testing.T) {
 	if got := p.hostKeyPrompts.Load(); got != 0 {
 		t.Errorf("prompter consulted %d times on a changed key", got)
 	}
-}
-
-// A known_hosts kept hashed (HashKnownHosts) must not gain a line naming
-// the host in clear.
-func TestTOFUHashesWhenKnownHostsIsHashed(t *testing.T) {
-	server := spawn(t, nil)
-	other := knownhosts.Line([]string{knownhosts.HashHostname("elsewhere.example")}, genSigner(t).PublicKey())
-	if err := os.WriteFile(server.knownHosts, []byte(other+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	session, err := remote.ConnectWith(testContext(t), server.target(), &prompter{acceptHostKey: true}, server.options())
-	if err != nil {
-		t.Fatal(err)
-	}
-	session.Close()
-	raw, err := os.ReadFile(server.knownHosts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	if len(lines) != 2 || !strings.HasPrefix(lines[1], "|1|") || strings.Contains(lines[1], "127.0.0.1") {
-		t.Fatalf("learned line is not hashed: %q", raw)
-	}
-	silent := &prompter{}
-	session, err = remote.ConnectWith(testContext(t), server.target(), silent, server.options())
-	if err != nil {
-		t.Fatalf("hashed entry was not recognised: %v", err)
-	}
-	session.Close()
 }
 
 // A server that cannot show any recorded type is refused, not learned: a new
