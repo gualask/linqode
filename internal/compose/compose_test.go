@@ -126,7 +126,7 @@ func TestPortsSummaryCollapsesIPv4IPv6Duplicates(t *testing.T) {
 }
 
 func TestInspectNamesTheContainersDirectly(t *testing.T) {
-	want := "docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}}' " +
+	want := "docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}} {{.HostConfig.NetworkMode}}' " +
 		"'myapp-db-1' 'myapp-web-1'"
 	if got := InspectCommand([]string{"myapp-db-1", "myapp-web-1"}); got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -135,10 +135,28 @@ func TestInspectNamesTheContainersDirectly(t *testing.T) {
 	if got := InspectCommand(nil); got != "" {
 		t.Errorf("empty list built %q", got)
 	}
-	want = "docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}}' " +
+	want = "docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}} {{.HostConfig.NetworkMode}}' " +
 		`'a'\''; rm -rf $HOME'`
 	if got := InspectCommand([]string{"a'; rm -rf $HOME"}); got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// `network_mode: host` gives a container no namespace of its own, so its
+// process's /proc/<pid>/net/dev is the whole machine's traffic. The mode
+// rides on the inspect line already being read, and only `host` is it.
+func TestParseInspectedReadsTheHostNetworkMode(t *testing.T) {
+	found := ParseInspected([]byte("/app-agent-1 0 4242 host\n/app-web-1 0 4343 app_default\n/app-db-1 0 4444 container:abc\n"))
+	if !found["app-agent-1"].HostNetwork {
+		t.Error("a host-network container was not recognised")
+	}
+	if found["app-web-1"].HostNetwork || found["app-db-1"].HostNetwork {
+		t.Errorf("a namespaced container read as host-network: %+v", found)
+	}
+	services := []Service{{Name: "app-agent-1", ID: "aaaaaaaaaaaa"}}
+	ApplyInspected(services, found)
+	if !services[0].HostNetwork || services[0].Pid != 4242 {
+		t.Errorf("service = %+v", services[0])
 	}
 }
 

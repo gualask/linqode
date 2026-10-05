@@ -134,7 +134,11 @@ func (previous CgroupSample) Delta(current CgroupSample, services []Service, hos
 		}
 
 		stats.BlockIO = formatDecimal(reading.ReadBytes) + " / " + formatDecimal(reading.WriteBytes)
-		if network, ok := current.Networks[service.Pid]; ok {
+		// A container on the host's network shares the host's interfaces,
+		// so its process's counters are the machine's: unknown, not those.
+		if service.HostNetwork {
+			stats.NetIO = "-"
+		} else if network, ok := current.Networks[service.Pid]; ok {
 			stats.NetIO = formatDecimal(network.RxBytes) + " / " + formatDecimal(network.TxBytes)
 		}
 		if reading.PIDs > 0 {

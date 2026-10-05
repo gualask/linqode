@@ -70,6 +70,7 @@ func ParseInspected(raw []byte) map[string]Inspected {
 			// reports 0, which is what it stays.
 			entry.Pid, _ = strconv.Atoi(fields[2])
 		}
+		entry.HostNetwork = len(fields) > 3 && fields[3] == "host"
 		found[strings.TrimPrefix(fields[0], "/")] = entry
 	}
 	return found

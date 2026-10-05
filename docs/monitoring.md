@@ -141,7 +141,7 @@ Selection is preserved on the same container across refreshes; a failed
 refresh shows the error while the last good table stays on screen.
 
 Restart counts are not in that output, so the same refresh follows it with
-`docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}}'` over
+`docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}} {{.HostConfig.NetworkMode}}'` over
 the containers `ps` just named — cheaper than a second compose invocation,
 which would pay the compose CLI's startup again to re-derive a list already
 in hand. It is best-effort: it never fails a refresh, and inspect's non-zero
@@ -149,7 +149,10 @@ exit is ignored, since a container that disappeared between the two commands
 makes it fail while the remaining lines are still good. Counts that did not
 arrive render as `-`, distinct from a container that has genuinely never
 restarted. The pids on the same line are what the container network counters
-are addressed by.
+are addressed by, and the network mode is why one of them is not: a container
+with `network_mode: host` has no namespace of its own, so its process's
+counters are the whole machine's, and its NET column says `-` rather than
+attributing them to it.
 
 ### The daemon is watched, not polled
 

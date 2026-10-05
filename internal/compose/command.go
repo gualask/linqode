@@ -63,6 +63,11 @@ func PsCommand(composeDir string) string {
 // about as much as the first, while a bare `docker inspect` is one cheap
 // daemon round-trip. No `cd` either — container names are absolute
 // references, not project-relative ones.
+//
+// The same line carries the main process, whose network namespace the traffic
+// counters are read from, and the network mode, because a container on the
+// host's network has no namespace of its own: its process's counters are the
+// whole machine's.
 func InspectCommand(names []string) string {
 	if len(names) == 0 {
 		return ""
@@ -71,7 +76,7 @@ func InspectCommand(names []string) string {
 	for i, name := range names {
 		quoted[i] = shellQuote(name)
 	}
-	return "docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}}' " +
+	return "docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}} {{.HostConfig.NetworkMode}}' " +
 		strings.Join(quoted, " ")
 }
 

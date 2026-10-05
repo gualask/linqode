@@ -48,12 +48,18 @@ type Service struct {
 	// carries its traffic counters. Zero for anything not running, and
 	// filled by the same inspect as Restarts.
 	Pid int `json:"-"`
+
+	// HostNetwork is a container with `network_mode: host`. Its process's
+	// network counters are the host's own interfaces, so they say nothing
+	// about the container and are not reported as its traffic.
+	HostNetwork bool `json:"-"`
 }
 
 // Inspected is what `docker inspect` adds to what `ps` already said.
 type Inspected struct {
-	Restarts int
-	Pid      int
+	Restarts    int
+	Pid         int
+	HostNetwork bool
 }
 
 // ApplyInspected attaches what inspect reported to the services it belongs
@@ -70,6 +76,7 @@ func ApplyInspected(services []Service, inspected map[string]Inspected) {
 		restarts := found.Restarts
 		services[i].Restarts = &restarts
 		services[i].Pid = found.Pid
+		services[i].HostNetwork = found.HostNetwork
 	}
 }
 

@@ -208,6 +208,21 @@ func TestDeltaDividesByTheHostsClock(t *testing.T) {
 	}
 }
 
+// A container on the host's network reads the host's interfaces through its
+// process. Those are the machine's counters, and NET says unknown rather than
+// attributing them to one container.
+func TestAHostNetworkContainerHasNoNetworkReading(t *testing.T) {
+	services := []Service{{Name: "app-agent-1", ID: "aaaaaaaaaaaa", Pid: 469832, HostNetwork: true}}
+	sample := ParseCgroupSample([]byte(v2Sample), time.Unix(100, 0))
+	stats := (CgroupSample{}).Delta(sample, services, 0)
+	if len(stats) != 1 {
+		t.Fatalf("got %d readings", len(stats))
+	}
+	if got := stats[0].NetAmount(); got != "-" {
+		t.Errorf("NetAmount = %q, want unknown", got)
+	}
+}
+
 // The first reading after connecting has nothing to be measured against. It
 // still fills in everything a single reading can say.
 func TestDeltaWithoutAPreviousReading(t *testing.T) {
