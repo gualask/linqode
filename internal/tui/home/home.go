@@ -198,6 +198,12 @@ type Model struct {
 	// watch is the daemon's event stream while it is up, nil otherwise.
 	watch         *operations.Feed
 	watchStarting bool
+	// watchOpened is when the stream now up was opened. watchRetry is how
+	// long the last one that ended quickly, or was refused, put the next
+	// attempt off, and watchRetryAt is when that wait is over.
+	watchOpened  time.Time
+	watchRetry   time.Duration
+	watchRetryAt time.Time
 	// containers is the service list the last reading described, kept
 	// because the counters are addressed by container id and by process.
 	containers []compose.Service
@@ -220,6 +226,10 @@ type Model struct {
 	commandPrompt bool
 	commandText   string
 	lastCommand   string
+
+	// pending is the feed the application is opening, said in the footer
+	// until it opens or is given up on; empty when nothing is.
+	pending string
 
 	width, height int
 }
@@ -338,7 +348,14 @@ func (m *Model) systemShown() bool {
 // diskUsageShown reports whether the services panel is on screen with room for
 // what docker holds on disk. The section only takes rows the table leaves
 // empty, so a project long enough to fill the panel pays nothing for it.
+//
+// A terminal too short to give the panel a row inside its border has no room
+// for it either, and is asked here rather than of the panel: the panel is not
+// told a size of zero, which it would take for a size not known yet.
 func (m *Model) diskUsageShown() bool {
+	if frame := m.frame(); frame.known && frame.body.content().height == 0 {
+		return false
+	}
 	return m.detail == nil && m.panels[m.anchor] == panel.Panel(m.services) &&
 		m.services.DiskUsageRoom()
 }
@@ -364,6 +381,15 @@ func (m *Model) SetSize(width, height int) {
 		m.moveFocus(-1)
 	}
 }
+
+// SetPending says what the application is opening on the screen's behalf, or
+// nothing with "". Opening is a round trip and every other request waits for
+// it, so the footer says so, and says how to give up on it.
+func (m *Model) SetPending(text string) { m.pending = text }
+
+// Modal reports whether a menu or the `!` prompt is open, which take every
+// key — esc included — while they are.
+func (m *Model) Modal() bool { return m.menu != nil || m.commandPrompt }
 
 // SetError shows a failure the screen itself learned about — starting a feed,
 // so far — on the panel whose data it concerns.
@@ -426,6 +452,10 @@ func (m *Model) applySample(msg tea.Msg) tea.Cmd {
 	case servicesSampleMsg:
 		m.services.SetServices(msg.services, msg.err)
 		m.sampler.finished(sourceServices)
+		// Only a read that answered is a reason to watch: one that failed
+		// says the daemon is not there to be watched, and the project it
+		// would scope the stream to is the last good read's anyway.
+		var watch tea.Cmd
 		if msg.err == nil {
 			m.containers = msg.services
 			if m.events != nil {
@@ -436,14 +466,15 @@ func (m *Model) applySample(msg tea.Msg) tea.Cmd {
 			if len(msg.services) > 0 {
 				m.project = msg.services[0].Project
 			}
+			watch = m.startWatching()
 		}
 		if m.servicesStale {
 			// News arrived while this read was in flight, so it answers a
 			// question that is already out of date.
 			m.servicesStale = false
-			return tea.Batch(m.startWatching(), m.sampler.read(sourceServices))
+			return tea.Batch(watch, m.sampler.read(sourceServices))
 		}
-		return m.startWatching()
+		return watch
 	case hostSampleMsg:
 		m.system.SetSample(msg.metrics, msg.err)
 		m.sampler.finished(sourceHost)

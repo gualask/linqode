@@ -43,11 +43,16 @@ const (
 	liveMaxRows = 8
 )
 
-// statsTickMsg drains the live stream.
-type statsTickMsg struct{}
+// statsTickMsg drains the live stream. It carries the request that opened
+// the stream it belongs to: a tick from a stream closed and reopened inside
+// one interval would otherwise drain the new one and re-arm beside the new
+// one's own, and the two chains would run for the rest of the session.
+type statsTickMsg struct{ request uint64 }
 
-func statsTick() tea.Cmd {
-	return tea.Tick(statsDrainInterval, func(time.Time) tea.Msg { return statsTickMsg{} })
+func statsTick(request uint64) tea.Cmd {
+	return tea.Tick(statsDrainInterval, func(time.Time) tea.Msg {
+		return statsTickMsg{request: request}
+	})
 }
 
 // applySample replaces the readings with a whole sample. Containers absent

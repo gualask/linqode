@@ -20,6 +20,7 @@ import (
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
+	"github.com/gualask/linqode/internal/operations"
 	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/status"
 )
@@ -378,6 +379,34 @@ func TestScreenIsExactlyAsTallAsTheTerminal(t *testing.T) {
 	}
 }
 
+// A terminal with no rows left for the body is a known size of zero, not an
+// unknown one: nothing is drawn there rather than every panel unclipped, and
+// docker's disk is not read for a section nobody can see.
+func TestABodyWithNoRowsDrawsNothingAndReadsNothing(t *testing.T) {
+	for _, height := range []int{4, 5, 6} {
+		screen, _ := buildScreen(screenOptions{width: 120, height: 40,
+			host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web", "db")})
+		screen.info.DiskUsage = func() ([]compose.DiskUsage, error) { return nil, nil }
+		sampleAll(screen)
+		screen.View()
+		screen.SetSize(120, height)
+		for _, opener := range []string{"", "x"} {
+			if opener != "" {
+				screen.info.Scripts = []operations.Script{{Name: "a", Command: "a"}, {Name: "b", Command: "b"}}
+				focusPanel(screen, "services")
+				screen.Update(key(opener))
+			}
+			if lines := strings.Count(screen.View(), "\n") + 1; lines != height {
+				t.Errorf("at %d rows (menu %q) the screen drew %d lines:\n%s",
+					height, opener, lines, screen.View())
+			}
+		}
+		if screen.diskUsageShown() {
+			t.Errorf("at %d rows docker's disk is still due", height)
+		}
+	}
+}
+
 // A host the probe found without compose. Services is nil, which is how every
 // capability this codebase does not have is expressed; the reason is what nil
 // alone cannot say.
@@ -713,6 +742,29 @@ func TestQQuitsFromEveryLevel(t *testing.T) {
 	// And the menu says so, rather than letting the key be a surprise.
 	if !strings.Contains(menu.View(), "q quit") {
 		t.Errorf("the menu footer does not offer the way out:\n%s", menu.View())
+	}
+}
+
+// ctrl+c leaves from everywhere, the menus and the `!` prompt included: those
+// take every key, and one that swallowed ctrl+c left an operator who reached
+// for it with no way out but `esc` first, which nobody expects to need.
+func TestCtrlCQuitsFromTheModals(t *testing.T) {
+	ctrlC := tea.KeyMsg{Type: tea.KeyCtrlC}
+	for _, opener := range []string{"c", "x", "!"} {
+		screen := screenWith(t, Config{Scripts: []operations.Script{
+			{Name: "deploy", Command: "./deploy.sh"}}}, "api")
+		focusPanel(screen, "services")
+		screen.Update(key(opener))
+		if !screen.Modal() {
+			t.Fatalf("%q opened nothing", opener)
+		}
+		cmd := screen.Update(ctrlC)
+		if cmd == nil {
+			t.Fatalf("ctrl+c in what %q opened did nothing", opener)
+		}
+		if _, quit := cmd().(tea.QuitMsg); !quit {
+			t.Errorf("ctrl+c in what %q opened did not quit", opener)
+		}
 	}
 }
 

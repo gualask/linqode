@@ -116,6 +116,12 @@ the size arithmetic live in `internal/tui/panel`; a feature package owns what
 is inside its own panel and nothing beyond it, so adding a panel is adding a
 panel rather than editing a screen.
 
+A size of zero is not an unknown size. Before the first resize a panel has no
+limit and draws everything; on a terminal so short that a panel has no row
+inside its border it draws the border and nothing in it, and with no row for
+the body at all the screen is the header and the footer. What such a panel
+would have read — docker's disk under the table — is not read either.
+
 `tab` and `shift+tab` move focus around the ring — band, table, events, in the
 order they sit on the screen, so `shift+tab` from the table reaches the band
 and `enter` there opens the machine's readings.
@@ -203,7 +209,23 @@ the footer's own `q quit` wrong in every view that had one open.
 The one exception is text: while the `!` prompt, a search, a filter or a field
 name is being typed, every key types, so `q` is a `q` and `esc` cancels the
 input rather than the view. A key being a character is self-evidently not a
-command, and it is the only place either rule bends.
+command, and it is the only place either rule bends. `ctrl+c` is not a
+character to anybody, so it leaves from there too, as it does from every
+menu and every view.
+
+**A log, an action or a command that is still opening is said in the
+footer**, in yellow — `opening logs: web…` — with `esc cancel` beside it.
+Opening one is a round trip, and every other request to open something waits
+for it; on a link that has stalled that round trip does not come back, and a
+screen that silently refused every `enter` until it did was a screen with no
+way to do what it was asked. Until the view opens, `esc` gives up on it
+rather than going back a level, unless a menu or the `!` prompt is open, in
+which case it is theirs. The call itself cannot be taken back, so what it
+eventually returns is stopped as it lands.
+
+Quitting stops everything this session started on the host — the log view's
+command, the daemon's event stream, the live stats — including a feed that
+was still opening when `q` was pressed.
 
 **Maximising a panel is a separate gesture and is deliberately unbound.**
 Opening a detail changes context; making a box full-screen changes layout
@@ -276,7 +298,11 @@ Which readings it carries follows from what they cost the row:
   itself.
 
 When the line runs short it sheds in order: uptime, then the temperature, then
-meters from the bottom up. The staleness flag stays while anything is drawn at
+the head of the disk's mount point — cut from the front as in the view, down
+to eight cells — and only then meters from the bottom up. The disk meter is
+the one most likely to be why the session was opened, and at eighty columns a
+long path like `/var/lib/docker/volumes/postgres-data` used to cost it its
+place on the band. The staleness flag stays while anything is drawn at
 all — a stale number that looks current is worse than a missing one.
 
 ## The system view
@@ -527,7 +553,11 @@ container the project no longer has keeps the name the daemon gave it.
 
 The selection follows the newest event while it is on the newest event, and
 stays on its own entry once it has been moved off — the log view's rule, and
-for the same reason: something being read must not slide away.
+for the same reason: something being read must not slide away. That holds at
+the feed's depth of two hundred as well: the oldest event goes when a new one
+arrives, unless it is the one selected, and then the one before it goes
+instead. The cursor used to be clamped onto the next-oldest event, which put
+it on a different one while the first was being read.
 
 It is laid out whenever the session has a stream at all, empty or not. An
 empty feed says the daemon is being watched, which is worth knowing, and a

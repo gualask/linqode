@@ -11,7 +11,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	case StatsFeedMsg:
 		return m.handleStatsFeed(msg)
 	case statsTickMsg:
-		return m.handleStatsTick()
+		return m.handleStatsTick(msg)
 	case tea.KeyMsg:
 		return m.handleStatusKey(msg)
 	}
@@ -62,15 +62,15 @@ func (m *Model) handleStatsFeed(msg StatsFeedMsg) tea.Cmd {
 	if m.stats == nil {
 		m.stats = map[string]compose.ContainerStats{}
 	}
-	return statsTick()
+	return statsTick(m.statsRequest)
 }
 
-func (m *Model) handleStatsTick() tea.Cmd {
-	if m.statsFeed == nil {
+func (m *Model) handleStatsTick(msg statsTickMsg) tea.Cmd {
+	if m.statsFeed == nil || msg.request != m.statsRequest {
 		return nil
 	}
 	if !m.drainStats() {
-		return statsTick()
+		return statsTick(m.statsRequest)
 	}
 
 	// The stream stopped on its own. Keep the last samples on screen and let

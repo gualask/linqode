@@ -6,6 +6,7 @@ package status
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -106,6 +107,42 @@ func TestColumnGapAdaptsToWidth(t *testing.T) {
 		}
 		if total != width {
 			t.Errorf("at %d columns the row totals %d (gap %d)", width, total, gap)
+		}
+	}
+}
+
+// Everything in a row is the daemon's: a service named with an escape, or a
+// status with a line break in it, is drawn as text.
+func TestTheTableDrawsTheDaemonsWordsAsText(t *testing.T) {
+	m := New(Config{})
+	m.SetSize(100, 10)
+	list := services("web")
+	list[0].Service = "web\x1b]0;pwned\x07"
+	list[0].Status = "Up\n2 hours"
+	m.SetServices(list, nil)
+	if view := m.View(); strings.ContainsAny(view, "\x1b\x07") ||
+		strings.Count(view, "\n") != 1 {
+		t.Errorf("the table drew a control character: %q", view)
+	}
+}
+
+// A cell is cut by the cells it occupies. Cut by bytes, a service named in a
+// script that is not ASCII came out as half a character, and its row was
+// shorter than the band above it.
+func TestCellsAreCutByCellsNotBytes(t *testing.T) {
+	m := New(Config{})
+	m.SetSize(60, 10)
+	list := services("web")
+	list[0].Service = "データベース-primary-replica"
+	list[0].Status = "Up 2 hours (healthy) — ステータス"
+	m.SetServices(list, nil)
+	view := m.View()
+	if !utf8.ValidString(view) {
+		t.Fatalf("the table cut a character in half: %q", view)
+	}
+	for index, line := range strings.Split(view, "\n") {
+		if width := lipgloss.Width(line); width != 60 {
+			t.Errorf("row %d is %d cells, want 60: %q", index, width, line)
 		}
 	}
 }

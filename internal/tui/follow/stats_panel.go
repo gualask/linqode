@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gualask/linqode/internal/logs"
+	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/spark"
 	"github.com/gualask/linqode/internal/tui/theme"
 )
@@ -72,7 +73,7 @@ func (m *Model) statsView() string {
 	if m.topField == "" {
 		lines = append(lines, theme.Dim.Render("(no fields to count by)"))
 	} else {
-		lines = append(lines, countList(width, "top "+terminalText(m.topField),
+		lines = append(lines, countList(width, "top "+panel.Plain(m.topField),
 			"(no values)", window, values, plainLabel, mark(m.topField, len(levels)))...)
 	}
 	if m.viewport > 0 && len(lines) > m.viewport {
@@ -242,7 +243,7 @@ func countList(width int, heading, empty, window string, counts []logs.Count,
 		if active {
 			dot = theme.Cyan.Render("•")
 		}
-		name := ansi.Truncate(terminalText(count.Key), label-1, "…")
+		name := ansi.Truncate(panel.Plain(count.Key), label-1, "…")
 		row := style(count.Key).Render(fmt.Sprintf("%-*s", label-1, name)) +
 			fmt.Sprintf("%*d%*d", countColumn, count.Recent, countColumn, count.N)
 		if cursor {

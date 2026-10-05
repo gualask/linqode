@@ -9,6 +9,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -98,6 +99,134 @@ func TestWatchingSlowsTheTimerAndLosingItRestoresIt(t *testing.T) {
 	}
 	if got := screen.sampler.sources[sourceServices].every; got != servicesRefresh {
 		t.Errorf("interval after the stream ended = %s, want %s", got, servicesRefresh)
+	}
+}
+
+// flakyDaemon is a host whose `ps` and `docker events` can be told to fail,
+// on a hand-wound clock, counting what each was asked for.
+type flakyDaemon struct {
+	clock          *clock
+	reads, opens   int
+	psDown         bool
+	streams        []*watchStream
+	screen         *Model
+	servicesFailed error
+}
+
+func newFlakyDaemon(t *testing.T) *flakyDaemon {
+	t.Helper()
+	d := &flakyDaemon{clock: &clock{at: time.Now()}, servicesFailed: errors.New("daemon down")}
+	d.screen = New(Config{
+		Services: func() ([]compose.Service, error) {
+			d.reads++
+			if d.psDown {
+				return nil, d.servicesFailed
+			}
+			return []compose.Service{{Service: "web", Name: "app-web-1",
+				Project: "app", State: "running"}}, nil
+		},
+		Watch: func(string) (operations.Feed, error) {
+			d.opens++
+			stream := newWatchStream()
+			d.streams = append(d.streams, stream)
+			return stream.feed(), nil
+		},
+	}, status.New(status.Config{}))
+	d.screen.sampler.now = d.clock.now
+	d.screen.SetSize(120, 30)
+	applyScreen(d.screen, d.screen.sampler.due())
+	if d.opens != 1 {
+		t.Fatalf("the stream was opened %d times after the first list, want 1", d.opens)
+	}
+	return d
+}
+
+// end closes the stream now up and lets the screen notice, applying whatever
+// that asks for.
+func (d *flakyDaemon) end() {
+	close(d.streams[len(d.streams)-1].events)
+	applyScreen(d.screen, d.screen.handleWatchTick())
+}
+
+// beat winds the clock on and runs one heartbeat's worth of due reads.
+func (d *flakyDaemon) beat(by time.Duration) {
+	d.clock.tick(by)
+	applyScreen(d.screen, d.screen.sampler.due())
+}
+
+// A stream that ends does not force a read: the timer it handed the list back
+// to decides when the next one is. Forcing it, with the daemon down, was a
+// `ps` and a fresh `docker events` every drain interval — four a second.
+func TestAnEndedStreamLeavesTheNextReadToTheTimer(t *testing.T) {
+	d := newFlakyDaemon(t)
+	before := d.reads
+	d.psDown = true
+	d.end()
+	if d.reads != before {
+		t.Errorf("the stream's end forced %d reads, want none", d.reads-before)
+	}
+	// The interval is the short one again, measured from the last read.
+	d.beat(servicesRefresh)
+	if d.reads != before+1 {
+		t.Errorf("%d reads one interval after the end, want 1", d.reads-before)
+	}
+}
+
+// A `ps` that failed says nothing about whether the daemon is there to watch,
+// and is no reason to open a stream: the project it would be scoped to is the
+// one the last good read reported, and the daemon that just refused the read
+// will refuse the stream too.
+func TestAFailedReadDoesNotReopenTheStream(t *testing.T) {
+	d := newFlakyDaemon(t)
+	d.psDown = true
+	d.end()
+	for range 5 {
+		d.beat(servicesRefresh)
+	}
+	if d.opens != 1 {
+		t.Errorf("the stream was reopened %d times after failed reads", d.opens-1)
+	}
+	d.psDown = false
+	d.beat(servicesRefresh)
+	if d.opens != 2 || d.screen.watch == nil {
+		t.Errorf("a good read did not reopen the stream (opens %d)", d.opens)
+	}
+}
+
+// A stream that keeps ending as soon as it opens is retried less and less
+// often, up to the safety net's minute, rather than reopened on every read.
+// One that lived a while ended for a reason of its own and is reopened at
+// once.
+func TestAStreamThatKeepsEndingIsRetriedLessOften(t *testing.T) {
+	d := newFlakyDaemon(t)
+	waits := []time.Duration{}
+	for range 6 {
+		d.end()
+		opens := d.opens
+		waited := time.Duration(0)
+		for d.opens == opens && waited < 5*time.Minute {
+			d.beat(time.Second)
+			waited += time.Second
+		}
+		waits = append(waits, waited)
+	}
+	for index := 1; index < len(waits); index++ {
+		if waits[index] < waits[index-1] {
+			t.Errorf("the retry shortened: %v", waits)
+		}
+	}
+	if last := waits[len(waits)-1]; last < 50*time.Second || last > servicesWatched+servicesRefresh {
+		t.Errorf("the retry settled at %v, want about the safety net's %v: %v",
+			last, servicesWatched, waits)
+	}
+
+	// A stream that stayed up for the safety net's interval resets it.
+	d.clock.tick(servicesWatched)
+	d.end()
+	opens := d.opens
+	d.beat(servicesRefresh)
+	if d.opens != opens+1 {
+		t.Errorf("a stream that lived a minute was not reopened on the next read")
 	}
 }
 

@@ -221,3 +221,27 @@ func TestTheFilterPromptFitsTheWidth(t *testing.T) {
 		t.Errorf("the notice is %d wide on 40 columns", width)
 	}
 }
+
+// The header is the title the operator typed after `!`, and was the one line
+// of the view nothing cut: a long one wrapped, and the frame was a row taller
+// than the screen.
+func TestTheHeaderIsCutToTheWidth(t *testing.T) {
+	title := "$ " + strings.Repeat("echo something long; ", 8)
+	for _, open := range []bool{false, true} {
+		feed, _ := feedOf(lineEvents("first line")...)
+		m := New("deploy@prod", title, feed)
+		m.SetSize(60, 12)
+		m.drain()
+		if open {
+			m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		}
+		view := m.View()
+		header := strings.Split(view, "\n")[0]
+		if width := lipgloss.Width(header); width > 60 {
+			t.Errorf("the header is %d cells at 60 (line open: %v): %q", width, open, header)
+		}
+		if lines := strings.Count(view, "\n") + 1; lines > 12 {
+			t.Errorf("the frame is %d rows on a 12-row screen (line open: %v)", lines, open)
+		}
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/theme"
@@ -14,7 +15,11 @@ func (m *Model) View() string {
 
 	var b strings.Builder
 	b.WriteString(m.header(frame) + "\n")
-	b.WriteString(m.body(frame) + "\n")
+	// A terminal with no rows for the body has no body line either: an empty
+	// one would still be a line, and the frame one taller than the screen.
+	if !frame.known || frame.body.height+frame.events.height > 0 {
+		b.WriteString(m.body(frame) + "\n")
+	}
 	b.WriteString(m.footer())
 	return b.String()
 }
@@ -107,7 +112,13 @@ func (m *Model) dockerEndpoint() string {
 func (m *Model) body(frame frame) string {
 	whole := box{width: frame.body.width, height: frame.body.height + frame.events.height}
 	if m.menu != nil {
-		return m.renderMenu(whole.width, whole.height)
+		menu := m.renderMenu(whole.width, whole.height)
+		if frame.known {
+			// Shorter than the menu's own box, the box is cut from the
+			// bottom like any panel rather than drawn past the footer.
+			menu = clipLines(menu, whole.height)
+		}
+		return menu
 	}
 	if m.detail != nil {
 		// A detail was asked for by name; it holds focus for as long as it
@@ -133,6 +144,13 @@ func (m *Model) body(frame frame) string {
 // is doing is worth seeing while looking at something else.
 func (m *Model) panelBox(shown panel.Panel, at box, focused bool) string {
 	content := at.content()
+	if m.width > 0 && m.height > 0 && (content.width == 0 || content.height == 0) {
+		// A known size with no room inside the border. Handed to the panel,
+		// a zero would read as a size not known yet — which every panel
+		// takes as no limit at all — and it would draw everything it has
+		// for the box to throw away.
+		return panel.Box(shown.Title(), "", "", focused, at.width, at.height)
+	}
 	shown.SetSize(content.width, content.height)
 	// What a panel is showing goes on its own rule. The footer is the keymap
 	// and nothing else: a count of services or of events is monitoring, and
@@ -148,12 +166,17 @@ func (m *Model) panelBox(shown panel.Panel, at box, focused bool) string {
 	return panel.Box(shown.Title(), status, shown.View(), focused, at.width, at.height)
 }
 
+// clipLines keeps the first height lines of text.
+func clipLines(text string, height int) string {
+	lines := strings.Split(text, "\n")
+	return strings.Join(lines[:min(len(lines), max(height, 0))], "\n")
+}
+
 func (m *Model) footer() string {
 	var text string
 	switch {
 	case m.commandPrompt:
-		text = " $ " + m.commandText + "▏  " +
-			panel.MarkKeys("enter run · esc cancel", true)
+		text = m.commandFooter()
 	case m.menu != nil:
 		// A menu takes every key, so `q` is the only thing on the left that
 		// still works: the split says as much rather than listing four
@@ -166,12 +189,38 @@ func (m *Model) footer() string {
 		if m.detail != nil {
 			status = m.detail.Status()
 		}
-		text = panel.Footer(m.globalHints(), status, m.focusedHints(), m.width)
+		focused := m.focusedHints()
+		if m.pending != "" {
+			// Until it opens, esc gives up on it rather than going back, and
+			// the line says so: it is the one way out of a link that stalled.
+			status = theme.Yellow.Render(panel.Plain(m.pending))
+			focused = []panel.Hint{{Text: "esc cancel"}}
+		}
+		text = panel.Footer(m.globalHints(), status, focused, m.width)
 	}
 	if m.width > 0 {
 		return lipgloss.NewStyle().MaxWidth(m.width).Render(text)
 	}
 	return text
+}
+
+// commandFooter is the `!` prompt, fitted to the width the way the log view's
+// prompts are: the hint goes first, then the start of what was typed, so the
+// end — where the cursor is, and where the typing happens — always shows.
+func (m *Model) commandFooter() string {
+	const prompt = " $ "
+	text, hint := m.commandText, "  "+panel.MarkKeys("enter run · esc cancel", true)
+	if m.width > 0 {
+		room := max(m.width-lipgloss.Width(prompt)-1, 1) // the cursor's cell
+		width := lipgloss.Width(text)
+		if width+lipgloss.Width(hint) > room {
+			hint = ""
+		}
+		if width > room {
+			text = ansi.TruncateLeft(text, width-room+1, "…")
+		}
+	}
+	return prompt + text + "▏" + hint
 }
 
 // globalHints are the keys that work wherever you are: they sit on the left
