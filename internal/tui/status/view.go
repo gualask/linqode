@@ -115,7 +115,7 @@ func (m *Model) View() string {
 	tableHeight := m.height
 	if liveHeight := m.liveShare(); liveHeight > 0 {
 		tableHeight = m.height - liveHeight
-		live = "\n" + m.renderLivePanel(m.width)
+		live = "\n" + m.renderLivePanel(m.width, liveHeight)
 	}
 	disk := ""
 	if len(m.diskUsage) > 0 && m.DiskUsageRoom() {

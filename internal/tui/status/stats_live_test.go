@@ -240,6 +240,30 @@ func TestLivePanelAnnouncesStartup(t *testing.T) {
 	}
 }
 
+// The live panel draws in the rows the table gave it and no more. Drawn
+// whole, eight containers on a short panel ran past the box's bottom border,
+// where they were cut off along with anything under them.
+func TestLivePanelKeepsToItsShare(t *testing.T) {
+	names := []string{"web", "db", "cache", "queue", "worker", "proxy", "mail", "cron"}
+	for _, height := range []int{5, 8, 10, 12} {
+		m := withStatsFetch()
+		m.SetSize(120, height)
+		m.SetServices(services(names...), nil)
+		stream := openLive(t, m)
+		for _, name := range names {
+			stream.events <- liveReading(name, "12.34%", "153.6MiB")
+		}
+		m.Update(statsTickMsg{request: m.statsRequest})
+		view := m.View()
+		if lines := strings.Count(view, "\n") + 1; lines > height {
+			t.Errorf("a %d-row panel drew %d lines:\n%s", height, lines, view)
+		}
+		if !strings.Contains(view, "SERVICE") || !strings.Contains(view, "live ·") {
+			t.Errorf("a %d-row panel lost the table or the live rule:\n%s", height, view)
+		}
+	}
+}
+
 func TestLivePanelLeavesTheTableOnScreen(t *testing.T) {
 	m := withStatsFetch()
 	m.SetSize(120, 20)
