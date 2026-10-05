@@ -347,6 +347,25 @@ func TestStatsPanelShowsLevelsAndTopField(t *testing.T) {
 // `esc` goes back to the screen this was opened from; `q` leaves the
 // application. They used to do the same thing, which made the footer's
 // promise of two different keys wrong about one of them.
+// While a search or a filter is being typed every key types, except ctrl+c,
+// which no terminal user expects to be text.
+func TestCtrlCQuitsWhileTyping(t *testing.T) {
+	for _, prompt := range []string{"/", "f"} {
+		m := newTestModel(lineEvents("first line")...)
+		m.Update(key(prompt))
+		if m.input == inputNone {
+			t.Fatalf("%q opened no prompt", prompt)
+		}
+		cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+		if cmd == nil {
+			t.Fatalf("ctrl+c in the %q prompt did nothing", prompt)
+		}
+		if _, quit := cmd().(tea.QuitMsg); !quit {
+			t.Errorf("ctrl+c in the %q prompt did not quit", prompt)
+		}
+	}
+}
+
 func TestEscGoesBackAndQuitLeaves(t *testing.T) {
 	feed, _ := feedOf(lineEvents("first line")...)
 	m := New("deploy@prod", "logs: web", feed)

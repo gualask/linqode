@@ -166,7 +166,14 @@ func (m *Model) footer() string {
 		if m.detail != nil {
 			status = m.detail.Status()
 		}
-		text = panel.Footer(m.globalHints(), status, m.focusedHints(), m.width)
+		focused := m.focusedHints()
+		if m.pending != "" {
+			// Until it opens, esc gives up on it rather than going back, and
+			// the line says so: it is the one way out of a link that stalled.
+			status = theme.Yellow.Render(m.pending)
+			focused = []panel.Hint{{Text: "esc cancel"}}
+		}
+		text = panel.Footer(m.globalHints(), status, focused, m.width)
 	}
 	if m.width > 0 {
 		return lipgloss.NewStyle().MaxWidth(m.width).Render(text)

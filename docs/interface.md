@@ -203,7 +203,23 @@ the footer's own `q quit` wrong in every view that had one open.
 The one exception is text: while the `!` prompt, a search, a filter or a field
 name is being typed, every key types, so `q` is a `q` and `esc` cancels the
 input rather than the view. A key being a character is self-evidently not a
-command, and it is the only place either rule bends.
+command, and it is the only place either rule bends. `ctrl+c` is not a
+character to anybody, so it leaves from there too, as it does from every
+menu and every view.
+
+**A log, an action or a command that is still opening is said in the
+footer**, in yellow — `opening logs: web…` — with `esc cancel` beside it.
+Opening one is a round trip, and every other request to open something waits
+for it; on a link that has stalled that round trip does not come back, and a
+screen that silently refused every `enter` until it did was a screen with no
+way to do what it was asked. Until the view opens, `esc` gives up on it
+rather than going back a level, unless a menu or the `!` prompt is open, in
+which case it is theirs. The call itself cannot be taken back, so what it
+eventually returns is stopped as it lands.
+
+Quitting stops everything this session started on the host — the log view's
+command, the daemon's event stream, the live stats — including a feed that
+was still opening when `q` was pressed.
 
 **Maximising a panel is a separate gesture and is deliberately unbound.**
 Opening a detail changes context; making a box full-screen changes layout

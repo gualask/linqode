@@ -227,6 +227,10 @@ type Model struct {
 	commandText   string
 	lastCommand   string
 
+	// pending is the feed the application is opening, said in the footer
+	// until it opens or is given up on; empty when nothing is.
+	pending string
+
 	width, height int
 }
 
@@ -370,6 +374,15 @@ func (m *Model) SetSize(width, height int) {
 		m.moveFocus(-1)
 	}
 }
+
+// SetPending says what the application is opening on the screen's behalf, or
+// nothing with "". Opening is a round trip and every other request waits for
+// it, so the footer says so, and says how to give up on it.
+func (m *Model) SetPending(text string) { m.pending = text }
+
+// Modal reports whether a menu or the `!` prompt is open, which take every
+// key — esc included — while they are.
+func (m *Model) Modal() bool { return m.menu != nil || m.commandPrompt }
 
 // SetError shows a failure the screen itself learned about — starting a feed,
 // so far — on the panel whose data it concerns.

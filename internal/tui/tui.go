@@ -119,6 +119,13 @@ type appModel struct {
 // connect-time probe found on the host — and the screen is told the reason
 // for the second so it can say it where the panel would have been.
 func Run(info Info, backend Backend) error {
+	// Quitting leaves every model as it was, streams and all; what is still
+	// running on the host when the program returns is stopped here, and what
+	// was still starting is stopped as it lands.
+	streams := newStreams()
+	defer streams.stopAll()
+	backend = streams.wrap(backend)
+
 	services := status.New(status.Config{
 		Stats:       backend.Stats != nil,
 		LiveStats:   backend.LiveStats != nil,
@@ -153,6 +160,10 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		return m.resize(msg)
+	case tea.KeyMsg:
+		if m.cancelsStart(msg) {
+			return m.cancelStart()
+		}
 	case home.OpenLogsMsg:
 		return m.openLogs(msg)
 	case home.OpenActionMsg:
@@ -212,6 +223,7 @@ func (m appModel) applyFeed(msg feedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.feedStarting = false
+	m.home.SetPending("")
 	if msg.err != nil {
 		if msg.feed.Stop != nil {
 			msg.feed.Stop()
@@ -225,14 +237,39 @@ func (m appModel) applyFeed(msg feedMsg) (tea.Model, tea.Cmd) {
 	return m, view.Init()
 }
 
+// closeFeed closes the view a CloseMsg came from. One that arrives when no
+// view is open — a second esc, delivered after the first had closed it — has
+// nothing to close, and must not touch a start that is pending: it would
+// discard a feed nobody had asked to be cancelled.
 func (m appModel) closeFeed() (tea.Model, tea.Cmd) {
-	m.feedStarting = false
-	if m.followView != nil {
-		m.followView.Stop()
-		m.followView = nil
+	if m.followView == nil {
+		return m, nil
 	}
+	m.followView.Stop()
+	m.followView = nil
 	// Refresh on return so an action's effect is visible immediately.
 	return m, m.home.Refresh()
+}
+
+// cancelsStart reports whether a key is the operator giving up on a feed that
+// has not opened yet. Opening one is a round trip, and on a link that has
+// stalled it is one that does not come back; every other request to open
+// something is refused meanwhile, so without a way out the screen could do
+// everything except the one thing it was asked for. It is esc, the key that
+// goes back, unless a menu or the prompt is open over the screen and esc is
+// theirs.
+func (m appModel) cancelsStart(key tea.KeyMsg) bool {
+	return m.feedStarting && m.followView == nil && key.String() == "esc" &&
+		!m.home.Modal()
+}
+
+// cancelStart abandons the pending start. The call itself cannot be taken
+// back, so its answer is left to arrive and is stopped when it does, the way
+// a superseded one is.
+func (m appModel) cancelStart() (tea.Model, tea.Cmd) {
+	m.feedStarting = false
+	m.home.SetPending("")
+	return m, nil
 }
 
 func (m appModel) openLiveStats(msg status.OpenStatsMsg) (tea.Model, tea.Cmd) {
@@ -260,6 +297,10 @@ func (m appModel) startFeed(title string, start func() (operations.Feed, error))
 	m.feedStarting = true
 	m.feedRequest++
 	requestID := m.feedRequest
+	// Said on the screen while it is happening: every other request to open
+	// something is refused until it lands, and a refusal nobody can see
+	// reads as a key that did nothing.
+	m.home.SetPending("opening " + title + "…")
 	return m, func() tea.Msg {
 		feed, err := start()
 		return feedMsg{requestID: requestID, title: title, feed: feed, err: err}

@@ -186,6 +186,10 @@ func (m *Model) openFilterInput() {
 
 func (m *Model) handleInputKey(key tea.KeyMsg) tea.Cmd {
 	switch key.String() {
+	case "ctrl+c":
+		// Typing takes every key but this one, which no terminal user
+		// expects to be text.
+		return tea.Quit
 	case "esc":
 		m.input = inputNone
 		m.inputText = ""

@@ -81,7 +81,7 @@ func (m *Model) handleMenuKey(msg tea.KeyMsg) tea.Cmd {
 	case "esc", m.menu.key:
 		// Backing out: `esc`, or the key that opened this, pressed again.
 		m.menu = nil
-	case "q":
+	case "q", "ctrl+c":
 		// Not a cancel. A menu takes every key while it is open, but `q`
 		// means one thing on this screen and it is not "close the menu" —
 		// quitting from here is safe, since nothing has been run yet.
@@ -122,6 +122,10 @@ func (m *Model) renderMenu(width, height int) string {
 
 func (m *Model) handleCommandKey(key tea.KeyMsg) tea.Cmd {
 	switch key.String() {
+	case "ctrl+c":
+		// Every key types here except the one no terminal user expects to
+		// be text: it leaves, as it does everywhere else.
+		return tea.Quit
 	case "esc":
 		m.commandPrompt, m.commandText = false, ""
 	case "enter":
