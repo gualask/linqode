@@ -122,6 +122,14 @@ daemon, so a host whose socket refuses this user still reports which compose it
 has — which is what makes "no docker here" and "docker is here and will not
 talk to you" two different sentences instead of one empty table.
 
+**Only what will not change while the session is open is a finding.** No
+docker, a socket that refuses this user, and a compose this tool does not
+drive turn compose off; a daemon that did not answer does not, whether it timed
+out or said it is not running. A daemon restarting at the moment of
+connecting answers a minute later, and a finding would outlast the outage by
+the rest of the session. That case is left to the refresh, which shows what
+docker says until docker says something else.
+
 What is done with the findings is [interface.md](interface.md) for the screen
 and [operations.md](operations.md) for the machine adapter.
 

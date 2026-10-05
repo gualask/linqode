@@ -105,8 +105,15 @@ Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docke
 	}
 	// The daemon's own sentence names the socket it tried, which is more
 	// useful than anything paraphrasing it.
-	if !strings.Contains(result.ComposeUnavailable(), "unix:///var/run/docker.sock") {
-		t.Errorf("the daemon's own message was dropped: %q", result.ComposeUnavailable())
+	if !strings.Contains(result.DaemonMessage, "unix:///var/run/docker.sock") {
+		t.Errorf("the daemon's own message was dropped: %q", result.DaemonMessage)
+	}
+	// A daemon that was down at the moment of connecting — restarting, or
+	// started a minute later — is an outage, not a host without compose.
+	// Turning compose off for the session would outlast it; the refresh says
+	// what docker says, and recovers when docker does.
+	if !result.CanCompose() {
+		t.Errorf("a daemon that was not running turned compose off: %q", result.ComposeUnavailable())
 	}
 }
 

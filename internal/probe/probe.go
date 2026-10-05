@@ -79,6 +79,11 @@ const (
 	DockerDenied
 	// DockerUnreachable is a docker binary whose daemon did not answer for
 	// some other reason — not running, a bad DOCKER_HOST, a broken socket.
+	// Unlike the two above it is not a finding: a daemon that was restarting
+	// at the moment of connecting answers a minute later, and turning compose
+	// off for the session on its account would outlast the outage. It is
+	// treated like a daemon that timed out — carry on, and let the refresh
+	// report what docker says — with DaemonMessage kept for whoever asks.
 	DockerUnreachable
 	// DockerReady is a daemon that answered with its version.
 	DockerReady
@@ -226,7 +231,8 @@ func (r Result) CanReadProc() bool { return r.Proc != ProcAbsent }
 // separates them from a refresh that failed: none of them will come right on
 // the next interval, and saying so once is the whole point of probing. What is
 // deliberately not here is anything transient — a daemon that answers now and
-// times out later is the refresh error's business, not this.
+// times out later, or one that was not running at the moment of connecting,
+// is the refresh error's business, not this.
 func (r Result) ComposeUnavailable() string {
 	switch r.Docker {
 	case DockerAbsent:
@@ -236,12 +242,8 @@ func (r Result) ComposeUnavailable() string {
 		// operator cannot deduce it from an empty table. It is a guess about
 		// the cause, so it is phrased as one.
 		return "the docker daemon refuses this user — not in the `docker` group?"
-	case DockerUnreachable:
-		if r.DaemonMessage != "" {
-			return "the docker daemon did not answer: " + r.DaemonMessage
-		}
-		return "the docker daemon did not answer"
 	}
+	// DockerUnreachable is deliberately not a case: see its comment.
 	switch r.Compose {
 	case ComposeLegacy:
 		return standaloneUnavailable(r.ComposeVersion)
