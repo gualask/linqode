@@ -63,7 +63,8 @@ type hostSpec struct {
 	port uint16
 }
 
-// parseSpec parses `[user@]host[:port]`.
+// parseSpec parses `[user@]host[:port]`, where host may be a bracketed IPv6
+// address (`[::1]:2222`) or a bare one without a port (`fe80::1`).
 func parseSpec(spec string) (hostSpec, error) {
 	bad := fmt.Errorf("invalid host spec %q (expected [user@]host[:port])", spec)
 	var s hostSpec
@@ -75,13 +76,26 @@ func parseSpec(spec string) (hostSpec, error) {
 		}
 		s.user, rest = rest[:i], rest[i+1:]
 	}
-	// A second `:` before the split means a bare IPv6 address, not a port.
-	if i := strings.LastIndexByte(rest, ':'); i >= 0 && !strings.Contains(rest[:i], ":") {
-		p, err := strconv.ParseUint(rest[i+1:], 10, 16)
-		if err != nil || p == 0 {
+	if bracketed, ok := strings.CutPrefix(rest, "["); ok {
+		host, after, closed := strings.Cut(bracketed, "]")
+		// Brackets are for IPv6 addresses only, and only a port may follow.
+		if !closed || !strings.Contains(host, ":") {
 			return s, bad
 		}
-		s.port = uint16(p)
+		if after != "" {
+			portText, ok := strings.CutPrefix(after, ":")
+			if !ok || !parsePort(portText, &s.port) {
+				return s, bad
+			}
+		}
+		s.host = host
+		return s, nil
+	}
+	// A second `:` before the split means a bare IPv6 address, not a port.
+	if i := strings.LastIndexByte(rest, ':'); i >= 0 && !strings.Contains(rest[:i], ":") {
+		if !parsePort(rest[i+1:], &s.port) {
+			return s, bad
+		}
 		rest = rest[:i]
 	}
 	if rest == "" {
@@ -89,6 +103,16 @@ func parseSpec(spec string) (hostSpec, error) {
 	}
 	s.host = rest
 	return s, nil
+}
+
+// parsePort stores a valid, non-zero port in port.
+func parsePort(text string, port *uint16) bool {
+	p, err := strconv.ParseUint(text, 10, 16)
+	if err != nil || p == 0 {
+		return false
+	}
+	*port = uint16(p)
+	return true
 }
 
 // lookup returns the explicit ssh_config values of key for alias, in file

@@ -115,7 +115,8 @@ their own, or none at all.
 ### Startup and host selection
 
 The human route is `linqode [host]` or `linqode tui [host]`. It accepts a
-configured name or inline `[user@]host[:port]`, permits a TUI-only `--config`,
+configured name or inline `[user@]host[:port]` (an IPv6 address in brackets
+when it has a port: `[::1]:2222`), permits a TUI-only `--config`,
 and can infer the host when the config contains exactly one. The selected spec
 is resolved against `~/.ssh/config`, including aliases, user, port,
 identity files, `IdentitiesOnly`, the known_hosts files, the connect timeout
