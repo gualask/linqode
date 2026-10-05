@@ -400,7 +400,8 @@ come back in no order — `PerformanceStatistics` before `model` on this
 machine — and a second accelerator would otherwise be unsplittable.
 
 All three vendors are asked in a single exec, with the NVIDIA and Apple halves
-behind `command -v`. This is the guard side of the probe's own rule: it
+behind `command -v` — and `nvidia-smi`, which can hang on a driver in trouble,
+under the mount list's `timeout 5` as well. This is the guard side of the probe's own rule: it
 changes one command's fallback and nothing else, so it costs a shell builtin
 rather than probe state. A host with none matches no glob and starts no tool —
 **2 ms and 23 bytes**, measured. Intel is left out; it offers little without
