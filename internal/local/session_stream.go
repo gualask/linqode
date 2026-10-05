@@ -7,6 +7,7 @@ import (
 	"io"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/gualask/linqode/internal/remote"
 )
@@ -42,7 +43,7 @@ func (s *Session) ExecStream(ctx context.Context, command string) (<-chan remote
 	go pump(ctx, stdout, remote.ExecStdout, events, &readers)
 	go pump(ctx, stderr, remote.ExecStderr, events, &readers)
 
-	go finish(ctx, cmd, events, &readers)
+	go finish(ctx, cmd, events, &readers, stdout, stderr)
 	return events, nil
 }
 
@@ -60,6 +61,23 @@ func pump(ctx context.Context, r io.Reader, kind remote.ExecEventKind, events ch
 	}
 }
 
+// release closes the read ends of a terminated command's pipes if its readers
+// have not finished within pipeGrace, which unblocks them: the group is dead
+// by now, and whatever still holds the write ends is not anything terminate
+// could reach. Closing an *os.File under a blocked Read is what the runtime
+// poller is for, and Wait closing them again afterwards is harmless.
+func release(finished <-chan struct{}, pipes []io.Closer) {
+	timer := time.NewTimer(pipeGrace)
+	defer timer.Stop()
+	select {
+	case <-finished:
+	case <-timer.C:
+		for _, pipe := range pipes {
+			_ = pipe.Close()
+		}
+	}
+}
+
 func sendEvent(ctx context.Context, events chan<- remote.ExecEvent, event remote.ExecEvent) bool {
 	select {
 	case events <- event:
@@ -73,7 +91,14 @@ func sendEvent(ctx context.Context, events chan<- remote.ExecEvent, event remote
 // no cancel it waits for them and reports the exit. The readers are joined
 // before Wait rather than after it, because os/exec closes the pipes there
 // and a read still in flight would lose the last of the output.
-func finish(ctx context.Context, cmd *exec.Cmd, events chan remote.ExecEvent, readers *sync.WaitGroup) {
+//
+// That order is also why cmd.WaitDelay does nothing here: it bounds Wait,
+// and Wait is not reached while a reader is blocked. A descendant that left
+// the process group — `setsid daemon &` — is out of terminate's reach and
+// keeps the pipes open, so on cancel the parent's read ends are closed once
+// the grace runs out: what cannot be killed is stopped being listened to.
+func finish(ctx context.Context, cmd *exec.Cmd, events chan remote.ExecEvent, readers *sync.WaitGroup,
+	pipes ...io.Closer) {
 	defer close(events)
 	finished := make(chan struct{})
 	var err error
@@ -86,6 +111,7 @@ func finish(ctx context.Context, cmd *exec.Cmd, events chan remote.ExecEvent, re
 	select {
 	case <-ctx.Done():
 		terminate(cmd, finished)
+		release(finished, pipes)
 		<-finished
 		return
 	case <-finished:
