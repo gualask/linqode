@@ -42,7 +42,7 @@ hardened them first:
 | `internal/local` | The local Executor against real processes (Unix only): output and exit codes, the C locale, the home directory, cancellation ending the command and its children at every stage, `SIGKILL` for a group that ignores `SIGTERM`, a stream closing despite a descendant that left the group (skipped without `setsid`), and `Close` ending every command the session started before it returns |
 | `cmd/linqode` | Composition: machine routing before connecting, and a cancelled run asking the screen to quit with `SIGTERM` until it returns (Unix only) |
 | `internal/operations` | Strict configured catalog, shared status/stats/log workflows, exact lifecycle/script selection, service validation, stream assembly/cancellation, and no mutation retry |
-| `internal/remote` | `[user@]host[:port]` spec parsing (IPv6, last-`@` rule, rejects incl. port 0), `~/.ssh/config` alias resolution and precedence, identity-file discovery limited to existing files, tilde expansion |
+| `internal/remote` | `[user@]host[:port]` spec parsing (bare and bracketed IPv6 incl. `[::1]:2222`, last-`@` rule, rejects incl. port 0), `~/.ssh/config` alias resolution and precedence, identity-file discovery limited to existing files, tilde expansion; `IdentitiesOnly`, every `UserKnownHostsFile` path and `GlobalKnownHostsFile` (with its default) read from `~/.ssh/config`, `ProxyJump`/`ProxyCommand` refused unless `none`; `ConnectTimeout` and `ServerAlive*` read from `~/.ssh/config`, `ServerAliveInterval 0` turning keepalives off; host key algorithms narrowed to the recorded types (RSA with its SHA-2 signatures) and a key of an unrecorded type refused by the callback itself |
 | `internal/compose` | Command builders (`ps`, `logs`, actions, restart inspect) incl. shell quoting of hostile paths and container names; `ps --format json` parsing in both shapes (NDJSON ≥ 2.21, legacy array), null `Publishers`, sorting; port summaries collapsing IPv4/IPv6 duplicates; restart counts parsed leniently (leading slash stripped, a vanished container's error line skipped without losing the rest) and an absent count staying unknown rather than zero |
 | `internal/host` | Metrics parsing from the marked `/proc` + `df -Pk` sections; tolerance of missing sections and of garbage (both leave fields zero rather than failing the sample); derived percentages guarding against division by zero and unsigned underflow; the command asking for every section |
 | `internal/tui/spark` | The windows strips are scaled against — widened when a reading barely moves, not clamped at a hundred for a container's CPU, widened by a share of itself for an amount — and the shapes: a bar that keeps its width and never draws a share above zero as nothing, shares divided into one bar of an exact width with the smallest still drawn, a histogram that stacks across rows and leaves an empty column on the bare track, and solid columns half a cell tall at the least |
@@ -74,13 +74,26 @@ regression hangs the test, not CI.
 | Test | Proves |
 | ---- | ------ |
 | `TestTOFUAcceptsPersistsAndReconnectsSilently` | TOFU prompts exactly once, persists the normalized `[host]:port`, reconnect is silent; exec returns scripted stdout + exit 0 |
+| `TestTOFUHashesWhenKnownHostsIsHashed` | Trust-on-first-use into a `known_hosts` with hashed entries writes a hashed line, recognised on reconnect |
 | `TestRefusedHostKeyAbortsConnect` | Declining the prompt yields `HostKeyRejectedError` |
 | `TestNonInteractiveUnknownHostKeyFailsWithoutLearning` | Machine authentication refuses an unknown key without prompting or changing `known_hosts` |
 | `TestChangedHostKeyRefusesWithoutPrompting` | A pinned different key yields `HostKeyChangedError` with the conflicting line, without ever consulting the prompter (anti-MITM) |
+| `TestKnownKeyOfAnotherTypeIsNotAChangedKey` | A host offering ECDSA beside the pinned ed25519 key is verified with the pinned key, not refused as changed |
+| `TestChangedKeyOfRecordedTypeIsRefusedAmongOthers` | Narrowing the algorithms does not weaken the refusal: a different key of a recorded type is still `HostKeyChangedError` |
+| `TestOnlyUnrecordedKeyTypeIsRefused` | A host that can show no recorded type yields `HostKeyTypeNotRecordedError`, never a TOFU prompt |
+| `TestHostCertificateFromKnownAuthority` | A host certificate signed by a `@cert-authority` in `known_hosts` is accepted without a prompt |
 | `TestUnauthorizedKeyFailsAuth` | An unaccepted identity yields `AuthFailedError` |
 | `TestAuthFallsBackToLaterIdentity` | Missing, invalid, rejected, or skipped keys do not hide a later authorized identity |
+| `TestNonInteractiveSkipsEncryptedIdentity` | Machine mode passes over an encrypted identity to a later plain one, and reports `PassphraseRequiredError` only when nothing else is accepted |
+| `TestIdentitiesOnlyKeepsUnconfiguredAgentKeysBack` | With `IdentitiesOnly`, an authorized key the agent holds for nothing configured is never offered |
+| `TestIdentitiesOnlyUsesAgentForConfiguredKey` | …while the agent still signs for a configured identity, recognised from an encrypted key file without a passphrase prompt |
+| `TestUserKnownHostsFiles` | A key pinned in a later `UserKnownHostsFile` is found; trust-on-first-use writes to the first, creating its directory |
+| `TestGlobalKnownHostsFileIsReadOnly` | A key in the global known_hosts is trusted without a prompt and the file is never written; a missing global file is skipped |
 | `TestAuthAgentFallbackAndLazyPassphrase` | An empty or unauthorized agent falls back to identity files; agent success avoids unlocking an encrypted file |
 | `TestConnectCancellationInterruptsSSHHandshake` | Cancelling during handshake returns promptly instead of waiting for the SSH timeout |
+| `TestConnectTimesOutOnSilentServer` | A server that accepts TCP and never speaks SSH fails Connect on the handshake's own deadline, not the caller's |
+| `TestConnectTimeoutExcludesPrompts` | Time spent answering a prompt does not count against the handshake deadline |
+| `TestKeepaliveClosesSilentConnection` | Keepalives keep a live connection; once the peer goes silent (a proxy swallowing traffic) the connection is closed and a pending command fails instead of hanging |
 | `TestCommandCancellationDuringSSHWaits` | Both exec modes honor cancellation during channel creation, exec acknowledgement, and the wait for exit after output EOF |
 | `TestEncryptedKeyAsksPassphrase` | The right passphrase gets in after one prompt; a wrong one retries 3× then yields `BadPassphraseError` |
 | `TestExecCollectsStdoutStderrAndExitCode` | One-shot exec aggregates multi-chunk stdout, stderr, and the exit code |

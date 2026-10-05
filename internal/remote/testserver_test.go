@@ -41,7 +41,7 @@ type script struct {
 
 type testServer struct {
 	port       uint16
-	hostKey    ssh.Signer
+	hostKey    ssh.Signer // the first of the keys the server offers
 	dir        string
 	keyFile    string // authorized client identity (private key)
 	clientKey  ed25519.PrivateKey
@@ -52,9 +52,16 @@ type testServer struct {
 // test.
 func spawn(t *testing.T, scripts map[string]script) *testServer {
 	t.Helper()
+	return spawnWithHostKeys(t, scripts, genSigner(t))
+}
+
+// spawnWithHostKeys is spawn with the server offering every given host key,
+// so a test can choose which of them the client already knows.
+func spawnWithHostKeys(t *testing.T, scripts map[string]script, hostKeys ...ssh.Signer) *testServer {
+	t.Helper()
 	dir := t.TempDir()
 
-	hostKey := genSigner(t)
+	hostKey := hostKeys[0]
 	clientKey, clientSigner := genKeyPair(t)
 	keyFile := filepath.Join(dir, "id_ed25519")
 	writeKey(t, keyFile, clientKey, "")
@@ -88,7 +95,9 @@ func spawn(t *testing.T, scripts map[string]script) *testServer {
 			s.Exit(sc.exit)
 		},
 	}
-	server.AddHostKey(hostKey)
+	for _, key := range hostKeys {
+		server.AddHostKey(key)
+	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
