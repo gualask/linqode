@@ -175,7 +175,10 @@ Three things make this a policy rather than an optimisation:
 - **The timer steps back rather than away.** While the stream is up the
   service list still refreshes every sixty seconds, for what no event
   describes and for a stream that stopped delivering without saying so.
-  Losing the stream restores the short interval.
+  Losing the stream restores the short interval, and only a `ps` that
+  succeeded reopens it. A stream that keeps ending soon after it opened — a
+  daemon restarting, or one that refuses it — is retried after five seconds,
+  doubling to sixty, so an outage costs the short interval and no more.
 - **Watching is an optimisation, not a capability.** A daemon that refuses
   the stream leaves the screen on its timer and says nothing: there is
   nothing an operator could do about it.

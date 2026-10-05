@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -49,6 +50,9 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 0
 	case cli.CommandTUI:
 		if err := runTUI(ctx, invocation.ConfigPath, invocation.Host, stderr); err != nil {
+			if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+				return 130 // a signal ended the run; there is nothing to explain
+			}
 			fmt.Fprintf(stderr, "linqode: %v\n", err)
 			return 1
 		}

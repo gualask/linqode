@@ -214,9 +214,9 @@ the run's context instead of killing the process, and `main` exits only after
 everything below it has returned, so the deferred cleanup always runs. When
 the screen returns — the operator quit, or a signal ended it — the context
 every feed was opened on is cancelled first and the session closed second.
-Bubble Tea answers `SIGINT` and `SIGTERM` itself but not `SIGHUP`, and the
-screen takes no context, so a cancelled run asks it to quit with a `SIGTERM`
-of its own.
+The screen runs on that same context, so a signal Bubble Tea does not answer
+itself — `SIGHUP`, a terminal that went away — still ends it, and `tui.Run`
+stops every stream it handed out before returning.
 
 The local session is the one where this is load-bearing. Closing an SSH
 connection ends every channel on it at the far end; a local command is a
