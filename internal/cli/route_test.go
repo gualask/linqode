@@ -128,3 +128,32 @@ func TestParseHelp(t *testing.T) {
 		}
 	}
 }
+
+// Every spelling flag accepts for help is help, wherever it sits: a help
+// request that fell through to the command ran it with an empty host and
+// reported unknown_host.
+func TestParseMachineHelpInEveryFlagSpelling(t *testing.T) {
+	spellings := []string{"-h", "--h", "-help", "--help", "-help=true", "--help=1", "-h=false"}
+	for name, command := range machineCommands {
+		for _, spelling := range spellings {
+			for _, args := range [][]string{
+				{name, spelling},
+				{name, spelling, "production"},
+				{name, "production", spelling},
+			} {
+				got, failure := Parse(args)
+				if failure != nil || got.Command != CommandHelp || got.HelpFor != command {
+					t.Errorf("Parse(%v) = %+v, failure %v", args, got, failure)
+				}
+			}
+		}
+	}
+}
+
+// What follows the terminator is an operand, whatever it looks like.
+func TestParseMachineHelpAfterTheTerminatorIsAnOperand(t *testing.T) {
+	got, failure := Parse([]string{"status", "--", "-help"})
+	if failure != nil || got.Command != CommandStatus || got.Host != "-help" {
+		t.Fatalf("route = %+v, failure %v", got, failure)
+	}
+}
