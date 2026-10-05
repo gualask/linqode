@@ -294,7 +294,13 @@ func (r Result) CanCompose() bool { return r.ComposeUnavailable() == "" }
 // permanent finding, and a probe must not turn compose off on a daemon that
 // was only slow once. `timeout` is not POSIX, so a host without it asks
 // unguarded, which is what every host did before.
-const daemonCommand = "if command -v timeout >/dev/null 2>&1; " +
+//
+// Whether it has one is asked by running it rather than with `command -v`:
+// BusyBox before 1.30 has a `timeout` that wants `-t 5`, reads `timeout 5
+// docker` as a program named `5`, and would put its error where the daemon's
+// answer goes. `timeout 1 true` fails the same way there. The same guard is
+// internal/host's, for the mount list.
+const daemonCommand = "if timeout 1 true >/dev/null 2>&1; " +
 	"then timeout 5 docker version --format '{{.Server.Version}}' 2>&1; " +
 	"else docker version --format '{{.Server.Version}}' 2>&1; fi"
 

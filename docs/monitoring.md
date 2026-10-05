@@ -226,6 +226,12 @@ cost: `df` with no argument calls statfs on every mount, and a hung network
 mount holds it for as long as the kernel allows. The one reading that is
 always wanted must not wait on the list.
 
+Whether `timeout` exists is asked by running `timeout 1 true`, not with
+`command -v`: BusyBox before 1.30 has one that wants `-t 5`, reads `timeout 5
+df` as a program named `5`, and would lose the list to its error. The probe's
+daemon question uses the same guard, where the same `timeout` would have made
+a daemon that answered read as one that did not.
+
 The list keeps provisioned storage, including a dedicated filesystem at
 `/var/lib/docker`. Pseudo-filesystems and system bookkeeping mounts are
 excluded; duplicate bind mounts are shown once. **`/` is kept

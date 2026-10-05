@@ -299,6 +299,35 @@ func TestATildeComposeDirIsLookedForUnderHome(t *testing.T) {
 	}
 }
 
+// BusyBox before 1.30 has a `timeout` that wants `-t 5`, so `command -v`
+// finds it and `timeout 5 docker version` runs a program named `5`: a daemon
+// that answered read as one that did not. Against that `timeout`, through a
+// real shell, the daemon is asked unbounded and its version comes back.
+func TestAnOldBusyBoxTimeoutIsNotADeadDaemon(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh on this machine")
+	}
+	bin := t.TempDir()
+	for name, body := range map[string]string{
+		"timeout": "[ \"$1\" = -t ] || { echo \"timeout: can't execute '$1'\" >&2; exit 127; }\nshift 2; exec \"$@\"\n",
+		"true":    "exit 0\n",
+		"docker": "case \"$1\" in\nversion) echo 27.1.2;;\ncompose) echo 2.29.1;;\n" +
+			"context) echo default;;\nesac\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command(sh, "-c", Command(""))
+	cmd.Env = []string{"PATH=" + bin}
+	out, _ := cmd.Output()
+	result := Parse(out, "")
+	if result.Docker != DockerReady || result.DaemonVersion != "27.1.2" {
+		t.Errorf("Docker = %v %q (%q), want DockerReady 27.1.2", result.Docker, result.DaemonMessage, out)
+	}
+}
+
 // The rule the whole package turns on: what was not established is not a
 // finding. A probe that answered nothing must never be the reason a working
 // host loses its table.
