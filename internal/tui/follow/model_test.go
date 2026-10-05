@@ -42,6 +42,21 @@ func newTestModel(events ...operations.Event) *Model {
 	return m
 }
 
+// A drain tick belongs to the view that armed it. One still in flight when its
+// view closed used to reach the next view opened and re-arm there beside that
+// view's own, so every quick close-and-reopen added a chain for good.
+func TestATickFromAClosedViewDoesNotRearmInTheNext(t *testing.T) {
+	closed := newTestModel()
+	stale := closed.Init()().(drainTickMsg)
+	next := newTestModel()
+	if cmd := next.Update(stale); cmd != nil {
+		t.Error("a tick from a closed view re-armed in the next one")
+	}
+	if cmd := next.Update(drainTickMsg{view: next.view}); cmd == nil {
+		t.Error("a view's own tick did not re-arm")
+	}
+}
+
 func TestDrainAppliesLinesAndFollowTracksTail(t *testing.T) {
 	lines := make([]string, 30)
 	for i := range lines {
