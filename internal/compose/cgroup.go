@@ -116,8 +116,12 @@ func (previous CgroupSample) Delta(current CgroupSample, services []Service, hos
 		stats := ContainerStats{Name: service.Name, ID: service.ID}
 
 		stats.CPUPerc = "-"
-		if before, seen := previous.Reading(service.ID); seen && elapsed > 0 {
-			busy := saturatingSub(reading.CPUMicros, before.CPUMicros)
+		// A counter that went backwards was reset: `docker restart` keeps the
+		// id and starts the cgroup again from zero. The interval straddles two
+		// lives of the container, and 0% would be a reading it never had.
+		if before, seen := previous.Reading(service.ID); seen && elapsed > 0 &&
+			reading.CPUMicros >= before.CPUMicros {
+			busy := reading.CPUMicros - before.CPUMicros
 			percent := float64(busy) / float64(elapsed.Microseconds()) * 100
 			stats.CPUPerc = formatPercent(percent)
 		}

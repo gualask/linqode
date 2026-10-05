@@ -87,6 +87,12 @@ type Process struct {
 	// clock ticks /proc counts in. Like every other counter here it means
 	// nothing alone.
 	CPUTicks uint64
+	// StartTicks is when the process started, in clock ticks after boot.
+	// With the PID it is the process's identity: a PID is reused once its
+	// process exits, and the new one's counters measured against the old
+	// one's would be a share of nothing. Zero where the reader does not
+	// know it, which leaves the PID alone to say who is who.
+	StartTicks uint64
 }
 
 // ProcessSample is one reading of the process table, with the host's clock
@@ -173,6 +179,7 @@ const (
 	fieldUTime    = 11
 	fieldSTime    = 12
 	fieldThreads  = 17
+	fieldStart    = 19
 	fieldRSSPages = 21
 )
 
@@ -202,6 +209,7 @@ func parseProcess(line string, pageSize uint64) (Process, bool) {
 	}
 	process.CPUTicks = utime + stime
 	process.Threads, _ = strconv.Atoi(fields[fieldThreads])
+	process.StartTicks, _ = strconv.ParseUint(fields[fieldStart], 10, 64)
 	if pages, err := strconv.ParseUint(fields[fieldRSSPages], 10, 64); err == nil {
 		process.RSSKB = pages * pageSize / 1024
 	}
@@ -223,17 +231,25 @@ type ProcessUsage struct {
 // UsageSince measures this sample against the one before it. Without a
 // previous sample every process is still worth listing: memory is a single
 // reading, and it is the one an operator opens this view for.
+//
+// A process is matched by its PID and its start time together, so one that
+// took over the PID of a process that exited is new, not the old one with a
+// strange share.
 func (s ProcessSample) UsageSince(previous ProcessSample) []ProcessUsage {
+	type identity struct {
+		pid   int
+		start uint64
+	}
 	elapsed := s.UptimeSeconds - previous.UptimeSeconds
-	before := make(map[int]uint64, len(previous.Processes))
+	before := make(map[identity]uint64, len(previous.Processes))
 	for _, process := range previous.Processes {
-		before[process.PID] = process.CPUTicks
+		before[identity{process.PID, process.StartTicks}] = process.CPUTicks
 	}
 
 	usage := make([]ProcessUsage, 0, len(s.Processes))
 	for _, process := range s.Processes {
 		entry := ProcessUsage{Process: process}
-		ticks, seen := before[process.PID]
+		ticks, seen := before[identity{process.PID, process.StartTicks}]
 		if seen && elapsed > 0 && process.CPUTicks >= ticks && s.ClockTck > 0 {
 			entry.CPUPercent = float64(process.CPUTicks-ticks) /
 				float64(s.ClockTck) / elapsed * 100

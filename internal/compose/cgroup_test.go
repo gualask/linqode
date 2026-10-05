@@ -208,6 +208,23 @@ func TestDeltaDividesByTheHostsClock(t *testing.T) {
 	}
 }
 
+// `docker restart` keeps the container's id and starts its cgroup from zero,
+// so the counter goes backwards across the interval. That interval belongs
+// to no single life of the container: no percentage, not 0%.
+func TestACounterResetIsNoReading(t *testing.T) {
+	services := []Service{{Name: "app-web-1", ID: "aaaaaaaaaaaa"}}
+	before := ParseCgroupSample([]byte(v2Sample), time.Unix(100, 0))
+	after := ParseCgroupSample([]byte(v2Sample), time.Unix(105, 0))
+	reading := after.Containers["aaaaaaaaaaaa1111"]
+	reading.CPUMicros = 1_000
+	after.Containers["aaaaaaaaaaaa1111"] = reading
+
+	stats := before.Delta(after, services, 0)
+	if _, ok := stats[0].CPUPercent(); ok {
+		t.Errorf("CPUPerc = %q across a restart, want none", stats[0].CPUPerc)
+	}
+}
+
 // A container on the host's network reads the host's interfaces through its
 // process. Those are the machine's counters, and NET says unknown rather than
 // attributing them to one container.

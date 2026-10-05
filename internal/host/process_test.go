@@ -135,6 +135,31 @@ func TestUsageSince(t *testing.T) {
 	}
 }
 
+// A PID is reused once its process exits. The process now holding 399
+// started later than the one that held it, and its counters measured
+// against the old one's would be a share of nothing — a newcomer, not a
+// measurement.
+func TestAReusedPIDIsANewProcess(t *testing.T) {
+	before := ParseProcessSample([]byte(processOutput))
+	if got := before.Processes[2].StartTicks; got != 68428 {
+		t.Fatalf("StartTicks = %d, want field 22", got)
+	}
+	after := ParseProcessSample([]byte(strings.NewReplacer(
+		"3600.00", "3610.00",
+		"20 0 11 0 68428", "20 0 11 0 360500", // started after the first sample
+		"44049 0 0 10829 4433", "44049 0 0 11829 4433",
+	).Replace(processOutput)))
+
+	for _, entry := range after.UsageSince(before) {
+		if entry.Name == "containerd" && entry.Measured {
+			t.Errorf("a reused PID was measured against its old process: %v%%", entry.CPUPercent)
+		}
+		if entry.Name == "sshd" && !entry.Measured {
+			t.Error("a process that kept its PID and start time lost its share")
+		}
+	}
+}
+
 // The first sample has nothing to be measured against, and a process that
 // has just started was not in the previous one. Both are still listed:
 // memory is a single reading, and it is what this view is opened for.
