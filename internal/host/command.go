@@ -14,6 +14,16 @@ const (
 	mountsMarker   = "#mounts"
 )
 
+// markers is every section marker this package's commands print, and the
+// only lines split takes for one.
+var markers = map[string]bool{
+	loadMarker: true, uptimeMarker: true, memMarker: true, cpuMarker: true,
+	statMarker: true, netMarker: true, pressureMarker: true, diskMarker: true,
+	mountsMarker: true, thermalMarker: true,
+	processMarker: true, pageSizeMarker: true, clockMarker: true,
+	amdMarker: true, nvidiaMarker: true, appleMarker: true,
+}
+
 // mountsCommand lists every mounted filesystem. It is separate from the
 // root one, and guarded, for a reason that has nothing to do with cost: a
 // df with no argument calls statfs on every mount, and a hung network mount

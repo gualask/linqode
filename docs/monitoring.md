@@ -333,6 +333,14 @@ have been 4096 and 100 on every mainstream Linux for twenty years and neither
 is guaranteed, `getconf` costs nothing in a batch that already forks, and
 there is a default for the host that does not answer.
 
+The files are read with `grep -H ''` rather than `cat`, for about fifteen more
+bytes a process. A process names itself, and the name may contain a newline:
+concatenated, a name of `\n#procs` began a line that passed for a section
+marker, and that process and every one read after it left the table. With
+each line prefixed by the file it came from, a record is the run of lines
+naming the same file, which nothing a process writes can forge — and the
+newline is drawn as `?`, the way `ps` draws it.
+
 ### Graphics cards
 
 The one reading with no single place to be read from, and the asymmetry

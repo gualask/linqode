@@ -19,8 +19,10 @@ package host
 // see the comment on ProcessCommand.
 
 import (
+	"iter"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 const (
@@ -50,7 +52,17 @@ const (
 // where the name is found by looking for its closing parenthesis rather than
 // by counting.
 //
-// What that costs is roughly 220 bytes per process — about 20 KB on a host
+// The stat files are read with `grep -H` rather than `cat`, because the name
+// is whatever the process set it to — `prctl(PR_SET_NAME)` takes any byte but
+// NUL, newlines included. Concatenated, a name of "\n#procs" would start a
+// line of its own and could pass for a marker or a record, hiding the
+// process and everything read after it. Prefixed, every line of the output
+// starts with the file it came from, which no name can forge, so a record is
+// the run of lines carrying the same path. `LC_ALL=C` keeps GNU grep from
+// calling a name that is not valid UTF-8 binary and printing a summary in
+// place of the line.
+//
+// What that costs is roughly 235 bytes per process — about 20 KB on a host
 // running a hundred of them. It is why this is not on the home: the reading
 // is taken only while the system view is open, at which point the operator
 // has asked for it.
@@ -58,7 +70,7 @@ func ProcessCommand() string {
 	return "echo '" + pageSizeMarker + "'; getconf PAGESIZE 2>/dev/null; " +
 		"echo '" + clockMarker + "'; getconf CLK_TCK 2>/dev/null; " +
 		"echo '" + uptimeMarker + "'; cat /proc/uptime; " +
-		"echo '" + processMarker + "'; cat /proc/[0-9]*/stat 2>/dev/null"
+		"echo '" + processMarker + "'; LC_ALL=C grep -H '' /proc/[0-9]*/stat 2>/dev/null"
 }
 
 // Process is one running process.
@@ -102,12 +114,55 @@ func ParseProcessSample(raw []byte) ProcessSample {
 		sample.UptimeSeconds, _ = strconv.ParseFloat(fields[0], 64)
 	}
 
-	for line := range strings.Lines(sections[processMarker]) {
-		if process, ok := parseProcess(line, pageSize); ok {
+	for record := range processRecords(sections[processMarker]) {
+		if process, ok := parseProcess(record, pageSize); ok {
 			sample.Processes = append(sample.Processes, process)
 		}
 	}
 	return sample
+}
+
+// processRecords puts each stat file back together out of grep's prefixed
+// lines: consecutive lines naming the same file are one record, joined by
+// the newlines the process name had in it. The path is cut at its first
+// colon, which a path under /proc/<pid> does not contain.
+func processRecords(section string) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		current := ""
+		var record strings.Builder
+		for line := range strings.Lines(section) {
+			path, content, found := strings.Cut(strings.TrimRight(line, "\r\n"), ":")
+			if !found {
+				continue
+			}
+			if path != current && record.Len() > 0 {
+				if !yield(record.String()) {
+					return
+				}
+				record.Reset()
+			}
+			if path == current {
+				record.WriteByte('\n')
+			}
+			current = path
+			record.WriteString(content)
+		}
+		if record.Len() > 0 {
+			yield(record.String())
+		}
+	}
+}
+
+// printableName is a process name fit to be drawn: every control character,
+// the newlines that defeated the parser among them, shown as `?` the way
+// procps' `ps` shows them.
+func printableName(name string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '?'
+		}
+		return r
+	}, name)
 }
 
 // The offsets of the fields worth reading, counted from the one after the
@@ -139,7 +194,7 @@ func parseProcess(line string, pageSize uint64) (Process, bool) {
 		return Process{}, false
 	}
 
-	process := Process{PID: pid, Name: line[open+1 : closing], State: fields[fieldState]}
+	process := Process{PID: pid, Name: printableName(line[open+1 : closing]), State: fields[fieldState]}
 	utime, errUser := strconv.ParseUint(fields[fieldUTime], 10, 64)
 	stime, errSystem := strconv.ParseUint(fields[fieldSTime], 10, 64)
 	if errUser != nil || errSystem != nil {

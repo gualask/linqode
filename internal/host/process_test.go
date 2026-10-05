@@ -18,9 +18,9 @@ const processOutput = `#pagesize
 #uptime
 3600.00 14000.50
 #procs
-1 (docker-init) S 0 1 1 0 -1 4194560 1860 12222977 0 33577 57 233 3987 11107 20 0 1 0 66803 880640 96 18446744073709551615 1 1 0 0 0 0 0 3145728 0 0 0 0 17 1 0 0 0 0 0 0 0 0 0 0 0 0 0
-25 (sshd) S 1 24 24 0 -1 4194624 3263 2122825 0 24 2 3 1177 521 20 0 1 0 66822 6311936 780 18446744073709551615 1 1 0 0 0 0 0 4096 81925 0 0 0 17 1 0 0 0 0 0 0 0 0 0 0 0 0 0
-399 (containerd) S 68 399 399 0 -1 4194560 41938 44049 0 0 10829 4433 27 15 20 0 11 0 68428 1328054272 11450 18446744073709551615 1 1 0 0 0 0 1002055680 0 2143420159 0 0 0 17 1 0 0 0 0 0 0 0 0 0 0 0 0 0
+/proc/1/stat:1 (docker-init) S 0 1 1 0 -1 4194560 1860 12222977 0 33577 57 233 3987 11107 20 0 1 0 66803 880640 96 18446744073709551615 1 1 0 0 0 0 0 3145728 0 0 0 0 17 1 0 0 0 0 0 0 0 0 0 0 0 0 0
+/proc/25/stat:25 (sshd) S 1 24 24 0 -1 4194624 3263 2122825 0 24 2 3 1177 521 20 0 1 0 66822 6311936 780 18446744073709551615 1 1 0 0 0 0 0 4096 81925 0 0 0 17 1 0 0 0 0 0 0 0 0 0 0 0 0 0
+/proc/399/stat:399 (containerd) S 68 399 399 0 -1 4194560 41938 44049 0 0 10829 4433 27 15 20 0 11 0 68428 1328054272 11450 18446744073709551615 1 1 0 0 0 0 1002055680 0 2143420159 0 0 0 17 1 0 0 0 0 0 0 0 0 0 0 0 0 0
 `
 
 func TestParseProcessSample(t *testing.T) {
@@ -61,8 +61,8 @@ func TestParseProcessSample(t *testing.T) {
 // is the reason this is parsed here and not sorted on the server.
 func TestAProcessNameMayContainAnything(t *testing.T) {
 	awkward := `#procs
-742 (Web Content) S 1 742 742 0 -1 4194560 100 0 0 0 40 20 0 0 20 0 8 0 500 1000 250 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-` + "808 (foo (bar)) S 1 808 808 0 -1 4194560 100 0 0 0 5 5 0 0 20 0 1 0 500 1000 100 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"
+/proc/742/stat:742 (Web Content) S 1 742 742 0 -1 4194560 100 0 0 0 40 20 0 0 20 0 8 0 500 1000 250 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+` + "/proc/808/stat:808 (foo (bar)) S 1 808 808 0 -1 4194560 100 0 0 0 5 5 0 0 20 0 1 0 500 1000 100 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"
 	sample := ParseProcessSample([]byte(awkward))
 	if len(sample.Processes) != 2 {
 		t.Fatalf("read %d processes: %+v", len(sample.Processes), sample.Processes)
@@ -96,9 +96,9 @@ func TestPageSizeComesFromTheHost(t *testing.T) {
 // A truncated or unparseable line is one process missing, not a sample lost.
 func TestParseProcessSampleSkipsWhatItCannotRead(t *testing.T) {
 	broken := `#procs
-1 (docker-init) S 0 1 1
+/proc/1/stat:1 (docker-init) S 0 1 1
 not a stat line at all
-25 (sshd) S 1 24 24 0 -1 4194624 3263 2122825 0 24 2 3 1177 521 20 0 1 0 66822 6311936 780 0 0 0 0 0 0 0 0 0 0 0 0 0
+/proc/25/stat:25 (sshd) S 1 24 24 0 -1 4194624 3263 2122825 0 24 2 3 1177 521 20 0 1 0 66822 6311936 780 0 0 0 0 0 0 0 0 0 0 0 0 0
 `
 	sample := ParseProcessSample([]byte(broken))
 	if len(sample.Processes) != 1 || sample.Processes[0].PID != 25 {
@@ -175,5 +175,50 @@ func TestProcessCommandAsksForWhatItNeeds(t *testing.T) {
 	// left, and field two is a name that may contain spaces.
 	if strings.Contains(command, "sort") || strings.Contains(command, "head") {
 		t.Errorf("the list is being narrowed on the server: %s", command)
+	}
+	// Every line of a stat file must say which file it came from, or a name
+	// with a newline in it can pass for a record or a marker.
+	if !strings.Contains(command, "grep -H '' /proc/[0-9]*/stat") {
+		t.Errorf("the stat lines are not prefixed with their file: %s", command)
+	}
+}
+
+// A process names itself, newlines included. Read with `cat`, a name of
+// "\n#x" or "\n#procs" started a line that passed for a section marker, and
+// the process — with every one read after it — vanished from the table.
+// Every line grep prints carries its file, so the record is put back
+// together and the name drawn with the newline made visible.
+func TestAProcessCannotHideBehindItsName(t *testing.T) {
+	for _, name := range []string{"\n#x", "\n#procs", "a\n/proc/1/stat:1 (fake"} {
+		hostile := "#procs\n" +
+			"/proc/7/stat:7 (" + strings.ReplaceAll(name, "\n", "\n/proc/7/stat:") +
+			") S 1 7 7 0 -1 4194560 100 0 0 0 40 20 0 0 20 0 1 0 500 1000 250 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n" +
+			"/proc/25/stat:25 (sshd) S 1 24 24 0 -1 4194624 3263 2122825 0 24 2 3 1177 521 20 0 1 0 66822 6311936 780 0 0 0 0 0 0 0 0 0 0 0 0 0\n"
+		sample := ParseProcessSample([]byte(hostile))
+		if len(sample.Processes) != 2 {
+			t.Fatalf("name %q: read %d processes, want 2: %+v", name, len(sample.Processes), sample.Processes)
+		}
+		hidden := sample.Processes[0]
+		if hidden.PID != 7 || hidden.CPUTicks != 60 || hidden.RSSKB != 1000 {
+			t.Errorf("name %q: the process read as %+v", name, hidden)
+		}
+		if want := strings.ReplaceAll(name, "\n", "?"); hidden.Name != want {
+			t.Errorf("name %q: drawn as %q, want %q", name, hidden.Name, want)
+		}
+		if sample.Processes[1].Name != "sshd" {
+			t.Errorf("name %q: the process after it read as %+v", name, sample.Processes[1])
+		}
+	}
+}
+
+// Only this package's markers open a section; anything else that begins with
+// `#` is what a tool printed.
+func TestOnlyKnownMarkersOpenASection(t *testing.T) {
+	sections := split("#uptime\n3600.00 1.00\n#not-a-marker\n#mounts\nx\n")
+	if got := sections[uptimeMarker]; got != "3600.00 1.00\n#not-a-marker\n" {
+		t.Errorf("uptime section = %q", got)
+	}
+	if _, ok := sections["#not-a-marker"]; ok {
+		t.Error("an unknown marker opened a section")
 	}
 }
