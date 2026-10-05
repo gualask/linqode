@@ -58,7 +58,7 @@ func openTransport(ctx context.Context, spec string, stderr io.Writer) (transpor
 	}
 	fmt.Fprintf(stderr, "Connecting to %s@%s:%d ...\n",
 		target.User, target.DisplayHost, target.Port)
-	session, err := remote.Connect(ctx, target, terminalPrompter{ctx: ctx})
+	session, err := remote.Connect(ctx, target, terminalPrompter{})
 	if err != nil {
 		return transport{}, err
 	}

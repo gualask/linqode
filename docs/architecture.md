@@ -175,9 +175,7 @@ what is not built yet, is in `LOCAL.md`.
   a peer that vanished without a FIN fail instead of hanging. OpenSSH has
   neither by default; a monitor holding streams open cannot leave a dead
   peer to TCP.
-- Prompts run in the terminal before the TUI takes over the screen, and are
-  waits the run can abandon: Ctrl-C at either one, or a signal while it
-  waits, ends the connect at once rather than at the next Enter. The machine
+- Prompts run in the terminal before the TUI takes over the screen. The machine
   connector instead fails closed: it never learns an unknown key or requests a
   passphrase, and maps authentication failures to typed JSON. An encrypted
   identity is skipped rather than ending authentication, and named as the
