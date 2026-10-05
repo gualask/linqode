@@ -379,34 +379,6 @@ func TestScreenIsExactlyAsTallAsTheTerminal(t *testing.T) {
 	}
 }
 
-// A terminal with no rows left for the body is a known size of zero, not an
-// unknown one: nothing is drawn there rather than every panel unclipped, and
-// docker's disk is not read for a section nobody can see.
-func TestABodyWithNoRowsDrawsNothingAndReadsNothing(t *testing.T) {
-	for _, height := range []int{4, 5, 6} {
-		screen, _ := buildScreen(screenOptions{width: 120, height: 40,
-			host: &hostFeed{metrics: sampleMetrics()}, services: serviceList("web", "db")})
-		screen.info.DiskUsage = func() ([]compose.DiskUsage, error) { return nil, nil }
-		sampleAll(screen)
-		screen.View()
-		screen.SetSize(120, height)
-		for _, opener := range []string{"", "x"} {
-			if opener != "" {
-				screen.info.Scripts = []operations.Script{{Name: "a", Command: "a"}, {Name: "b", Command: "b"}}
-				focusPanel(screen, "services")
-				screen.Update(key(opener))
-			}
-			if lines := strings.Count(screen.View(), "\n") + 1; lines != height {
-				t.Errorf("at %d rows (menu %q) the screen drew %d lines:\n%s",
-					height, opener, lines, screen.View())
-			}
-		}
-		if screen.diskUsageShown() {
-			t.Errorf("at %d rows docker's disk is still due", height)
-		}
-	}
-}
-
 // A host the probe found without compose. Services is nil, which is how every
 // capability this codebase does not have is expressed; the reason is what nil
 // alone cannot say.

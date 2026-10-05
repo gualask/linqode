@@ -15,11 +15,7 @@ func (m *Model) View() string {
 
 	var b strings.Builder
 	b.WriteString(m.header(frame) + "\n")
-	// A terminal with no rows for the body has no body line either: an empty
-	// one would still be a line, and the frame one taller than the screen.
-	if !frame.known || frame.body.height+frame.events.height > 0 {
-		b.WriteString(m.body(frame) + "\n")
-	}
+	b.WriteString(m.body(frame) + "\n")
 	b.WriteString(m.footer())
 	return b.String()
 }
@@ -112,13 +108,7 @@ func (m *Model) dockerEndpoint() string {
 func (m *Model) body(frame frame) string {
 	whole := box{width: frame.body.width, height: frame.body.height + frame.events.height}
 	if m.menu != nil {
-		menu := m.renderMenu(whole.width, whole.height)
-		if frame.known {
-			// Shorter than the menu's own box, the box is cut from the
-			// bottom like any panel rather than drawn past the footer.
-			menu = clipLines(menu, whole.height)
-		}
-		return menu
+		return m.renderMenu(whole.width, whole.height)
 	}
 	if m.detail != nil {
 		// A detail was asked for by name; it holds focus for as long as it
@@ -144,13 +134,6 @@ func (m *Model) body(frame frame) string {
 // is doing is worth seeing while looking at something else.
 func (m *Model) panelBox(shown panel.Panel, at box, focused bool) string {
 	content := at.content()
-	if m.width > 0 && m.height > 0 && (content.width == 0 || content.height == 0) {
-		// A known size with no room inside the border. Handed to the panel,
-		// a zero would read as a size not known yet — which every panel
-		// takes as no limit at all — and it would draw everything it has
-		// for the box to throw away.
-		return panel.Box(shown.Title(), "", "", focused, at.width, at.height)
-	}
 	shown.SetSize(content.width, content.height)
 	// What a panel is showing goes on its own rule. The footer is the keymap
 	// and nothing else: a count of services or of events is monitoring, and
@@ -164,12 +147,6 @@ func (m *Model) panelBox(shown panel.Panel, at box, focused bool) string {
 		status = m.events.Summary()
 	}
 	return panel.Box(shown.Title(), status, shown.View(), focused, at.width, at.height)
-}
-
-// clipLines keeps the first height lines of text.
-func clipLines(text string, height int) string {
-	lines := strings.Split(text, "\n")
-	return strings.Join(lines[:min(len(lines), max(height, 0))], "\n")
 }
 
 func (m *Model) footer() string {
