@@ -292,7 +292,11 @@ Which readings it carries follows from what they cost the row:
   itself.
 
 When the line runs short it sheds in order: uptime, then the temperature, then
-meters from the bottom up. The staleness flag stays while anything is drawn at
+the head of the disk's mount point — cut from the front as in the view, down
+to eight cells — and only then meters from the bottom up. The disk meter is
+the one most likely to be why the session was opened, and at eighty columns a
+long path like `/var/lib/docker/volumes/postgres-data` used to cost it its
+place on the band. The staleness flag stays while anything is drawn at
 all — a stale number that looks current is worse than a missing one.
 
 ## The system view

@@ -543,6 +543,32 @@ func TestLongMountPointsKeepTheEndThatIdentifiesThem(t *testing.T) {
 	}
 }
 
+// The band follows the fullest disk because that is the one about to stop the
+// deployment, and a long mount point is no reason to lose it: its head is cut
+// before any meter is dropped. It used to be shed whole at eighty columns,
+// label and all, the moment its path was longer than the room.
+func TestALongMountPointIsCutBeforeItsMeterIsDropped(t *testing.T) {
+	metrics := sampleMetrics()
+	metrics.Filesystems = []host.Filesystem{
+		{Mount: "/", TotalKB: 20000000, UsedKB: 5000000},
+		{Mount: "/var/lib/docker/volumes/postgres-data", TotalKB: 100000000, UsedKB: 97000000},
+	}
+	m := sampled(metrics)
+	amount := formatKB(97000000) + "/" + formatKB(100000000)
+	for _, width := range []int{100, 78, 76} {
+		line := ansi.Strip(m.Band(width))
+		if got := lipgloss.Width(line); got > width {
+			t.Errorf("band is %d wide at %d columns: %q", got, width, line)
+		}
+		if !strings.Contains(line, amount) || !strings.Contains(line, "data ") {
+			t.Errorf("the fullest disk was dropped at %d columns: %q", width, line)
+		}
+		if !strings.Contains(line, "mem ") {
+			t.Errorf("memory was dropped for the disk's label at %d columns: %q", width, line)
+		}
+	}
+}
+
 // A mount point in a script whose characters take two cells each is cut by
 // cells, not by characters: counting one against the other walked the cut off
 // the front of the label and panicked.

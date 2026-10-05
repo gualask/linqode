@@ -53,6 +53,11 @@ const meterMinBar = 4
 // each is a lot of screen spent saying "half full".
 const meterMaxBar = 30
 
+// bandPathFloor is the shortest a mount point is cut to on the band before a
+// meter is dropped instead: `…/docker` still says which disk it is, and a
+// label shorter than that says nothing the amount beside it does not.
+const bandPathFloor = 8
+
 // bandLabel says whose resources these are. htop and its kin label only the
 // individual meters, and so did an earlier draft of this band — but they
 // only ever show one machine's CPU and memory. This screen shows CPU and
@@ -233,23 +238,31 @@ func (t bandTail) render() string {
 // bandFixed is everything on the band the bars do not occupy: the leading
 // marker, the label before each bar and the amount after it, the gaps between
 // the meters, and the tail.
+//
+// It counts cells rather than bytes: a mount point can be in any script, and
+// the temperature's degree sign alone is two bytes and one cell.
 func bandFixed(meters []meter, tail bandTail) int {
 	width := 1 + len(bandLabel) + 2 + bandGap*(len(meters)-1)
 	for _, gauge := range meters {
-		width += len(gauge.label) + len(gauge.value) + 2
+		width += lipgloss.Width(gauge.label) + lipgloss.Width(gauge.value) + 2
 	}
 	if text := tail.plain(); text != "" {
-		width += bandGap + len(text)
+		width += bandGap + lipgloss.Width(text)
 	}
 	return width
 }
 
 // fitBand sheds the least urgent parts until the bars can have their minimum,
 // rather than letting the band overflow and wrap the header. Uptime goes
-// first, then the temperature, then the meters from the bottom up — CPU is
-// the headline reading and swap the one that is only there when it matters.
-// The staleness flag stays while anything is drawn at all: a stale number
-// that looks current is worse than a missing one.
+// first, then the temperature, then the head of the disk's mount point, then
+// the meters from the bottom up — CPU is the headline reading and swap the
+// one that is only there when it matters. The staleness flag stays while
+// anything is drawn at all: a stale number that looks current is worse than a
+// missing one.
+//
+// The mount point is cut before any meter goes because the disk meter follows
+// the fullest filesystem, which is the reading most likely to be why the
+// session was opened, and a long path was dropping it whole at eighty columns.
 //
 // It returns the meters left and the width to lay them out in, which is zero
 // when the terminal is narrower than a single meter can be drawn: fitting is
@@ -266,6 +279,7 @@ func fitBand(meters []meter, tail *bandTail, width int) ([]meter, int) {
 			tail.uptime = ""
 		case tail.temperature != "":
 			tail.temperature = ""
+		case shortenPath(meters, bandFixed(meters, *tail)+meterMinBar*len(meters)-width):
 		case len(meters) > 1:
 			meters = meters[:len(meters)-1]
 		default:
@@ -273,6 +287,21 @@ func fitBand(meters []meter, tail *bandTail, width int) ([]meter, int) {
 		}
 	}
 	return meters, width
+}
+
+// shortenPath cuts the head off the first meter label that is a path longer
+// than bandPathFloor, by the cells the band is over or down to the floor,
+// whichever is less. It reports whether there was one to cut.
+func shortenPath(meters []meter, over int) bool {
+	for index, gauge := range meters {
+		width := lipgloss.Width(gauge.label)
+		if !strings.HasPrefix(gauge.label, "/") || width <= bandPathFloor {
+			continue
+		}
+		meters[index].label = trimPath(gauge.label, max(width-over, bandPathFloor))
+		return true
+	}
+	return false
 }
 
 // styledBar is the gauge every meter here is drawn with — the band's and the
