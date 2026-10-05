@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kevinburke/ssh_config"
 )
@@ -30,6 +31,15 @@ type Target struct {
 	User        string
 	// IdentityFiles to try after the agent, in order. Only existing files.
 	IdentityFiles []string
+	// ConnectTimeout bounds the TCP connect and the SSH handshake, time
+	// spent at a prompt excluded. Zero uses defaultConnectTimeout.
+	ConnectTimeout time.Duration
+	// ServerAliveInterval is how often the server is asked whether it is
+	// still there; after ServerAliveCountMax unanswered asks in a row the
+	// connection is closed. Zero uses defaultServerAliveInterval, negative
+	// disables keepalives. A zero count uses defaultServerAliveCountMax.
+	ServerAliveInterval time.Duration
+	ServerAliveCountMax int
 }
 
 // hostSpec is the user/host/port split of a raw spec, before ssh_config
@@ -112,6 +122,19 @@ func resolveWith(spec string, cfg lookup, home string) (Target, error) {
 		return Target{}, errors.New("no user: none in the spec, ~/.ssh/config, or environment")
 	}
 
+	if secs, ok := seconds(first("ConnectTimeout")); ok && secs > 0 {
+		t.ConnectTimeout = secs
+	}
+	if secs, ok := seconds(first("ServerAliveInterval")); ok {
+		t.ServerAliveInterval = secs
+		if secs == 0 {
+			t.ServerAliveInterval = -1 // explicitly off, as in OpenSSH
+		}
+	}
+	if n, err := strconv.Atoi(first("ServerAliveCountMax")); err == nil && n > 0 {
+		t.ServerAliveCountMax = n
+	}
+
 	files := cfg(parsed.host, "IdentityFile")
 	if len(files) == 0 && home != "" {
 		for _, name := range defaultIdentities {
@@ -155,6 +178,15 @@ func configLookup(cfg *ssh_config.Config) lookup {
 		}
 		return vals
 	}
+}
+
+// seconds parses an ssh_config duration given in whole seconds.
+func seconds(value string) (time.Duration, bool) {
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return time.Duration(n) * time.Second, true
 }
 
 func expandHome(path, home string) string {

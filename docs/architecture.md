@@ -156,6 +156,16 @@ what is not built yet, is in `LOCAL.md`.
   lazily so no passphrase is asked for if the agent suffices; encrypted
   keys prompt with OpenSSH-style retries. Password auth is out of scope for
   the MVP.
+- **Liveness**: the TCP connect and the SSH handshake share one deadline,
+  `ConnectTimeout` from `~/.ssh/config` or 15 seconds, with the clock
+  stopped while a prompt is open — a person reading a fingerprint is not a
+  stalled server. Once connected, the session asks the server
+  `keepalive@openssh.com` every `ServerAliveInterval` (default 15 seconds;
+  `0` turns it off) and closes the connection after `ServerAliveCountMax`
+  (default 3) unanswered asks in a row, so commands and followers waiting on
+  a peer that vanished without a FIN fail instead of hanging. OpenSSH has
+  neither by default; a monitor holding streams open cannot leave a dead
+  peer to TCP.
 - Prompts run in the terminal before the TUI takes over the screen. The machine
   connector instead fails closed: it never learns an unknown key or requests a
   passphrase, and maps authentication failures to typed JSON. An encrypted

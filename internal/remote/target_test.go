@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kevinburke/ssh_config"
 )
@@ -127,5 +128,39 @@ func TestConfiguredIdentityFileExpandsTilde(t *testing.T) {
 	}
 	if len(tgt.IdentityFiles) != 1 || tgt.IdentityFiles[0] != key {
 		t.Errorf("got %v, want [%s]", tgt.IdentityFiles, key)
+	}
+}
+
+func TestTimeoutsAndKeepalivesFromSSHConfig(t *testing.T) {
+	cfg := decode(t, "Host slow\n  ConnectTimeout 40\n  ServerAliveInterval 5\n  ServerAliveCountMax 6\n"+
+		"Host quiet\n  ServerAliveInterval 0\n")
+	tgt, err := resolveWith("user@slow", cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tgt.ConnectTimeout != 40*time.Second || tgt.ServerAliveInterval != 5*time.Second || tgt.ServerAliveCountMax != 6 {
+		t.Errorf("got %+v", tgt)
+	}
+	if interval, count := tgt.serverAlive(); interval != 5*time.Second || count != 6 {
+		t.Errorf("serverAlive() = %s, %d", interval, count)
+	}
+
+	tgt, err = resolveWith("user@quiet", cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if interval, _ := tgt.serverAlive(); interval != 0 {
+		t.Errorf("ServerAliveInterval 0 left keepalives on every %s", interval)
+	}
+	if tgt.connectTimeout() != defaultConnectTimeout {
+		t.Errorf("connect timeout %s, want the default", tgt.connectTimeout())
+	}
+
+	tgt, err = resolveWith("user@unconfigured", cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if interval, count := tgt.serverAlive(); interval != defaultServerAliveInterval || count != defaultServerAliveCountMax {
+		t.Errorf("defaults: serverAlive() = %s, %d", interval, count)
 	}
 }

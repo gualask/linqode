@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 
@@ -50,6 +51,8 @@ type ExecOutput struct {
 type Session struct {
 	client *ssh.Client
 	target Target
+	// closed is closed once the connection is gone.
+	closed chan struct{}
 }
 
 // Connect connects and authenticates following the MVP policy; see
@@ -71,14 +74,17 @@ func ConnectWith(ctx context.Context, target Target, prompter Prompter, opts Con
 	if err != nil {
 		return nil, err
 	}
-	return &Session{client: client, target: target}, nil
+	s := &Session{client: client, target: target}
+	s.watch()
+	return s, nil
 }
 
 type connectionSetup struct {
-	config  *ssh.ClientConfig
-	policy  *hostKeyPolicy
-	auth    *authState
-	cleanup func()
+	config   *ssh.ClientConfig
+	policy   *hostKeyPolicy
+	auth     *authState
+	deadline *handshakeDeadline
+	cleanup  func()
 }
 
 func prepareConnection(target Target, prompter Prompter, opts ConnectOptions) (connectionSetup, error) {
@@ -89,6 +95,8 @@ func prepareConnection(target Target, prompter Prompter, opts ConnectOptions) (c
 			return connectionSetup{}, err
 		}
 	}
+	deadline := &handshakeDeadline{limit: target.connectTimeout()}
+	prompter = pausingPrompter{Prompter: prompter, deadline: deadline}
 	addr := net.JoinHostPort(target.Host, strconv.Itoa(int(target.Port)))
 	policy, err := newHostKeyPolicy(target, addr, knownHosts, prompter)
 	if err != nil {
@@ -106,20 +114,26 @@ func prepareConnection(target Target, prompter Prompter, opts ConnectOptions) (c
 			// the address dialSSHClient passes to the handshake.
 			HostKeyAlgorithms: policy.hostKeyAlgorithms(addr),
 		},
-		policy: policy, auth: state, cleanup: cleanup,
+		policy: policy, auth: state, deadline: deadline, cleanup: cleanup,
 	}, nil
 }
 
 func dialSSHClient(ctx context.Context, target Target, setup connectionSetup) (*ssh.Client, error) {
 	addr := net.JoinHostPort(target.Host, strconv.Itoa(int(target.Port)))
-	var dialer net.Dialer
+	dialer := net.Dialer{Timeout: setup.deadline.limit}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("cannot reach %s: %w", addr, err)
 	}
 
+	setup.deadline.arm(conn)
 	result, err := negotiateSSH(ctx, conn, addr, setup.config)
+	setup.deadline.disarm()
 	if err != nil {
+		if ctx.Err() == nil && setup.deadline.hasExpired() {
+			return nil, fmt.Errorf("no SSH handshake with %s within %s: %w",
+				addr, setup.deadline.limit, os.ErrDeadlineExceeded)
+		}
 		return nil, classifyHandshakeError(err, target, setup)
 	}
 	return ssh.NewClient(result.conn, result.channels, result.requests), nil
