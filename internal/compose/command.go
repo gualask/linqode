@@ -12,13 +12,36 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// QuoteDir quotes a configured directory as a single POSIX shell word, read
+// the way a shell reads it unquoted: a leading `~/`, or a bare `~`, is the
+// remote user's home, so it becomes `"$HOME"` followed by the quoted rest.
+// Quoting it whole asks for a directory literally named `~` inside the
+// working directory, which is what `compose_dir = "~/app"` used to do.
+//
+// Everything after the tilde stays inside single quotes, so a hostile path is
+// still one word. `~user/` is not expanded — the shell would look the account
+// up, and that has no quoted form — and stays as literal as it always was.
+//
+// The probe's `[ -d ]` and every `cd` here go through this one function, so
+// the directory the probe vouched for is the one the commands enter.
+func QuoteDir(dir string) string {
+	if dir != "~" && !strings.HasPrefix(dir, "~/") {
+		return shellQuote(dir)
+	}
+	rest := strings.TrimLeft(dir[1:], "/")
+	if rest == "" {
+		return `"$HOME"`
+	}
+	return `"$HOME"/` + shellQuote(rest)
+}
+
 // inDir prefixes command with a `cd` into the compose directory, when one
 // is configured (the caller's remote working directory otherwise).
 func inDir(composeDir, command string) string {
 	if composeDir == "" {
 		return command
 	}
-	return "cd " + shellQuote(composeDir) + " && " + command
+	return "cd " + QuoteDir(composeDir) + " && " + command
 }
 
 // PsCommand builds the remote command listing all services of the compose

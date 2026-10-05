@@ -1,6 +1,9 @@
 package probe
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -266,6 +269,26 @@ func TestAMissingComposeDirIsPermanent(t *testing.T) {
 	if !strings.Contains(result.ComposeUnavailable(), "/srv/gone") {
 		t.Errorf("ComposeUnavailable() = %q, which does not name the path",
 			result.ComposeUnavailable())
+	}
+}
+
+// `compose_dir = "~/app"` is the form the README documents. Run through a
+// real shell with HOME pointing at a temp dir — and an empty PATH, so no
+// docker on this machine joins in — the directory under it is found.
+func TestATildeComposeDirIsLookedForUnderHome(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh on this machine")
+	}
+	home := t.TempDir()
+	if err := os.Mkdir(filepath.Join(home, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(sh, "-c", Command("~/app"))
+	cmd.Env = []string{"HOME=" + home, "PATH=" + t.TempDir()}
+	out, _ := cmd.Output()
+	if got := Parse(out, "~/app").Directory; got != DirectoryPresent {
+		t.Errorf("Directory = %v, want DirectoryPresent; output %q", got, out)
 	}
 }
 

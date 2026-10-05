@@ -30,6 +30,8 @@ package probe
 
 import (
 	"strings"
+
+	"github.com/gualask/linqode/internal/compose"
 )
 
 // Section markers, as in the host batch: the parser stays independent of how
@@ -277,14 +279,6 @@ func standaloneUnavailable(version string) string {
 // should create.
 func (r Result) CanCompose() bool { return r.ComposeUnavailable() == "" }
 
-// shellQuote quotes s as a single POSIX shell word. The same three lines live
-// in internal/compose; sharing them would mean a package dependency in one
-// direction or the other purely to pass a string through, which is a worse
-// trade than the duplication.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
 // daemonCommand asks the daemon for its version, and is the one question in
 // the batch that waits on something other than the shell: every other section
 // reads a file or starts a CLI that answers on its own. A daemon that accepts
@@ -338,7 +332,9 @@ func Command(composeDir string) string {
 		"docker-compose version --short 2>/dev/null || echo " + presentWord + "; fi; ")
 	b.WriteString("echo '" + dirMarker + "'; ")
 	if composeDir != "" {
-		b.WriteString("[ -d " + shellQuote(composeDir) + " ] && echo " + presentWord + "; ")
+		// compose's quoting rather than a copy of it: the directory tested
+		// here must be the one its `cd` enters, a leading `~/` included.
+		b.WriteString("[ -d " + compose.QuoteDir(composeDir) + " ] && echo " + presentWord + "; ")
 	}
 	b.WriteString("echo '" + osMarker + "'; " +
 		"grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null; ")

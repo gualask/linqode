@@ -71,6 +71,9 @@ host = "local"
 compose_dir = "~/Dev/myapp"
 ```
 
+A `compose_dir` starting with `~/` is under the home of the account Linqode
+connects as, the way a shell reads it; `~user/` is not expanded.
+
 `host = "local"` gives the local target a project and scripts of its own.
 `localhost` is not the same thing and is not taken over: it means what it
 means to `ssh`, a connection through sshd. A `[hosts.local]` entry of your own
