@@ -30,6 +30,8 @@ package probe
 
 import (
 	"strings"
+
+	"github.com/gualask/linqode/internal/compose"
 )
 
 // Section markers, as in the host batch: the parser stays independent of how
@@ -77,6 +79,11 @@ const (
 	DockerDenied
 	// DockerUnreachable is a docker binary whose daemon did not answer for
 	// some other reason — not running, a bad DOCKER_HOST, a broken socket.
+	// Unlike the two above it is not a finding: a daemon that was restarting
+	// at the moment of connecting answers a minute later, and turning compose
+	// off for the session on its account would outlast the outage. It is
+	// treated like a daemon that timed out — carry on, and let the refresh
+	// report what docker says — with DaemonMessage kept for whoever asks.
 	DockerUnreachable
 	// DockerReady is a daemon that answered with its version.
 	DockerReady
@@ -224,7 +231,8 @@ func (r Result) CanReadProc() bool { return r.Proc != ProcAbsent }
 // separates them from a refresh that failed: none of them will come right on
 // the next interval, and saying so once is the whole point of probing. What is
 // deliberately not here is anything transient — a daemon that answers now and
-// times out later is the refresh error's business, not this.
+// times out later, or one that was not running at the moment of connecting,
+// is the refresh error's business, not this.
 func (r Result) ComposeUnavailable() string {
 	switch r.Docker {
 	case DockerAbsent:
@@ -234,12 +242,8 @@ func (r Result) ComposeUnavailable() string {
 		// operator cannot deduce it from an empty table. It is a guess about
 		// the cause, so it is phrased as one.
 		return "the docker daemon refuses this user — not in the `docker` group?"
-	case DockerUnreachable:
-		if r.DaemonMessage != "" {
-			return "the docker daemon did not answer: " + r.DaemonMessage
-		}
-		return "the docker daemon did not answer"
 	}
+	// DockerUnreachable is deliberately not a case: see its comment.
 	switch r.Compose {
 	case ComposeLegacy:
 		return standaloneUnavailable(r.ComposeVersion)
@@ -277,14 +281,6 @@ func standaloneUnavailable(version string) string {
 // should create.
 func (r Result) CanCompose() bool { return r.ComposeUnavailable() == "" }
 
-// shellQuote quotes s as a single POSIX shell word. The same three lines live
-// in internal/compose; sharing them would mean a package dependency in one
-// direction or the other purely to pass a string through, which is a worse
-// trade than the duplication.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
 // daemonCommand asks the daemon for its version, and is the one question in
 // the batch that waits on something other than the shell: every other section
 // reads a file or starts a CLI that answers on its own. A daemon that accepts
@@ -298,7 +294,13 @@ func shellQuote(s string) string {
 // permanent finding, and a probe must not turn compose off on a daemon that
 // was only slow once. `timeout` is not POSIX, so a host without it asks
 // unguarded, which is what every host did before.
-const daemonCommand = "if command -v timeout >/dev/null 2>&1; " +
+//
+// Whether it has one is asked by running it rather than with `command -v`:
+// BusyBox before 1.30 has a `timeout` that wants `-t 5`, reads `timeout 5
+// docker` as a program named `5`, and would put its error where the daemon's
+// answer goes. `timeout 1 true` fails the same way there. The same guard is
+// internal/host's, for the mount list.
+const daemonCommand = "if timeout 1 true >/dev/null 2>&1; " +
 	"then timeout 5 docker version --format '{{.Server.Version}}' 2>&1; " +
 	"else docker version --format '{{.Server.Version}}' 2>&1; fi"
 
@@ -338,7 +340,9 @@ func Command(composeDir string) string {
 		"docker-compose version --short 2>/dev/null || echo " + presentWord + "; fi; ")
 	b.WriteString("echo '" + dirMarker + "'; ")
 	if composeDir != "" {
-		b.WriteString("[ -d " + shellQuote(composeDir) + " ] && echo " + presentWord + "; ")
+		// compose's quoting rather than a copy of it: the directory tested
+		// here must be the one its `cd` enters, a leading `~/` included.
+		b.WriteString("[ -d " + compose.QuoteDir(composeDir) + " ] && echo " + presentWord + "; ")
 	}
 	b.WriteString("echo '" + osMarker + "'; " +
 		"grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null; ")

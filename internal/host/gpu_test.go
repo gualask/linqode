@@ -115,6 +115,22 @@ func TestNoGPUsIsNotAnEmptyCard(t *testing.T) {
 	}
 }
 
+// ParseFloat accepts "NaN" and "Inf", which no reading is. A field that says
+// either is a field the driver did not answer, and stays unreported.
+func TestANonFiniteNVIDIAReadingIsNotOne(t *testing.T) {
+	gpus := ParseGPUs([]byte("#nvidia\n0, NVIDIA A10, NaN, Inf, 23028, -Inf, NaN\n"))
+	if len(gpus) != 1 {
+		t.Fatalf("got %d cards", len(gpus))
+	}
+	gpu := gpus[0]
+	if gpu.BusyReported || gpu.MemUsedKB != 0 || gpu.TempMilliC != 0 || gpu.PowerWatts != 0 {
+		t.Errorf("a non-finite field was read as a number: %+v", gpu)
+	}
+	if gpu.MemTotalKB != 23028*1024 {
+		t.Errorf("MemTotalKB = %d, want the one finite field kept", gpu.MemTotalKB)
+	}
+}
+
 func TestGPUCommandGuardsTheSlowHalf(t *testing.T) {
 	command := GPUCommand()
 	// The AMD half is sysfs and costs what any other /sys read costs.
@@ -133,6 +149,12 @@ func TestGPUCommandGuardsTheSlowHalf(t *testing.T) {
 	}
 	if !strings.Contains(command, "--format=csv,noheader,nounits") {
 		t.Errorf("the query is not asked for in the shape parsed: %s", command)
+	}
+	// A driver that hangs — a card fallen off the bus does — must not hold
+	// the reading forever: it is bounded like the mount list.
+	if !strings.Contains(command, "then timeout 5 nvidia-smi") ||
+		!strings.Contains(command, "else nvidia-smi") {
+		t.Errorf("nvidia-smi has no time limit: %s", command)
 	}
 	// ioreg is on every Mac and on no Linux host, so the guard is what keeps
 	// a server from reporting a missing binary on stderr.

@@ -16,43 +16,54 @@ const (
 	cgroupIOMarker   = "#cgio"
 	cgroupPIDsMarker = "#cgpids"
 	cgroupNetMarker  = "#cgnet"
+	// cgroupUptimeMarker is the host's clock, which the CPU counters are
+	// divided by rather than the client's.
+	cgroupUptimeMarker = "#cguptime"
 )
 
-// The two places a container's cgroup lives under v2 — the cgroupfs driver
-// puts it under `docker/`, the systemd driver under a `.scope` — and the
-// controller-per-directory layout of v1. All four are globbed in one command:
-// a path that does not exist matches nothing and costs nothing.
+// Where a container's cgroup directory lives under v2: under `docker/` with
+// the cgroupfs driver, in a `.scope` under `system.slice` with the systemd
+// driver, and — rootless docker, which is always the systemd driver — in a
+// `.scope` under the user's own manager, `user@<uid>.service/user.slice`.
+var cgroupV2Dirs = []string{
+	"/sys/fs/cgroup/docker/*",
+	"/sys/fs/cgroup/system.slice/docker-*.scope",
+	"/sys/fs/cgroup/user.slice/user-*.slice/user@*.service/user.slice/docker-*.scope",
+}
+
+// cgroupV1Dirs is the same for v1, where every controller is a hierarchy of
+// its own: one directory per controller, for both drivers. `cpuacct` is a
+// symlink to the combined `cpu,cpuacct` where the two are co-mounted, so the
+// one name reaches either. Rootless docker needs v2 and has no v1 form.
+func cgroupV1Dirs(controller string) []string {
+	return []string{
+		"/sys/fs/cgroup/" + controller + "/docker/*",
+		"/sys/fs/cgroup/" + controller + "/system.slice/docker-*.scope",
+	}
+}
+
+// cgroupGlobs is every layout above, per reading. All of them are globbed in
+// one command: a path that does not exist matches nothing and costs nothing.
 var cgroupGlobs = map[string][]string{
-	"cpu": {
-		"/sys/fs/cgroup/docker/*/cpu.stat",
-		"/sys/fs/cgroup/system.slice/docker-*.scope/cpu.stat",
-		"/sys/fs/cgroup/cpuacct/docker/*/cpuacct.usage",
-	},
-	"mem": {
-		"/sys/fs/cgroup/docker/*/memory.current",
-		"/sys/fs/cgroup/system.slice/docker-*.scope/memory.current",
-		"/sys/fs/cgroup/memory/docker/*/memory.usage_in_bytes",
-	},
-	"file": {
-		"/sys/fs/cgroup/docker/*/memory.stat",
-		"/sys/fs/cgroup/system.slice/docker-*.scope/memory.stat",
-		"/sys/fs/cgroup/memory/docker/*/memory.stat",
-	},
-	"max": {
-		"/sys/fs/cgroup/docker/*/memory.max",
-		"/sys/fs/cgroup/system.slice/docker-*.scope/memory.max",
-		"/sys/fs/cgroup/memory/docker/*/memory.limit_in_bytes",
-	},
-	"io": {
-		"/sys/fs/cgroup/docker/*/io.stat",
-		"/sys/fs/cgroup/system.slice/docker-*.scope/io.stat",
-		"/sys/fs/cgroup/blkio/docker/*/blkio.throttle.io_service_bytes",
-	},
-	"pids": {
-		"/sys/fs/cgroup/docker/*/pids.current",
-		"/sys/fs/cgroup/system.slice/docker-*.scope/pids.current",
-		"/sys/fs/cgroup/pids/docker/*/pids.current",
-	},
+	"cpu":  cgroupFiles("cpu.stat", "cpuacct", "cpuacct.usage"),
+	"mem":  cgroupFiles("memory.current", "memory", "memory.usage_in_bytes"),
+	"file": cgroupFiles("memory.stat", "memory", "memory.stat"),
+	"max":  cgroupFiles("memory.max", "memory", "memory.limit_in_bytes"),
+	"io":   cgroupFiles("io.stat", "blkio", "blkio.throttle.io_service_bytes"),
+	"pids": cgroupFiles("pids.current", "pids", "pids.current"),
+}
+
+// cgroupFiles names one reading's file in every v2 layout and, under the v1
+// controller that holds it, in every v1 one.
+func cgroupFiles(v2File, v1Controller, v1File string) []string {
+	var globs []string
+	for _, dir := range cgroupV2Dirs {
+		globs = append(globs, dir+"/"+v2File)
+	}
+	for _, dir := range cgroupV1Dirs(v1Controller) {
+		globs = append(globs, dir+"/"+v1File)
+	}
+	return globs
 }
 
 // StatsCgroupCommand builds the remote command sampling every container's
@@ -63,8 +74,12 @@ var cgroupGlobs = map[string][]string{
 // The network counters are the exception, since they are addressed by process
 // rather than by container: the pids come from the same `docker inspect` that
 // already answers the restart counts.
+//
+// /proc/uptime goes first, read in the same round trip: it is the interval
+// the CPU counters accumulated over, which the reply's arrival is not.
 func StatsCgroupCommand(pids []int) string {
 	var b strings.Builder
+	b.WriteString("echo '" + cgroupUptimeMarker + "'; cat /proc/uptime 2>/dev/null; ")
 	section := func(marker, pattern string, globs []string) {
 		b.WriteString("echo '" + marker + "'; grep -H " + shellQuote(pattern) + " ")
 		b.WriteString(strings.Join(globs, " "))

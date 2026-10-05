@@ -1,6 +1,9 @@
 package probe
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -102,8 +105,15 @@ Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docke
 	}
 	// The daemon's own sentence names the socket it tried, which is more
 	// useful than anything paraphrasing it.
-	if !strings.Contains(result.ComposeUnavailable(), "unix:///var/run/docker.sock") {
-		t.Errorf("the daemon's own message was dropped: %q", result.ComposeUnavailable())
+	if !strings.Contains(result.DaemonMessage, "unix:///var/run/docker.sock") {
+		t.Errorf("the daemon's own message was dropped: %q", result.DaemonMessage)
+	}
+	// A daemon that was down at the moment of connecting — restarting, or
+	// started a minute later — is an outage, not a host without compose.
+	// Turning compose off for the session would outlast it; the refresh says
+	// what docker says, and recovers when docker does.
+	if !result.CanCompose() {
+		t.Errorf("a daemon that was not running turned compose off: %q", result.ComposeUnavailable())
 	}
 }
 
@@ -266,6 +276,55 @@ func TestAMissingComposeDirIsPermanent(t *testing.T) {
 	if !strings.Contains(result.ComposeUnavailable(), "/srv/gone") {
 		t.Errorf("ComposeUnavailable() = %q, which does not name the path",
 			result.ComposeUnavailable())
+	}
+}
+
+// `compose_dir = "~/app"` is the form the README documents. Run through a
+// real shell with HOME pointing at a temp dir — and an empty PATH, so no
+// docker on this machine joins in — the directory under it is found.
+func TestATildeComposeDirIsLookedForUnderHome(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh on this machine")
+	}
+	home := t.TempDir()
+	if err := os.Mkdir(filepath.Join(home, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(sh, "-c", Command("~/app"))
+	cmd.Env = []string{"HOME=" + home, "PATH=" + t.TempDir()}
+	out, _ := cmd.Output()
+	if got := Parse(out, "~/app").Directory; got != DirectoryPresent {
+		t.Errorf("Directory = %v, want DirectoryPresent; output %q", got, out)
+	}
+}
+
+// BusyBox before 1.30 has a `timeout` that wants `-t 5`, so `command -v`
+// finds it and `timeout 5 docker version` runs a program named `5`: a daemon
+// that answered read as one that did not. Against that `timeout`, through a
+// real shell, the daemon is asked unbounded and its version comes back.
+func TestAnOldBusyBoxTimeoutIsNotADeadDaemon(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh on this machine")
+	}
+	bin := t.TempDir()
+	for name, body := range map[string]string{
+		"timeout": "[ \"$1\" = -t ] || { echo \"timeout: can't execute '$1'\" >&2; exit 127; }\nshift 2; exec \"$@\"\n",
+		"true":    "exit 0\n",
+		"docker": "case \"$1\" in\nversion) echo 27.1.2;;\ncompose) echo 2.29.1;;\n" +
+			"context) echo default;;\nesac\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command(sh, "-c", Command(""))
+	cmd.Env = []string{"PATH=" + bin}
+	out, _ := cmd.Output()
+	result := Parse(out, "")
+	if result.Docker != DockerReady || result.DaemonVersion != "27.1.2" {
+		t.Errorf("Docker = %v %q (%q), want DockerReady 27.1.2", result.Docker, result.DaemonMessage, out)
 	}
 }
 

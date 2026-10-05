@@ -179,6 +179,67 @@ func TestDeltaDerivesThePercentages(t *testing.T) {
 	}
 }
 
+// The counters accumulated over the host's interval, not over the gap
+// between two replies arriving. Five seconds apart on the host, two apart on
+// the client — the first reply held up by the link — and half a core busy
+// is still half a core, not 125%.
+func TestDeltaDividesByTheHostsClock(t *testing.T) {
+	services := []Service{{Name: "app-web-1", ID: "aaaaaaaaaaaa"}}
+	before := ParseCgroupSample([]byte("#cguptime\n3600.00 14000.50\n"+v2Sample), time.Unix(100, 0))
+	after := ParseCgroupSample([]byte("#cguptime\n3605.00 14010.50\n"+v2Sample), time.Unix(102, 0))
+	if after.Uptime != 3605*time.Second {
+		t.Fatalf("Uptime = %v", after.Uptime)
+	}
+	reading := after.Containers["aaaaaaaaaaaa1111"]
+	reading.CPUMicros += 2_500_000
+	after.Containers["aaaaaaaaaaaa1111"] = reading
+
+	if got := before.Delta(after, services, 0)[0].CPUPerc; got != "50.00%" {
+		t.Errorf("CPUPerc = %q, want half a core over the host's five seconds", got)
+	}
+	// A host that did not answer leaves the client's clock to stand in.
+	noClock := ParseCgroupSample([]byte(v2Sample), time.Unix(102, 0))
+	noClock.Containers["aaaaaaaaaaaa1111"] = reading
+	if got := before.Delta(noClock, services, 0)[0].CPUPerc; got != "125.00%" {
+		t.Errorf("CPUPerc = %q, want the client's two seconds as the fallback", got)
+	}
+	if !strings.Contains(StatsCgroupCommand(nil), "cat /proc/uptime") {
+		t.Error("the host's clock is not read with the counters")
+	}
+}
+
+// `docker restart` keeps the container's id and starts its cgroup from zero,
+// so the counter goes backwards across the interval. That interval belongs
+// to no single life of the container: no percentage, not 0%.
+func TestACounterResetIsNoReading(t *testing.T) {
+	services := []Service{{Name: "app-web-1", ID: "aaaaaaaaaaaa"}}
+	before := ParseCgroupSample([]byte(v2Sample), time.Unix(100, 0))
+	after := ParseCgroupSample([]byte(v2Sample), time.Unix(105, 0))
+	reading := after.Containers["aaaaaaaaaaaa1111"]
+	reading.CPUMicros = 1_000
+	after.Containers["aaaaaaaaaaaa1111"] = reading
+
+	stats := before.Delta(after, services, 0)
+	if _, ok := stats[0].CPUPercent(); ok {
+		t.Errorf("CPUPerc = %q across a restart, want none", stats[0].CPUPerc)
+	}
+}
+
+// A container on the host's network reads the host's interfaces through its
+// process. Those are the machine's counters, and NET says unknown rather than
+// attributing them to one container.
+func TestAHostNetworkContainerHasNoNetworkReading(t *testing.T) {
+	services := []Service{{Name: "app-agent-1", ID: "aaaaaaaaaaaa", Pid: 469832, HostNetwork: true}}
+	sample := ParseCgroupSample([]byte(v2Sample), time.Unix(100, 0))
+	stats := (CgroupSample{}).Delta(sample, services, 0)
+	if len(stats) != 1 {
+		t.Fatalf("got %d readings", len(stats))
+	}
+	if got := stats[0].NetAmount(); got != "-" {
+		t.Errorf("NetAmount = %q, want unknown", got)
+	}
+}
+
 // The first reading after connecting has nothing to be measured against. It
 // still fills in everything a single reading can say.
 func TestDeltaWithoutAPreviousReading(t *testing.T) {
@@ -222,6 +283,46 @@ func TestStatsCgroupCommandCoversBothLayouts(t *testing.T) {
 	// A reading that does not exist on this host must not fail the rest.
 	if !strings.Contains(command, "2>/dev/null") {
 		t.Error("a missing path would put an error in the output")
+	}
+}
+
+// v1 with the systemd driver, and rootless docker under the user's own
+// systemd manager, put a container where neither of the layouts above looks.
+// Both must be asked for, and both must reach the container.
+func TestTheSystemdV1AndRootlessLayoutsReachTheirContainers(t *testing.T) {
+	command := StatsCgroupCommand(nil)
+	for _, want := range []string{
+		"/sys/fs/cgroup/cpuacct/system.slice/docker-*.scope/cpuacct.usage",
+		"/sys/fs/cgroup/memory/system.slice/docker-*.scope/memory.usage_in_bytes",
+		"/sys/fs/cgroup/memory/system.slice/docker-*.scope/memory.stat",
+		"/sys/fs/cgroup/memory/system.slice/docker-*.scope/memory.limit_in_bytes",
+		"/sys/fs/cgroup/blkio/system.slice/docker-*.scope/blkio.throttle.io_service_bytes",
+		"/sys/fs/cgroup/pids/system.slice/docker-*.scope/pids.current",
+		"/sys/fs/cgroup/user.slice/user-*.slice/user@*.service/user.slice/docker-*.scope/cpu.stat",
+		"/sys/fs/cgroup/user.slice/user-*.slice/user@*.service/user.slice/docker-*.scope/memory.current",
+	} {
+		if !strings.Contains(command, want) {
+			t.Errorf("%q missing from the command", want)
+		}
+	}
+
+	const v1 = "/sys/fs/cgroup/%s/system.slice/docker-cccccccccccc3333.scope/"
+	const rootless = "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/user.slice/docker-dddddddddddd4444.scope/"
+	raw := strings.NewReplacer("%s", "cpuacct").Replace("#cgcpu\n"+v1+"cpuacct.usage:2000000000\n") +
+		rootless + "cpu.stat:usage_usec 3000000\n" +
+		"#cgmem\n" + strings.Replace(v1, "%s", "memory", 1) + "memory.usage_in_bytes:4096\n" +
+		rootless + "memory.current:8192\n" +
+		"#cgpids\n" + strings.Replace(v1, "%s", "pids", 1) + "pids.current:3\n"
+	sample := ParseCgroupSample([]byte(raw), time.Unix(100, 0))
+
+	if got := sample.Containers["cccccccccccc3333"]; got.CPUMicros != 2_000_000 || got.MemBytes != 4096 || got.PIDs != 3 {
+		t.Errorf("v1 systemd container = %+v", got)
+	}
+	if got := sample.Containers["dddddddddddd4444"]; got.CPUMicros != 3_000_000 || got.MemBytes != 8192 {
+		t.Errorf("rootless container = %+v", got)
+	}
+	if len(sample.Containers) != 2 {
+		t.Errorf("containers = %+v, want exactly the two", sample.Containers)
 	}
 }
 

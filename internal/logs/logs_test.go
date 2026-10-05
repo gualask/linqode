@@ -2,6 +2,7 @@ package logs
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -35,6 +36,52 @@ func TestReplacesInvalidUTF8(t *testing.T) {
 	var a LineAssembler
 	if got := a.Push([]byte("a\xff b\n")); !slices.Equal(got, []string{"a� b"}) {
 		t.Errorf("got %q", got)
+	}
+}
+
+// Nothing guarantees a newline ever arrives. A progress bar redrawn with
+// `\r` for as long as a command runs is one line to this assembler, and it
+// must cost a bounded amount of memory however long that is: 64 MiB of it
+// here, fed the way a stream feeds it.
+func TestAnEndlessLineStaysBounded(t *testing.T) {
+	var a LineAssembler
+	chunk := []byte(strings.Repeat("progress 42%\r", 32<<10/13*2))
+	var lines []string
+	for fed := 0; fed < 64<<20; fed += len(chunk) {
+		lines = append(lines, a.Push(chunk)...)
+		if c := cap(a.partial); c > 2*MaxLineBytes {
+			t.Fatalf("after %d bytes the partial line holds %d", fed, c)
+		}
+	}
+	lines = append(lines, a.Push([]byte("\nnext\n"))...)
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want the truncated one and the next", len(lines))
+	}
+	if !strings.HasSuffix(lines[0], TruncatedSuffix) ||
+		len(lines[0]) != MaxLineBytes+len(TruncatedSuffix) {
+		t.Errorf("truncated line is %d bytes, ends %q", len(lines[0]), lines[0][len(lines[0])-20:])
+	}
+	if lines[1] != "next" {
+		t.Errorf("the line after it = %q", lines[1])
+	}
+}
+
+// A line of exactly the limit is whole; the cut never splits a rune; and a
+// stream ending while the rest of a long line is being thrown away has no
+// final line to report.
+func TestTheLineLimitsEdges(t *testing.T) {
+	var a LineAssembler
+	exact := strings.Repeat("x", MaxLineBytes)
+	if got := a.Push([]byte(exact + "\n")); len(got) != 1 || got[0] != exact {
+		t.Errorf("a line at the limit was cut")
+	}
+	long := strings.Repeat("x", MaxLineBytes-1) + "è and more"
+	got := a.Push([]byte(long))
+	if want := strings.Repeat("x", MaxLineBytes-1) + TruncatedSuffix; len(got) != 1 || got[0] != want {
+		t.Errorf("the cut split a rune: %q", got[0][MaxLineBytes-4:])
+	}
+	if line, ok := a.Finish(); ok {
+		t.Errorf("the discarded rest came back as %q", line)
 	}
 }
 

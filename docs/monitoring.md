@@ -1,6 +1,6 @@
 # Monitoring
 
-_Last updated: 2026-09-15._
+_Last updated: 2026-10-05._
 
 What Linqode reads off a remote host, how often, and why each reading is on
 the tier it is on. The screen those readings are drawn on is
@@ -122,6 +122,14 @@ daemon, so a host whose socket refuses this user still reports which compose it
 has — which is what makes "no docker here" and "docker is here and will not
 talk to you" two different sentences instead of one empty table.
 
+**Only what will not change while the session is open is a finding.** No
+docker, a socket that refuses this user, and a compose this tool does not
+drive turn compose off; a daemon that did not answer does not, whether it timed
+out or said it is not running. A daemon restarting at the moment of
+connecting answers a minute later, and a finding would outlast the outage by
+the rest of the session. That case is left to the refresh, which shows what
+docker says until docker says something else.
+
 What is done with the findings is [interface.md](interface.md) for the screen
 and [operations.md](operations.md) for the machine adapter.
 
@@ -133,7 +141,7 @@ Selection is preserved on the same container across refreshes; a failed
 refresh shows the error while the last good table stays on screen.
 
 Restart counts are not in that output, so the same refresh follows it with
-`docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}}'` over
+`docker inspect --format '{{.Name}} {{.RestartCount}} {{.State.Pid}} {{.HostConfig.NetworkMode}}'` over
 the containers `ps` just named — cheaper than a second compose invocation,
 which would pay the compose CLI's startup again to re-derive a list already
 in hand. It is best-effort: it never fails a refresh, and inspect's non-zero
@@ -141,7 +149,10 @@ exit is ignored, since a container that disappeared between the two commands
 makes it fail while the remaining lines are still good. Counts that did not
 arrive render as `-`, distinct from a container that has genuinely never
 restarted. The pids on the same line are what the container network counters
-are addressed by.
+are addressed by, and the network mode is why one of them is not: a container
+with `network_mode: host` has no namespace of its own, so its process's
+counters are the whole machine's, and its NET column says `-` rather than
+attributing them to it.
 
 ### The daemon is watched, not polled
 
@@ -215,6 +226,12 @@ cost: `df` with no argument calls statfs on every mount, and a hung network
 mount holds it for as long as the kernel allows. The one reading that is
 always wanted must not wait on the list.
 
+Whether `timeout` exists is asked by running `timeout 1 true`, not with
+`command -v`: BusyBox before 1.30 has one that wants `-t 5`, reads `timeout 5
+df` as a program named `5`, and would lose the list to its error. The probe's
+daemon question uses the same guard, where the same `timeout` would have made
+a daemon that answered read as one that did not.
+
 The list keeps provisioned storage, including a dedicated filesystem at
 `/var/lib/docker`. Pseudo-filesystems and system bookkeeping mounts are
 excluded; duplicate bind mounts are shown once. **`/` is kept
@@ -260,10 +277,22 @@ privilege it did not already have — including the network counters, which
 look as though they should need one and do not: the ptrace check that guards
 `/proc/<pid>/environ` does not apply to `net`.
 
-Both cgroup v1 and v2 layouts are read, and both drivers of v2 (`docker/<id>`
-with cgroupfs, `system.slice/docker-<id>.scope` with systemd). `compose ps`
+Both cgroup v1 and v2 layouts are read, each with both drivers (`docker/<id>`
+with cgroupfs, `system.slice/docker-<id>.scope` with systemd — under v1, in
+every controller's own hierarchy), and rootless docker, whose scopes sit under
+the user's own manager at
+`user.slice/user-<uid>.slice/user@<uid>.service/user.slice/`. Every layout is
+one more glob in the same `grep`: one that matches nothing costs nothing.
+`compose ps`
 reports a twelve-character id and the cgroup directory carries the full one,
 so readings are matched by prefix with a twelve-character floor.
+
+The CPU percentage is divided by the host's clock, for the reason the host
+batch's is: `/proc/uptime` is read in the same batch, a few bytes and no
+round trip, because the moment a reply arrives is not the moment its counters
+were read. A reply held up by the link and the next one arriving promptly
+would otherwise draw a steady load as a dip and a spike. The client's clock
+stands in only for a host that does not answer.
 
 **Measured at 6 ms against `docker stats --no-stream`'s 2.03 s.** That two
 seconds is fixed sampling latency, not project size: the daemon reads each
@@ -333,6 +362,14 @@ have been 4096 and 100 on every mainstream Linux for twenty years and neither
 is guaranteed, `getconf` costs nothing in a batch that already forks, and
 there is a default for the host that does not answer.
 
+The files are read with `grep -H ''` rather than `cat`, for about fifteen more
+bytes a process. A process names itself, and the name may contain a newline:
+concatenated, a name of `\n#procs` began a line that passed for a section
+marker, and that process and every one read after it left the table. With
+each line prefixed by the file it came from, a record is the run of lines
+naming the same file, which nothing a process writes can forge — and the
+newline is drawn as `?`, the way `ps` draws it.
+
 ### Graphics cards
 
 The one reading with no single place to be read from, and the asymmetry
@@ -363,7 +400,8 @@ come back in no order — `PerformanceStatistics` before `model` on this
 machine — and a second accelerator would otherwise be unsplittable.
 
 All three vendors are asked in a single exec, with the NVIDIA and Apple halves
-behind `command -v`. This is the guard side of the probe's own rule: it
+behind `command -v` — and `nvidia-smi`, which can hang on a driver in trouble,
+under the mount list's `timeout 5` as well. This is the guard side of the probe's own rule: it
 changes one command's fallback and nothing else, so it costs a shell builtin
 rather than probe state. A host with none matches no glob and starts no tool —
 **2 ms and 23 bytes**, measured. Intel is left out; it offers little without

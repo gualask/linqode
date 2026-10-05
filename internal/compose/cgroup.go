@@ -45,9 +45,26 @@ type CgroupReading struct {
 // CgroupSample is one reading of every container on the host, keyed by
 // container id, plus the pid-keyed network counters that arrived with it.
 type CgroupSample struct {
-	At         time.Time
+	// At is when the reply arrived, on the client's clock.
+	At time.Time
+	// Uptime is the host's /proc/uptime read in the same batch as the
+	// counters, and zero where the host did not answer it.
+	Uptime     time.Duration
 	Containers map[string]CgroupReading
 	Networks   map[int]CgroupReading
+}
+
+// interval is how long the counters accumulated between two samples. The
+// host's own clock is the one they were accumulated against: the client's
+// says when each reply *arrived*, so a reply delayed by a slow link and the
+// one after it arriving promptly would turn a steady load into a dip and a
+// spike. The client's clock stands in only where a host did not answer. A
+// host clock that went backwards is a reboot, and no interval at all.
+func (previous CgroupSample) interval(current CgroupSample) time.Duration {
+	if previous.Uptime > 0 && current.Uptime > 0 {
+		return current.Uptime - previous.Uptime
+	}
+	return current.At.Sub(previous.At)
 }
 
 func saturatingSub(a, b uint64) uint64 {
@@ -86,10 +103,10 @@ const shortIDLength = 12
 // cannot tell where a row came from.
 //
 // The percentages are the only thing a single reading cannot give. CPU is the
-// time consumed between the two readings against the wall clock between them,
-// so a container using two cores reads as 200% — docker's convention.
+// time consumed between the two readings against the host's clock between
+// them, so a container using two cores reads as 200% — docker's convention.
 func (previous CgroupSample) Delta(current CgroupSample, services []Service, hostMemBytes uint64) []ContainerStats {
-	elapsed := current.At.Sub(previous.At)
+	elapsed := previous.interval(current)
 	sample := make([]ContainerStats, 0, len(services))
 	for _, service := range services {
 		reading, ok := current.Reading(service.ID)
@@ -99,8 +116,12 @@ func (previous CgroupSample) Delta(current CgroupSample, services []Service, hos
 		stats := ContainerStats{Name: service.Name, ID: service.ID}
 
 		stats.CPUPerc = "-"
-		if before, seen := previous.Reading(service.ID); seen && elapsed > 0 {
-			busy := saturatingSub(reading.CPUMicros, before.CPUMicros)
+		// A counter that went backwards was reset: `docker restart` keeps the
+		// id and starts the cgroup again from zero. The interval straddles two
+		// lives of the container, and 0% would be a reading it never had.
+		if before, seen := previous.Reading(service.ID); seen && elapsed > 0 &&
+			reading.CPUMicros >= before.CPUMicros {
+			busy := reading.CPUMicros - before.CPUMicros
 			percent := float64(busy) / float64(elapsed.Microseconds()) * 100
 			stats.CPUPerc = formatPercent(percent)
 		}
@@ -117,7 +138,11 @@ func (previous CgroupSample) Delta(current CgroupSample, services []Service, hos
 		}
 
 		stats.BlockIO = formatDecimal(reading.ReadBytes) + " / " + formatDecimal(reading.WriteBytes)
-		if network, ok := current.Networks[service.Pid]; ok {
+		// A container on the host's network shares the host's interfaces,
+		// so its process's counters are the machine's: unknown, not those.
+		if service.HostNetwork {
+			stats.NetIO = "-"
+		} else if network, ok := current.Networks[service.Pid]; ok {
 			stats.NetIO = formatDecimal(network.RxBytes) + " / " + formatDecimal(network.TxBytes)
 		}
 		if reading.PIDs > 0 {

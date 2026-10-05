@@ -22,6 +22,7 @@ package host
 // have cost.
 
 import (
+	"math"
 	"strconv"
 	"strings"
 )
@@ -66,7 +67,7 @@ func GPUCommand() string {
 		"/sys/class/drm/card*/device/hwmon/hwmon*/temp1_input " +
 		"/sys/class/drm/card*/device/hwmon/hwmon*/power1_average 2>/dev/null; " +
 		"echo '" + nvidiaMarker + "'; " +
-		"if command -v nvidia-smi >/dev/null 2>&1; then " + nvidiaQuery + "; fi; " +
+		"if command -v nvidia-smi >/dev/null 2>&1; then " + bounded(nvidiaQuery) + "; fi; " +
 		"echo '" + appleMarker + "'; " +
 		"if command -v ioreg >/dev/null 2>&1; then " + appleQuery + "; fi"
 }
@@ -250,7 +251,7 @@ func nvidiaNumber(text string) (float64, bool) {
 		return 0, false
 	}
 	value, err := strconv.ParseFloat(text, 64)
-	if err != nil || value < 0 {
+	if err != nil || value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
 		return 0, false
 	}
 	return value, true
