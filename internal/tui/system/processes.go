@@ -24,6 +24,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/gualask/linqode/internal/host"
+	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/theme"
 )
 
@@ -275,7 +276,7 @@ func (m *Model) gpuRows(g grid) []string {
 		if gpu.PowerWatts > 0 {
 			tail = append(tail, fmt.Sprintf("%.0fW", gpu.PowerWatts))
 		}
-		tail = append(tail, gpu.Name)
+		tail = append(tail, panel.Plain(gpu.Name))
 		text += theme.Dim.Render("   " + strings.Join(tail, "   "))
 		rows = append(rows, m.meterRow(g, label, percent, theme.Usage(percent), text))
 	}

@@ -17,9 +17,11 @@ package panel
 import (
 	"slices"
 	"strings"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gualask/linqode/internal/tui/theme"
 )
@@ -144,6 +146,34 @@ func fitLine(line string, width int) string {
 		return line + strings.Repeat(" ", gap)
 	}
 	return line
+}
+
+// Plain makes text that did not come from this program safe to draw as part
+// of one line: a process name, a mount point, a sensor's label, a container
+// name, a line of a log. Escape sequences are dropped whole, line breaks and
+// tabs become spaces, and every other control character — C0 and C1, BEL and
+// ESC among them — goes.
+//
+// Anything a host reports is text the host chose, and a terminal reads some
+// text as instructions: a process can name itself `\x1b]0;…\x07` and retitle
+// the operator's window, or carry a line break that pushes every row under it
+// down one. It is applied where such text is drawn rather than where it
+// arrives, because the readings keep their own spelling for everything that
+// is not drawing — matching a mount point across samples, searching a log.
+func Plain(text string) string {
+	if strings.IndexFunc(text, unicode.IsControl) < 0 {
+		return text
+	}
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '\n', '\r', '\t':
+			return ' '
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, ansi.Strip(text))
 }
 
 // Hint is one entry of the footer: what a key does, and how readily it is

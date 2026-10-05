@@ -71,12 +71,7 @@ func (m *Model) maxDetailScroll() int {
 // body, stats panel included, since it changes what the screen is about.
 func (m *Model) detailView() string {
 	var b strings.Builder
-	b.WriteString(theme.Bold.Render(" linqode "))
-	b.WriteString(terminalText(m.target))
-	b.WriteString("  ")
-	b.WriteString(theme.Cyan.Render(terminalText(m.title)))
-	b.WriteString(theme.Magenta.Render("  · line"))
-	b.WriteString("\n")
+	b.WriteString(m.header(theme.Magenta.Render("  · line")) + "\n")
 
 	lines := m.detailLines()
 	m.detailScroll = min(m.detailScroll, m.maxDetailScroll())
@@ -113,10 +108,10 @@ func (m *Model) detailLines() []string {
 	message, hasMessage := record.Message()
 	var head []string
 	if hasTime {
-		head = append(head, theme.Dim.Render(terminalText(timestamp)))
+		head = append(head, theme.Dim.Render(panel.Plain(timestamp)))
 	}
 	if hasLevel {
-		head = append(head, levelStyle(level).Bold(true).Render(terminalText(level)))
+		head = append(head, levelStyle(level).Bold(true).Render(panel.Plain(level)))
 	}
 	if len(head) > 0 {
 		out = append(out, " "+strings.Join(head, "  "), "")
@@ -137,12 +132,12 @@ func (m *Model) detailLines() []string {
 			continue
 		}
 		fields = append(fields, field)
-		keyWidth = max(keyWidth, ansi.StringWidth(terminalText(field.Key)))
+		keyWidth = max(keyWidth, ansi.StringWidth(panel.Plain(field.Key)))
 	}
 	keyWidth = min(keyWidth, maxKeyColumn)
 	valueWidth := max(width-keyWidth-2, 10)
 	for _, field := range fields {
-		key := ansi.Truncate(terminalText(field.Key), keyWidth, "…")
+		key := ansi.Truncate(panel.Plain(field.Key), keyWidth, "…")
 		rows := m.wrapped(field.Value, valueWidth)
 		for i, row := range rows {
 			label := strings.Repeat(" ", keyWidth)
@@ -165,7 +160,7 @@ func (m *Model) detailLines() []string {
 func (m *Model) wrapped(text string, width int) []string {
 	var rows []string
 	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
-		wrapped := ansi.Wrap(terminalText(line), width, "")
+		wrapped := ansi.Wrap(panel.Plain(line), width, "")
 		for _, row := range strings.Split(wrapped, "\n") {
 			rows = append(rows, highlightIn([]segment{{row, lipgloss.NewStyle()}}, m.query, false))
 		}

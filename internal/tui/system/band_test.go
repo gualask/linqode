@@ -583,3 +583,29 @@ func TestWideMountPointsAreCutByCells(t *testing.T) {
 		}
 	}
 }
+
+// A label the host chose — a mount point, a process name — is drawn as text:
+// an escape that retitles the operator's window, or a line break that pushes
+// every row under it down one, must not reach the terminal.
+func TestHostTextReachesTheScreenAsText(t *testing.T) {
+	if got := pad("\x1b]0;pwned\x07x", 20); strings.ContainsAny(got, "\x1b\x07") {
+		t.Errorf("pad let a control through: %q", got)
+	}
+	metrics := richMetrics()
+	metrics.Filesystems[1].Mount = "/var\x1b]0;pwned\x07"
+	metrics.Filesystems[1].Device = "/dev/sdb\n1"
+	metrics.Sensors = []host.Sensor{{Chip: "nvme", Label: "Comp\x1b[2Jsite", MilliC: 71_000}}
+	m := sampled(metrics)
+	m.SetOpen(true)
+	m.SetSize(150, 40)
+	processes := running()
+	processes.Processes[0].Name = "evil\x1b]0;pwned\x07\r"
+	m.SetProcesses(processes, nil)
+	m.SetGPUs([]host.GPU{{Name: "A10\x07\x1b[1A", BusyPercent: 10,
+		BusyReported: true, MemUsedKB: 1, MemTotalKB: 2}}, nil)
+	for name, view := range map[string]string{"band": m.Band(150), "view": m.View()} {
+		if strings.ContainsAny(view, "\x1b\x07\r") {
+			t.Errorf("the %s drew a control character: %q", name, view)
+		}
+	}
+}

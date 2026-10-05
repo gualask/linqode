@@ -70,7 +70,7 @@ func (m *Model) renderLivePanel(width int) string {
 	rows := m.liveRows()
 	layout := liveLayoutFor(rows, width)
 	title := m.liveTitle(rows, layout)
-	rule := theme.Dim.Render(" ──" + title + strings.Repeat("─", max(width-len(title)-4, 0)))
+	rule := theme.Dim.Render(" ──" + title + strings.Repeat("─", max(width-lipgloss.Width(title)-4, 0)))
 	if len(rows) == 0 {
 		return rule + "\n" + theme.Dim.Render("  "+m.emptyLiveHint())
 	}

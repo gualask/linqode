@@ -24,17 +24,14 @@ func (m *Model) View() string {
 		return m.detailView()
 	}
 	var b strings.Builder
-	b.WriteString(theme.Bold.Render(" linqode "))
-	b.WriteString(terminalText(m.target))
-	b.WriteString("  ")
-	b.WriteString(theme.Cyan.Render(terminalText(m.title)))
+	tags := ""
 	if m.structuredRendering() {
-		b.WriteString(theme.Magenta.Render("  · json"))
+		tags += theme.Magenta.Render("  · json")
 	}
 	if m.follow {
-		b.WriteString(theme.Green.Render("  · following"))
+		tags += theme.Green.Render("  · following")
 	}
-	b.WriteString("\n")
+	b.WriteString(m.header(tags) + "\n")
 	statsOn := m.statsDrawn()
 	logWidth := m.width
 	if statsOn {
@@ -94,12 +91,21 @@ func (m *Model) footer() string {
 		return m.inputFooter()
 	}
 	if m.notice != "" {
-		return m.fitFooter(theme.Yellow.Render(" " + terminalText(m.notice)))
+		return m.fitFooter(theme.Yellow.Render(" " + panel.Plain(m.notice)))
 	}
 	if m.ended {
 		return m.fitFooter(m.endedFooter())
 	}
 	return m.activeFooter()
+}
+
+// header is the view's first line: the session, what is being followed, and
+// the tags after it. It is cut to the width like a footer, for the same
+// reason: a title is whatever the operator typed after `!`, and one that
+// wrapped made the frame a row taller than the screen.
+func (m *Model) header(tags string) string {
+	return m.fitFooter(theme.Bold.Render(" linqode ") + panel.Plain(m.target) + "  " +
+		theme.Cyan.Render(panel.Plain(m.title)) + tags)
 }
 
 // fitFooter cuts a footer to the terminal's width. A footer that wraps is two
@@ -126,7 +132,7 @@ func (m *Model) inputFooter() string {
 	case inputFilter:
 		prompt, hint = " filter: ", `  key=value key!=value key="a b" · empty clears · esc cancel`
 	}
-	text := terminalText(m.inputText)
+	text := panel.Plain(m.inputText)
 	if m.width > 0 {
 		room := max(m.width-ansi.StringWidth(prompt)-1, 1) // the cursor's cell
 		width := ansi.StringWidth(text)
@@ -149,7 +155,7 @@ func (m *Model) endedFooter() string {
 	}
 	out := style.Render(" " + text)
 	if m.stderrNotice != "" {
-		out += theme.Red.Render("  · " + terminalText(m.stderrNotice))
+		out += theme.Red.Render("  · " + panel.Plain(m.stderrNotice))
 	}
 	return out
 }
@@ -165,10 +171,10 @@ func (m *Model) activeFooter() string {
 	// that has to fit the keys.
 	var parts []string
 	if m.store.Filter() != nil {
-		parts = append(parts, theme.Cyan.Render("f:"+terminalText(m.store.Filter().Expr())))
+		parts = append(parts, theme.Cyan.Render("f:"+panel.Plain(m.store.Filter().Expr())))
 	}
 	if m.query != "" {
-		parts = append(parts, theme.Yellow.Render("/"+terminalText(m.query)))
+		parts = append(parts, theme.Yellow.Render("/"+panel.Plain(m.query)))
 	}
 	return panel.Footer(m.globalHints(), strings.Join(parts, "  "), m.focusedHints(), m.width)
 }

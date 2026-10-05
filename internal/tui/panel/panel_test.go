@@ -278,3 +278,21 @@ func TestFooterOmitsTheDividerWhenOneHalfIsEmpty(t *testing.T) {
 		t.Errorf("a divider was drawn with nothing before it: %q", line)
 	}
 }
+
+// Text a host chose is drawn as text: a title-setting sequence, a bell, a
+// carriage return or a line break must not reach the terminal as one.
+func TestPlainDrawsHostTextAsText(t *testing.T) {
+	for in, want := range map[string]string{
+		"postgres":               "postgres",
+		"\x1b]0;pwned\x07x":      "x",
+		"\x1b[31mred\x1b[0m":     "red",
+		"two\nlines":             "two lines",
+		"tab\there\rand\u0085C1": "tab here andC1",
+		"bell\x07":               "bell",
+		"/データ":                   "/データ",
+	} {
+		if got := Plain(in); got != want {
+			t.Errorf("Plain(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

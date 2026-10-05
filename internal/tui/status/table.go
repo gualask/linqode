@@ -4,8 +4,10 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gualask/linqode/internal/compose"
+	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/theme"
 )
 
@@ -90,21 +92,30 @@ func (m *Model) renderTable(builder *strings.Builder, width, height int) {
 	rows := make([][]cell, len(m.services))
 	for index, service := range m.services {
 		rows[index] = m.serviceRow(service)
+		// Every cell is the daemon's word for something, and is drawn as
+		// text rather than as whatever a terminal would make of it.
+		for column := range rows[index] {
+			rows[index][column].text = panel.Plain(rows[index][column].text)
+		}
 	}
 	widths, gap := columnLayout(headers, rows, width)
 	separator := strings.Repeat(" ", gap)
+	// A cell is cut and padded by the cells it occupies, not its bytes: a
+	// service named in any script but ASCII was cut through the middle of a
+	// character, and its row came out short of the band above it.
 	pad := func(item cell, cellWidth int) string {
-		if len(item.text) > cellWidth {
+		text := item.text
+		if lipgloss.Width(text) > cellWidth {
 			if cellWidth <= 1 {
 				return strings.Repeat(".", max(cellWidth, 0))
 			}
-			return item.text[:cellWidth-1] + "…"
+			text = ansi.Truncate(text, cellWidth, "…")
 		}
-		fill := strings.Repeat(" ", cellWidth-len(item.text))
+		fill := strings.Repeat(" ", max(cellWidth-lipgloss.Width(text), 0))
 		if item.right {
-			return fill + item.text
+			return fill + text
 		}
-		return item.text + fill
+		return text + fill
 	}
 	line := func(cells []string) string { return " " + strings.Join(cells, separator) }
 	// The heading is a band across the whole terminal, not just the cells:
@@ -161,12 +172,12 @@ var columnGaps = []int{4, 3, 2}
 func columnLayout(headers []cell, rows [][]cell, width int) ([]int, int) {
 	natural := make([]int, len(headers))
 	for index, header := range headers {
-		natural[index] = len(header.text)
+		natural[index] = lipgloss.Width(header.text)
 	}
 	for _, row := range rows {
 		for index, item := range row {
 			if index < len(natural) {
-				natural[index] = max(natural[index], len(item.text))
+				natural[index] = max(natural[index], lipgloss.Width(item.text))
 			}
 		}
 	}
@@ -195,7 +206,7 @@ func columnLayout(headers []cell, rows [][]cell, width int) ([]int, int) {
 	widths := make([]int, len(natural))
 	copy(widths, natural)
 	last := len(widths) - 1
-	widths[last] = len(headers[last].text)
+	widths[last] = lipgloss.Width(headers[last].text)
 	// Shrink to fit before handing out slack: giving the last column a
 	// floor of its header width used to push the row past the terminal,
 	// which wrapped the header onto a second line. Taking from the widest

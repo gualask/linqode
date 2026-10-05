@@ -250,7 +250,12 @@ func (m *Model) line(index int) string {
 	if service, ok := m.services[event.Container]; ok {
 		name = service
 	}
+	// Both are the daemon's words: a container's name, an action or a health
+	// detail it has added since this list was written. Drawn as text, never
+	// as instructions to the terminal.
+	name = panel.Plain(name)
 	text, style := describe(event)
+	text = panel.Plain(text)
 	stamp := event.At.Format("15:04:05")
 
 	if index == m.cursor {

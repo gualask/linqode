@@ -32,6 +32,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/spark"
 	"github.com/gualask/linqode/internal/tui/theme"
 )
@@ -119,7 +120,7 @@ func (m *Model) meters() []meter {
 	// is the label, so which one it is showing is never in doubt.
 	if fullest, ok := metrics.Fullest(); ok {
 		percent := fullest.UsedPercent()
-		meters = append(meters, meter{fullest.Mount,
+		meters = append(meters, meter{panel.Plain(fullest.Mount),
 			formatKB(fullest.UsedKB) + "/" + formatKB(fullest.TotalKB),
 			theme.Usage(percent), percent})
 	}

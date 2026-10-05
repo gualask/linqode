@@ -261,3 +261,16 @@ func TestTheWindowFollowsTheCursor(t *testing.T) {
 		t.Errorf("the selected event scrolled out of its own window:\n%s", m.View())
 	}
 }
+
+// A container's name and an action the daemon reports are its words, drawn
+// as text: neither may carry an escape or a line break onto the screen.
+func TestTheDaemonsWordsAreDrawnAsText(t *testing.T) {
+	m := feed(compose.Event{At: at, Action: "exec\x1b]0;pwned\x07",
+		Container: "app-\x1b[2Jevil\n-1"})
+	for _, focused := range []bool{false, true} {
+		m.SetFocus(focused)
+		if view := m.View(); strings.ContainsAny(view, "\x1b\x07\n") {
+			t.Errorf("the feed drew a control character: %q", view)
+		}
+	}
+}
