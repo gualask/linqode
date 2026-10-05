@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/kevinburke/ssh_config"
 )
@@ -19,10 +18,6 @@ import (
 // defaultIdentities are the identity files tried in order when none is
 // configured, mirroring OpenSSH.
 var defaultIdentities = []string{"id_ed25519", "id_ecdsa", "id_rsa"}
-
-// defaultGlobalKnownHostsFiles are OpenSSH's system-wide known_hosts files,
-// read when they exist.
-var defaultGlobalKnownHostsFiles = []string{"/etc/ssh/ssh_known_hosts", "/etc/ssh/ssh_known_hosts2"}
 
 // Target is a fully resolved connection target.
 type Target struct {
@@ -38,21 +33,6 @@ type Target struct {
 	// IdentitiesOnly limits the agent to the keys of IdentityFiles, like
 	// OpenSSH's IdentitiesOnly.
 	IdentitiesOnly bool
-	// KnownHostsFiles are the user's known_hosts files, like OpenSSH's
-	// UserKnownHostsFile: all are consulted, trust-on-first-use writes to
-	// the first. Empty uses ~/.ssh/known_hosts.
-	KnownHostsFiles []string
-	// GlobalKnownHostsFiles are consulted too, never written.
-	GlobalKnownHostsFiles []string
-	// ConnectTimeout bounds the TCP connect and the SSH handshake, time
-	// spent at a prompt excluded. Zero uses defaultConnectTimeout.
-	ConnectTimeout time.Duration
-	// ServerAliveInterval is how often the server is asked whether it is
-	// still there; after ServerAliveCountMax unanswered asks in a row the
-	// connection is closed. Zero uses defaultServerAliveInterval, negative
-	// disables keepalives. A zero count uses defaultServerAliveCountMax.
-	ServerAliveInterval time.Duration
-	ServerAliveCountMax int
 }
 
 // hostSpec is the user/host/port split of a raw spec, before ssh_config
@@ -169,25 +149,7 @@ func resolveWith(spec string, cfg lookup, home string) (Target, error) {
 		return Target{}, errors.New("no user: none in the spec, ~/.ssh/config, or environment")
 	}
 
-	if secs, ok := seconds(first("ConnectTimeout")); ok && secs > 0 {
-		t.ConnectTimeout = secs
-	}
-	if secs, ok := seconds(first("ServerAliveInterval")); ok {
-		t.ServerAliveInterval = secs
-		if secs == 0 {
-			t.ServerAliveInterval = -1 // explicitly off, as in OpenSSH
-		}
-	}
-	if n, err := strconv.Atoi(first("ServerAliveCountMax")); err == nil && n > 0 {
-		t.ServerAliveCountMax = n
-	}
-
 	t.IdentitiesOnly = strings.EqualFold(first("IdentitiesOnly"), "yes")
-	t.KnownHostsFiles = pathList(cfg(parsed.host, "UserKnownHostsFile"), home)
-	t.GlobalKnownHostsFiles = pathList(cfg(parsed.host, "GlobalKnownHostsFile"), home)
-	if t.GlobalKnownHostsFiles == nil {
-		t.GlobalKnownHostsFiles = defaultGlobalKnownHostsFiles
-	}
 
 	files := cfg(parsed.host, "IdentityFile")
 	if len(files) == 0 && home != "" {
@@ -232,29 +194,6 @@ func configLookup(cfg *ssh_config.Config) lookup {
 		}
 		return vals
 	}
-}
-
-// pathList splits ssh_config values that hold several paths each, as the
-// known_hosts options do, expanding a leading ~/. "none" names no file.
-func pathList(values []string, home string) []string {
-	var paths []string
-	for _, v := range values {
-		for _, path := range strings.Fields(v) {
-			if !strings.EqualFold(path, "none") {
-				paths = append(paths, expandHome(path, home))
-			}
-		}
-	}
-	return paths
-}
-
-// seconds parses an ssh_config duration given in whole seconds.
-func seconds(value string) (time.Duration, bool) {
-	n, err := strconv.Atoi(value)
-	if err != nil || n < 0 {
-		return 0, false
-	}
-	return time.Duration(n) * time.Second, true
 }
 
 func expandHome(path, home string) string {

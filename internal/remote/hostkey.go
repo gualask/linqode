@@ -37,11 +37,9 @@ type hostKeyPolicy struct {
 	err error
 }
 
-// newHostKeyPolicy reads the known_hosts files for addr, the host:port about
-// to be dialed. The first user file is created if missing, since TOFU writes
-// there; the other files, and the global ones, are read when they exist.
-func newHostKeyPolicy(target Target, addr string, userFiles, globalFiles []string, prompter Prompter) (*hostKeyPolicy, error) {
-	file := userFiles[0]
+// newHostKeyPolicy reads known_hosts for addr, the host:port about to be
+// dialed, creating the file if missing since TOFU writes there.
+func newHostKeyPolicy(target Target, addr, file string, prompter Prompter) (*hostKeyPolicy, error) {
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		return nil, fmt.Errorf("cannot prepare known_hosts: %w", err)
 	}
@@ -50,13 +48,7 @@ func newHostKeyPolicy(target Target, addr string, userFiles, globalFiles []strin
 		return nil, fmt.Errorf("cannot prepare known_hosts: %w", err)
 	}
 	f.Close()
-	files := []string{file}
-	for _, other := range append(slices.Clone(userFiles[1:]), globalFiles...) {
-		if readable(other) {
-			files = append(files, other)
-		}
-	}
-	db, err := loadKnownHosts(files)
+	db, err := loadKnownHosts(file)
 	if err != nil {
 		return nil, err
 	}
@@ -204,17 +196,6 @@ func (p *hostKeyPolicy) learn(hostname string, key ssh.PublicKey) error {
 	return nil
 }
 
-// readable reports whether path is a regular file this user can open.
-func readable(path string) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	return err == nil && info.Mode().IsRegular()
-}
-
 // knownHostsDB is the parsed known_hosts files. knownhosts keeps its lines
 // private, so @cert-authority lines are told apart by their position.
 type knownHostsDB struct {
@@ -227,22 +208,18 @@ type lineRef struct {
 	line int
 }
 
-func loadKnownHosts(files []string) (knownHostsDB, error) {
-	check, err := knownhosts.New(files...)
+func loadKnownHosts(file string) (knownHostsDB, error) {
+	check, err := knownhosts.New(file)
 	if err != nil {
 		return knownHostsDB{}, err
 	}
 	db := knownHostsDB{check: check, authority: map[lineRef]bool{}}
-	for _, file := range files {
-		if err := db.markAuthorities(file); err != nil {
-			return knownHostsDB{}, err
-		}
+	if err := db.markAuthorities(file); err != nil {
+		return knownHostsDB{}, err
 	}
 	return db, nil
 }
 
-// markAuthorities records the @cert-authority lines of file, numbered the
-// way knownhosts numbers them.
 func (db *knownHostsDB) markAuthorities(file string) error {
 	f, err := os.Open(file)
 	if err != nil {

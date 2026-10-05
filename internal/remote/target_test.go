@@ -3,10 +3,8 @@ package remote
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/kevinburke/ssh_config"
 )
@@ -151,61 +149,20 @@ func TestConfiguredIdentityFileExpandsTilde(t *testing.T) {
 	}
 }
 
-func TestTimeoutsAndKeepalivesFromSSHConfig(t *testing.T) {
-	cfg := decode(t, "Host slow\n  ConnectTimeout 40\n  ServerAliveInterval 5\n  ServerAliveCountMax 6\n"+
-		"Host quiet\n  ServerAliveInterval 0\n")
-	tgt, err := resolveWith("user@slow", cfg, "")
+func TestSSHConfigIdentitiesOnly(t *testing.T) {
+	cfg := decode(t, "Host pinned\n  IdentitiesOnly yes\n")
+	tgt, err := resolveWith("user@pinned", cfg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tgt.ConnectTimeout != 40*time.Second || tgt.ServerAliveInterval != 5*time.Second || tgt.ServerAliveCountMax != 6 {
+	if !tgt.IdentitiesOnly {
 		t.Errorf("got %+v", tgt)
 	}
-	if interval, count := tgt.serverAlive(); interval != 5*time.Second || count != 6 {
-		t.Errorf("serverAlive() = %s, %d", interval, count)
-	}
-
-	tgt, err = resolveWith("user@quiet", cfg, "")
+	tgt, err = resolveWith("user@plain", cfg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if interval, _ := tgt.serverAlive(); interval != 0 {
-		t.Errorf("ServerAliveInterval 0 left keepalives on every %s", interval)
-	}
-	if tgt.connectTimeout() != defaultConnectTimeout {
-		t.Errorf("connect timeout %s, want the default", tgt.connectTimeout())
-	}
-
-	tgt, err = resolveWith("user@unconfigured", cfg, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if interval, count := tgt.serverAlive(); interval != defaultServerAliveInterval || count != defaultServerAliveCountMax {
-		t.Errorf("defaults: serverAlive() = %s, %d", interval, count)
-	}
-}
-
-func TestSSHConfigIdentitiesOnlyAndKnownHostsFiles(t *testing.T) {
-	home := t.TempDir()
-	cfg := decode(t, "Host pinned\n  IdentitiesOnly yes\n"+
-		"  UserKnownHostsFile ~/.ssh/team_hosts /srv/hosts\n  UserKnownHostsFile ~/.ssh/third\n"+
-		"  GlobalKnownHostsFile /opt/ssh/global_hosts\n")
-	tgt, err := resolveWith("user@pinned", cfg, home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantUser := []string{filepath.Join(home, ".ssh", "team_hosts"), "/srv/hosts", filepath.Join(home, ".ssh", "third")}
-	if !tgt.IdentitiesOnly || !slices.Equal(tgt.KnownHostsFiles, wantUser) ||
-		!slices.Equal(tgt.GlobalKnownHostsFiles, []string{"/opt/ssh/global_hosts"}) {
-		t.Errorf("got %+v", tgt)
-	}
-
-	tgt, err = resolveWith("user@plain", cfg, home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tgt.IdentitiesOnly || tgt.KnownHostsFiles != nil ||
-		!slices.Equal(tgt.GlobalKnownHostsFiles, defaultGlobalKnownHostsFiles) {
+	if tgt.IdentitiesOnly {
 		t.Errorf("unconfigured host got %+v", tgt)
 	}
 }

@@ -52,7 +52,7 @@ func TestUnrecordedKeyTypeIsNeverLearned(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := Target{Host: "example.com", DisplayHost: "example.com", Port: 22}
-	policy, err := newHostKeyPolicy(target, "example.com:22", []string{file}, nil, failingPrompter{t})
+	policy, err := newHostKeyPolicy(target, "example.com:22", file, failingPrompter{t})
 	if err != nil {
 		t.Fatal(err)
 	}

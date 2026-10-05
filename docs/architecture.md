@@ -119,8 +119,8 @@ configured name or inline `[user@]host[:port]` (an IPv6 address in brackets
 when it has a port: `[::1]:2222`), permits a TUI-only `--config`,
 and can infer the host when the config contains exactly one. The selected spec
 is resolved against `~/.ssh/config`, including aliases, user, port,
-identity files, `IdentitiesOnly`, the known_hosts files, the connect timeout
-and the keepalive (the list is in the [README](../README.md#getting-started)).
+identity files and `IdentitiesOnly` (the list is in the
+[README](../README.md#getting-started)).
 `ProxyJump` and `ProxyCommand` are not supported: a host that sets either is
 refused at resolution, because connecting directly instead would take
 another path than `ssh` does, or reach nothing.
@@ -146,9 +146,7 @@ including the probe. The machine interface refuses such a host
 [operations.md](operations.md). The rest of the plan for local targets, and
 what is not built yet, is in `LOCAL.md`.
 
-- **Host key**: checked against `~/.ssh/known_hosts` (or every
-  `UserKnownHostsFile`, the first being where new keys are written) and the
-  read-only global `/etc/ssh/ssh_known_hosts`, keyed by the resolved
+- **Host key**: checked against `~/.ssh/known_hosts`, keyed by the resolved
   host as OpenSSH does — servers already trusted via plain `ssh` are
   recognized. Unknown host → show the fingerprint, ask for confirmation,
   persist on accept (trust-on-first-use). Key mismatch → refuse with the
@@ -165,16 +163,6 @@ what is not built yet, is in `LOCAL.md`.
   files, loaded lazily so no passphrase is asked for if the agent suffices; encrypted
   keys prompt with OpenSSH-style retries. Password auth is out of scope for
   the MVP.
-- **Liveness**: the TCP connect and the SSH handshake share one deadline,
-  `ConnectTimeout` from `~/.ssh/config` or 15 seconds, with the clock
-  stopped while a prompt is open — a person reading a fingerprint is not a
-  stalled server. Once connected, the session asks the server
-  `keepalive@openssh.com` every `ServerAliveInterval` (default 15 seconds;
-  `0` turns it off) and closes the connection after `ServerAliveCountMax`
-  (default 3) unanswered asks in a row, so commands and followers waiting on
-  a peer that vanished without a FIN fail instead of hanging. OpenSSH has
-  neither by default; a monitor holding streams open cannot leave a dead
-  peer to TCP.
 - Prompts run in the terminal before the TUI takes over the screen. The machine
   connector instead fails closed: it never learns an unknown key or requests a
   passphrase, and maps authentication failures to typed JSON. An encrypted

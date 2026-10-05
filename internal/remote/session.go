@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -31,8 +31,7 @@ type Prompter interface {
 // the user's agent).
 type ConnectOptions struct {
 	// KnownHostsFile is an alternative known_hosts file, like OpenSSH's
-	// UserKnownHostsFile, taking the place of the target's. Empty uses the
-	// target's KnownHostsFiles, or ~/.ssh/known_hosts.
+	// UserKnownHostsFile. Empty uses ~/.ssh/known_hosts.
 	KnownHostsFile string
 	// IdentitiesOnly limits the SSH agent to the keys of the target's
 	// identity files, like OpenSSH's IdentitiesOnly; so does the target's
@@ -53,8 +52,6 @@ type ExecOutput struct {
 type Session struct {
 	client *ssh.Client
 	target Target
-	// closed is closed once the connection is gone.
-	closed chan struct{}
 }
 
 // Connect connects and authenticates following the MVP policy; see
@@ -76,35 +73,30 @@ func ConnectWith(ctx context.Context, target Target, prompter Prompter, opts Con
 	if err != nil {
 		return nil, err
 	}
-	s := &Session{client: client, target: target}
-	s.watch()
-	return s, nil
+	return &Session{client: client, target: target}, nil
 }
 
+// connectTimeout bounds reaching the server, so an address that drops
+// packets fails in seconds rather than after the kernel's SYN retries.
+const connectTimeout = 15 * time.Second
+
 type connectionSetup struct {
-	config   *ssh.ClientConfig
-	policy   *hostKeyPolicy
-	auth     *authState
-	deadline *handshakeDeadline
-	cleanup  func()
+	config  *ssh.ClientConfig
+	policy  *hostKeyPolicy
+	auth    *authState
+	cleanup func()
 }
 
 func prepareConnection(target Target, prompter Prompter, opts ConnectOptions) (connectionSetup, error) {
-	knownHosts := target.KnownHostsFiles
-	if opts.KnownHostsFile != "" {
-		knownHosts = []string{opts.KnownHostsFile}
-	}
-	if len(knownHosts) == 0 {
-		file, err := defaultKnownHostsFile()
-		if err != nil {
+	knownHosts := opts.KnownHostsFile
+	if knownHosts == "" {
+		var err error
+		if knownHosts, err = defaultKnownHostsFile(); err != nil {
 			return connectionSetup{}, err
 		}
-		knownHosts = []string{file}
 	}
-	deadline := &handshakeDeadline{limit: target.connectTimeout()}
-	prompter = pausingPrompter{Prompter: prompter, deadline: deadline}
 	addr := net.JoinHostPort(target.Host, strconv.Itoa(int(target.Port)))
-	policy, err := newHostKeyPolicy(target, addr, knownHosts, target.GlobalKnownHostsFiles, prompter)
+	policy, err := newHostKeyPolicy(target, addr, knownHosts, prompter)
 	if err != nil {
 		return connectionSetup{}, err
 	}
@@ -120,26 +112,22 @@ func prepareConnection(target Target, prompter Prompter, opts ConnectOptions) (c
 			// the address dialSSHClient passes to the handshake.
 			HostKeyAlgorithms: policy.hostKeyAlgorithms(addr),
 		},
-		policy: policy, auth: state, deadline: deadline, cleanup: cleanup,
+		policy: policy, auth: state, cleanup: cleanup,
 	}, nil
 }
 
 func dialSSHClient(ctx context.Context, target Target, setup connectionSetup) (*ssh.Client, error) {
 	addr := net.JoinHostPort(target.Host, strconv.Itoa(int(target.Port)))
-	dialer := net.Dialer{Timeout: setup.deadline.limit}
+	// Only the TCP connect is bounded: the handshake includes the prompts,
+	// and a person reading a fingerprint is not a stalled server.
+	dialer := net.Dialer{Timeout: connectTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("cannot reach %s: %w", addr, err)
 	}
 
-	setup.deadline.arm(conn)
 	result, err := negotiateSSH(ctx, conn, addr, setup.config)
-	setup.deadline.disarm()
 	if err != nil {
-		if ctx.Err() == nil && setup.deadline.hasExpired() {
-			return nil, fmt.Errorf("no SSH handshake with %s within %s: %w",
-				addr, setup.deadline.limit, os.ErrDeadlineExceeded)
-		}
 		return nil, classifyHandshakeError(err, target, setup)
 	}
 	return ssh.NewClient(result.conn, result.channels, result.requests), nil
