@@ -265,6 +265,13 @@ with cgroupfs, `system.slice/docker-<id>.scope` with systemd). `compose ps`
 reports a twelve-character id and the cgroup directory carries the full one,
 so readings are matched by prefix with a twelve-character floor.
 
+The CPU percentage is divided by the host's clock, for the reason the host
+batch's is: `/proc/uptime` is read in the same batch, a few bytes and no
+round trip, because the moment a reply arrives is not the moment its counters
+were read. A reply held up by the link and the next one arriving promptly
+would otherwise draw a steady load as a dip and a spike. The client's clock
+stands in only for a host that does not answer.
+
 **Measured at 6 ms against `docker stats --no-stream`'s 2.03 s.** That two
 seconds is fixed sampling latency, not project size: the daemon reads each
 container's cgroups twice, a second apart, to derive a CPU percentage. It can

@@ -179,6 +179,35 @@ func TestDeltaDerivesThePercentages(t *testing.T) {
 	}
 }
 
+// The counters accumulated over the host's interval, not over the gap
+// between two replies arriving. Five seconds apart on the host, two apart on
+// the client — the first reply held up by the link — and half a core busy
+// is still half a core, not 125%.
+func TestDeltaDividesByTheHostsClock(t *testing.T) {
+	services := []Service{{Name: "app-web-1", ID: "aaaaaaaaaaaa"}}
+	before := ParseCgroupSample([]byte("#cguptime\n3600.00 14000.50\n"+v2Sample), time.Unix(100, 0))
+	after := ParseCgroupSample([]byte("#cguptime\n3605.00 14010.50\n"+v2Sample), time.Unix(102, 0))
+	if after.Uptime != 3605*time.Second {
+		t.Fatalf("Uptime = %v", after.Uptime)
+	}
+	reading := after.Containers["aaaaaaaaaaaa1111"]
+	reading.CPUMicros += 2_500_000
+	after.Containers["aaaaaaaaaaaa1111"] = reading
+
+	if got := before.Delta(after, services, 0)[0].CPUPerc; got != "50.00%" {
+		t.Errorf("CPUPerc = %q, want half a core over the host's five seconds", got)
+	}
+	// A host that did not answer leaves the client's clock to stand in.
+	noClock := ParseCgroupSample([]byte(v2Sample), time.Unix(102, 0))
+	noClock.Containers["aaaaaaaaaaaa1111"] = reading
+	if got := before.Delta(noClock, services, 0)[0].CPUPerc; got != "125.00%" {
+		t.Errorf("CPUPerc = %q, want the client's two seconds as the fallback", got)
+	}
+	if !strings.Contains(StatsCgroupCommand(nil), "cat /proc/uptime") {
+		t.Error("the host's clock is not read with the counters")
+	}
+}
+
 // The first reading after connecting has nothing to be measured against. It
 // still fills in everything a single reading can say.
 func TestDeltaWithoutAPreviousReading(t *testing.T) {

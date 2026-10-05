@@ -16,6 +16,9 @@ const (
 	cgroupIOMarker   = "#cgio"
 	cgroupPIDsMarker = "#cgpids"
 	cgroupNetMarker  = "#cgnet"
+	// cgroupUptimeMarker is the host's clock, which the CPU counters are
+	// divided by rather than the client's.
+	cgroupUptimeMarker = "#cguptime"
 )
 
 // The two places a container's cgroup lives under v2 — the cgroupfs driver
@@ -63,8 +66,12 @@ var cgroupGlobs = map[string][]string{
 // The network counters are the exception, since they are addressed by process
 // rather than by container: the pids come from the same `docker inspect` that
 // already answers the restart counts.
+//
+// /proc/uptime goes first, read in the same round trip: it is the interval
+// the CPU counters accumulated over, which the reply's arrival is not.
 func StatsCgroupCommand(pids []int) string {
 	var b strings.Builder
+	b.WriteString("echo '" + cgroupUptimeMarker + "'; cat /proc/uptime 2>/dev/null; ")
 	section := func(marker, pattern string, globs []string) {
 		b.WriteString("echo '" + marker + "'; grep -H " + shellQuote(pattern) + " ")
 		b.WriteString(strings.Join(globs, " "))

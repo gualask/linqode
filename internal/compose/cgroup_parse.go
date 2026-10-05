@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,11 @@ func ParseCgroupSample(raw []byte, at time.Time) CgroupSample {
 		totalInactive: map[string]uint64{},
 	}
 	sections := cgroupSections(string(raw))
+	if fields := strings.Fields(sections[cgroupUptimeMarker]); len(fields) > 0 {
+		if seconds, err := strconv.ParseFloat(fields[0], 64); err == nil && seconds > 0 && !math.IsInf(seconds, 0) {
+			p.sample.Uptime = time.Duration(seconds * float64(time.Second))
+		}
+	}
 	for _, marker := range cgroupOrder {
 		for line := range strings.Lines(sections[marker]) {
 			p.line(marker, line)
