@@ -6,12 +6,12 @@ package follow
 import (
 	"fmt"
 	"strings"
-	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gualask/linqode/internal/logs"
+	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/theme"
 )
 
@@ -66,7 +66,7 @@ func (m *Model) searchText(line logs.LogLine) string {
 			return joinText(segments)
 		}
 	}
-	return terminalText(line.Raw)
+	return panel.Plain(line.Raw)
 }
 
 // renderLogLine draws one log line, cut to width, with its marks.
@@ -127,7 +127,7 @@ type structuredLineRenderer struct {
 // the stats panel wraps it onto a second row and pushes the footer off the
 // screen.
 func (r *structuredLineRenderer) emit(text string, style lipgloss.Style) {
-	text = terminalText(text)
+	text = panel.Plain(text)
 	if r.budget <= 0 || text == "" {
 		return
 	}
@@ -141,7 +141,7 @@ func (r *structuredLineRenderer) emit(text string, style lipgloss.Style) {
 }
 
 func rawSegments(line string, width int) []segment {
-	line = terminalText(line)
+	line = panel.Plain(line)
 	if width > 1 && ansi.StringWidth(line) > width-1 {
 		line = ansi.Truncate(line, width-1, "…")
 	}
@@ -165,22 +165,6 @@ func paint(segments []segment, marks lineMarks, width int) string {
 		segments = []segment{{line, *marks.fill}}
 	}
 	return highlightIn(segments, marks.query, marks.current)
-}
-
-// terminalText treats remote output as one line of text, never as terminal
-// instructions. Sanitize before adding our own styles, leaving the stored
-// record intact for search, filters, and statistics.
-func terminalText(text string) string {
-	return strings.Map(func(r rune) rune {
-		switch r {
-		case '\n', '\r', '\t':
-			return ' '
-		}
-		if unicode.IsControl(r) {
-			return -1
-		}
-		return r
-	}, ansi.Strip(text))
 }
 
 // highlightIn renders the segments in their styles, with every occurrence of

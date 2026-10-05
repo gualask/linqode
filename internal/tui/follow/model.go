@@ -2,6 +2,7 @@
 package follow
 
 import (
+	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -27,17 +28,26 @@ const (
 	topValues  = 8
 )
 
-type drainTickMsg struct{}
+// drainTickMsg carries the view that armed it. The application routes every
+// tick to whichever view is open, and one still in flight when its view closed
+// would otherwise drain the next view opened and re-arm there beside that
+// view's own chain — every quick close-and-reopen adding a chain for good.
+type drainTickMsg struct{ view uint64 }
+
+// views numbers the views as they are made, so a tick can say whose it is.
+var views atomic.Uint64
 
 // CloseMsg asks the application shell to close the followed feed.
 type CloseMsg struct{}
 
-func drainTick() tea.Cmd {
-	return tea.Tick(drainInterval, func(time.Time) tea.Msg { return drainTickMsg{} })
+func drainTick(view uint64) tea.Cmd {
+	return tea.Tick(drainInterval, func(time.Time) tea.Msg { return drainTickMsg{view: view} })
 }
 
 // Model owns one followed remote command feed and its presentation state.
 type Model struct {
+	// view is this view's number, which its drain ticks carry.
+	view   uint64
 	target string
 	// title labels the header: `logs: web`, `restart: web`, …
 	title string
@@ -107,6 +117,7 @@ type Model struct {
 // New creates a followed-feed model.
 func New(target, title string, feed operations.Feed) *Model {
 	return &Model{
+		view:      views.Add(1),
 		target:    target,
 		title:     title,
 		feed:      feed,
@@ -120,7 +131,7 @@ func New(target, title string, feed operations.Feed) *Model {
 
 // Init starts the bounded feed-drain timer.
 func (m *Model) Init() tea.Cmd {
-	return drainTick()
+	return drainTick(m.view)
 }
 
 // SetSize updates the terminal dimensions used for navigation and rendering.
@@ -138,11 +149,14 @@ func (m *Model) Stop() {
 func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case drainTickMsg:
+		if msg.view != m.view {
+			return nil
+		}
 		m.drain()
 		if m.feedDone {
 			return nil
 		}
-		return drainTick()
+		return drainTick(m.view)
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}

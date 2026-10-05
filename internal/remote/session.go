@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -32,8 +33,9 @@ type ConnectOptions struct {
 	// KnownHostsFile is an alternative known_hosts file, like OpenSSH's
 	// UserKnownHostsFile. Empty uses ~/.ssh/known_hosts.
 	KnownHostsFile string
-	// IdentitiesOnly skips SSH agent authentication and uses only the
-	// target's identity files, like OpenSSH's IdentitiesOnly.
+	// IdentitiesOnly limits the SSH agent to the keys of the target's
+	// identity files, like OpenSSH's IdentitiesOnly; so does the target's
+	// own IdentitiesOnly.
 	IdentitiesOnly bool
 }
 
@@ -74,10 +76,14 @@ func ConnectWith(ctx context.Context, target Target, prompter Prompter, opts Con
 	return &Session{client: client, target: target}, nil
 }
 
+// connectTimeout bounds reaching the server, so an address that drops
+// packets fails in seconds rather than after the kernel's SYN retries.
+const connectTimeout = 15 * time.Second
+
 type connectionSetup struct {
 	config  *ssh.ClientConfig
 	policy  *hostKeyPolicy
-	authErr *error
+	auth    *authState
 	cleanup func()
 }
 
@@ -89,26 +95,32 @@ func prepareConnection(target Target, prompter Prompter, opts ConnectOptions) (c
 			return connectionSetup{}, err
 		}
 	}
-	policy, err := newHostKeyPolicy(target, knownHosts, prompter)
+	addr := net.JoinHostPort(target.Host, strconv.Itoa(int(target.Port)))
+	policy, err := newHostKeyPolicy(target, addr, knownHosts, prompter)
 	if err != nil {
 		return connectionSetup{}, err
 	}
 
-	authErr := new(error)
-	auth, cleanup := authCallback(target, opts.IdentitiesOnly, prompter, authErr)
+	state := new(authState)
+	auth, cleanup := authCallback(target, opts.IdentitiesOnly || target.IdentitiesOnly, prompter, state)
 	return connectionSetup{
 		config: &ssh.ClientConfig{
 			User:            target.User,
 			AuthCallback:    auth,
 			HostKeyCallback: policy.callback,
+			// Must match the hostname x/crypto hands the callback, which is
+			// the address dialSSHClient passes to the handshake.
+			HostKeyAlgorithms: policy.hostKeyAlgorithms(addr),
 		},
-		policy: policy, authErr: authErr, cleanup: cleanup,
+		policy: policy, auth: state, cleanup: cleanup,
 	}, nil
 }
 
 func dialSSHClient(ctx context.Context, target Target, setup connectionSetup) (*ssh.Client, error) {
 	addr := net.JoinHostPort(target.Host, strconv.Itoa(int(target.Port)))
-	var dialer net.Dialer
+	// Only the TCP connect is bounded: the handshake includes the prompts,
+	// and a person reading a fingerprint is not a stalled server.
+	dialer := net.Dialer{Timeout: connectTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("cannot reach %s: %w", addr, err)
@@ -159,9 +171,14 @@ func classifyHandshakeError(err error, target Target, setup connectionSetup) err
 	switch {
 	case setup.policy.err != nil:
 		return setup.policy.err
-	case *setup.authErr != nil:
-		return *setup.authErr
+	case setup.policy.negotiationError(err) != nil:
+		return setup.policy.negotiationError(err)
+	case setup.auth.fatal != nil:
+		return setup.auth.fatal
 	case strings.Contains(err.Error(), "unable to authenticate"):
+		if setup.auth.locked != nil {
+			return setup.auth.locked
+		}
 		return &AuthFailedError{User: target.User, Host: target.DisplayHost}
 	default:
 		return err

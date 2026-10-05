@@ -1,7 +1,9 @@
 package logs
 
 import (
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -18,11 +20,31 @@ const (
 
 // SeverityOf reads a level. The names are the ones the log view colours, and
 // that view asks this function rather than keeping a list of its own.
+//
+// Loggers do not agree on a spelling. Beside the full words there are the
+// three-letter forms of Serilog and zerolog's console writer (`ERR`, `WRN`,
+// `FTL`), zap's `dpanic`, syslog's `emerg`, `alert` and `crit`, and
+// java.util.logging's `SEVERE`. And pino and bunyan write the level as a
+// number — 60 fatal, 50 error, 40 warn, 30 info, 20 debug, 10 trace — as a
+// JSON number or, through some shippers, as a string of one. A number below
+// ten is on no scale those two use and is left alone: syslog's 0 to 7 run
+// the other way, and guessing would paint info as an error. Nor is anything
+// ParseFloat calls infinite: that is how it reads Serilog's `INF`, for info.
 func SeverityOf(level string) Severity {
-	switch strings.ToLower(level) {
-	case "error", "fatal", "critical", "panic":
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "error", "err", "eror", "fatal", "ftl", "critical", "crit", "panic", "dpanic",
+		"emerg", "emergency", "alert", "severe":
 		return SeverityError
-	case "warn", "warning":
+	case "warn", "warning", "wrn":
+		return SeverityWarning
+	}
+	number, err := strconv.ParseFloat(strings.TrimSpace(level), 64)
+	switch {
+	case err != nil || math.IsNaN(number) || math.IsInf(number, 0) || number < 10:
+		return SeverityNone
+	case number >= 50:
+		return SeverityError
+	case number >= 40:
 		return SeverityWarning
 	default:
 		return SeverityNone

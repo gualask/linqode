@@ -542,3 +542,70 @@ func TestLongMountPointsKeepTheEndThatIdentifiesThem(t *testing.T) {
 		}
 	}
 }
+
+// The band follows the fullest disk because that is the one about to stop the
+// deployment, and a long mount point is no reason to lose it: its head is cut
+// before any meter is dropped. It used to be shed whole at eighty columns,
+// label and all, the moment its path was longer than the room.
+func TestALongMountPointIsCutBeforeItsMeterIsDropped(t *testing.T) {
+	metrics := sampleMetrics()
+	metrics.Filesystems = []host.Filesystem{
+		{Mount: "/", TotalKB: 20000000, UsedKB: 5000000},
+		{Mount: "/var/lib/docker/volumes/postgres-data", TotalKB: 100000000, UsedKB: 97000000},
+	}
+	m := sampled(metrics)
+	amount := formatKB(97000000) + "/" + formatKB(100000000)
+	for _, width := range []int{100, 78, 76} {
+		line := ansi.Strip(m.Band(width))
+		if got := lipgloss.Width(line); got > width {
+			t.Errorf("band is %d wide at %d columns: %q", got, width, line)
+		}
+		if !strings.Contains(line, amount) || !strings.Contains(line, "data ") {
+			t.Errorf("the fullest disk was dropped at %d columns: %q", width, line)
+		}
+		if !strings.Contains(line, "mem ") {
+			t.Errorf("memory was dropped for the disk's label at %d columns: %q", width, line)
+		}
+	}
+}
+
+// A mount point in a script whose characters take two cells each is cut by
+// cells, not by characters: counting one against the other walked the cut off
+// the front of the label and panicked.
+func TestWideMountPointsAreCutByCells(t *testing.T) {
+	for _, column := range []int{4, 5, 8, 12, 16} {
+		got := pad("/データボリュームディスク", column)
+		if width := lipgloss.Width(got); width != column {
+			t.Errorf("pad(wide, %d) is %d cells: %q", column, width, got)
+		}
+		if !strings.HasPrefix(got, "…") || !strings.Contains(got, "ク") {
+			t.Errorf("pad(wide, %d) = %q, want the tail behind an ellipsis", column, got)
+		}
+	}
+}
+
+// A label the host chose — a mount point, a process name — is drawn as text:
+// an escape that retitles the operator's window, or a line break that pushes
+// every row under it down one, must not reach the terminal.
+func TestHostTextReachesTheScreenAsText(t *testing.T) {
+	if got := pad("\x1b]0;pwned\x07x", 20); strings.ContainsAny(got, "\x1b\x07") {
+		t.Errorf("pad let a control through: %q", got)
+	}
+	metrics := richMetrics()
+	metrics.Filesystems[1].Mount = "/var\x1b]0;pwned\x07"
+	metrics.Filesystems[1].Device = "/dev/sdb\n1"
+	metrics.Sensors = []host.Sensor{{Chip: "nvme", Label: "Comp\x1b[2Jsite", MilliC: 71_000}}
+	m := sampled(metrics)
+	m.SetOpen(true)
+	m.SetSize(150, 40)
+	processes := running()
+	processes.Processes[0].Name = "evil\x1b]0;pwned\x07\r"
+	m.SetProcesses(processes, nil)
+	m.SetGPUs([]host.GPU{{Name: "A10\x07\x1b[1A", BusyPercent: 10,
+		BusyReported: true, MemUsedKB: 1, MemTotalKB: 2}}, nil)
+	for name, view := range map[string]string{"band": m.Band(150), "view": m.View()} {
+		if strings.ContainsAny(view, "\x1b\x07\r") {
+			t.Errorf("the %s drew a control character: %q", name, view)
+		}
+	}
+}

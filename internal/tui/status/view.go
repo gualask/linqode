@@ -99,10 +99,10 @@ func (m *Model) Status() string {
 		return theme.Yellow.Render(" compose unavailable")
 	}
 	if m.errText != "" {
-		return theme.Red.Render(" " + strings.ReplaceAll(m.errText, "\n", " · "))
+		return theme.Red.Render(" " + panel.Plain(strings.ReplaceAll(m.errText, "\n", " · ")))
 	}
 	if m.statsErr != "" {
-		return theme.Red.Render(" stats: " + m.statsErr)
+		return theme.Red.Render(" stats: " + panel.Plain(m.statsErr))
 	}
 	return ""
 }
@@ -115,7 +115,7 @@ func (m *Model) View() string {
 	tableHeight := m.height
 	if liveHeight := m.liveShare(); liveHeight > 0 {
 		tableHeight = m.height - liveHeight
-		live = "\n" + m.renderLivePanel(m.width)
+		live = "\n" + m.renderLivePanel(m.width, liveHeight)
 	}
 	disk := ""
 	if len(m.diskUsage) > 0 && m.DiskUsageRoom() {
@@ -130,7 +130,7 @@ func (m *Model) View() string {
 		// not rediscovered on every safety-net interval for the life of the
 		// session, which is what this replaces.
 		b.WriteString(theme.Yellow.Render("  compose is unavailable on this host") + "\n")
-		b.WriteString(theme.Dim.Render("  "+m.unavailable) + "\n")
+		b.WriteString(theme.Dim.Render("  "+panel.Plain(m.unavailable)) + "\n")
 		b.WriteString(theme.Dim.Render("  the machine's own readings are unaffected"))
 	case len(m.services) == 0 && !m.loaded:
 		b.WriteString(theme.Dim.Render("  (loading services…)"))

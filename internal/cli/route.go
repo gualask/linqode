@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 
 	"github.com/gualask/linqode/internal/operations"
@@ -128,7 +127,7 @@ func parseMachine(command Command, args []string) (Invocation, *Failure) {
 	if hasConfigOption(args) {
 		return Invocation{}, inputFailure(string(command), "invalid_option", "--config is available only for the TUI")
 	}
-	if slices.Contains(args, "-h") || slices.Contains(args, "--help") {
+	if asksForHelp(args) {
 		return Invocation{Command: CommandHelp, HelpFor: command}, nil
 	}
 
@@ -211,11 +210,12 @@ func parseOperands(command Command, args []string, count int) (Invocation, *Fail
 	return invocation, nil
 }
 
+// parseFlags parses one machine command's flags and operands. A help request
+// never gets here — parseMachine answers every spelling of one first — so an
+// ErrHelp is refused like any other bad option rather than read as success,
+// which would run the command with whatever the flag set left empty.
 func parseFlags(flags *flag.FlagSet, command Command, args []string, operands int) *Failure {
 	if err := flags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil
-		}
 		return inputFailure(string(command), "invalid_option", err.Error())
 	}
 	if flags.NArg() != operands {
@@ -240,6 +240,28 @@ func flagWasSet(flags *flag.FlagSet, name string) bool {
 		}
 	})
 	return set
+}
+
+// asksForHelp reports whether args ask for help in any spelling flag accepts
+// — one dash or two, `h` or `help`, with or without a value — anywhere before
+// the `--` terminator. flag itself stops at the first operand, so without
+// this `logs prod web -help` would reach the command with a stray operand.
+// The value is not consulted: flag answers `-help=false` with ErrHelp too.
+func asksForHelp(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		name, ok := strings.CutPrefix(arg, "-")
+		if !ok {
+			continue
+		}
+		name, _, _ = strings.Cut(strings.TrimPrefix(name, "-"), "=")
+		if name == "h" || name == "help" {
+			return true
+		}
+	}
+	return false
 }
 
 func hasConfigOption(args []string) bool {

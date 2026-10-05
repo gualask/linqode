@@ -238,6 +238,36 @@ func TestTheFeedIsBounded(t *testing.T) {
 	}
 }
 
+// The selection stays on its entry at the feed's depth too. When the entry
+// being read is the oldest, the next one goes instead: the cursor used to be
+// clamped onto the next-oldest, a different event, while it was being read.
+func TestTheEntryBeingReadOutlivesTheDepth(t *testing.T) {
+	m := feed()
+	for index := range depth {
+		m.Add(compose.Event{At: at.Add(time.Duration(index) * time.Second),
+			Action: "start", Container: "app-web-1"}, at)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	read := m.entries[m.cursor]
+	for index := range 5 {
+		m.Add(compose.Event{At: at.Add(time.Hour + time.Duration(index)*time.Second),
+			Action: "die", Container: "app-web-1"}, at)
+		if len(m.entries) != depth {
+			t.Fatalf("the feed holds %d events, want %d", len(m.entries), depth)
+		}
+		if got := m.entries[m.cursor]; got != read {
+			t.Fatalf("the selection moved from %v to %v", read.At, got.At)
+		}
+	}
+	// Moved off it, the oldest goes as it always did.
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	read = m.entries[m.cursor]
+	m.Add(compose.Event{At: at.Add(2 * time.Hour), Action: "start", Container: "app-web-1"}, at)
+	if got := m.entries[m.cursor]; got != read {
+		t.Errorf("the selection moved from %v to %v", read.At, got.At)
+	}
+}
+
 // A panel four rows tall shows four events, and the window follows the
 // cursor rather than pinning it out of sight.
 func TestTheWindowFollowsTheCursor(t *testing.T) {
@@ -259,5 +289,18 @@ func TestTheWindowFollowsTheCursor(t *testing.T) {
 	lines := strings.Split(m.View(), "\n")
 	if !strings.Contains(lines[len(lines)-1], m.entries[m.cursor].At.Format("15:04:05")) {
 		t.Errorf("the selected event scrolled out of its own window:\n%s", m.View())
+	}
+}
+
+// A container's name and an action the daemon reports are its words, drawn
+// as text: neither may carry an escape or a line break onto the screen.
+func TestTheDaemonsWordsAreDrawnAsText(t *testing.T) {
+	m := feed(compose.Event{At: at, Action: "exec\x1b]0;pwned\x07",
+		Container: "app-\x1b[2Jevil\n-1"})
+	for _, focused := range []bool{false, true} {
+		m.SetFocus(focused)
+		if view := m.View(); strings.ContainsAny(view, "\x1b\x07\n") {
+			t.Errorf("the feed drew a control character: %q", view)
+		}
 	}
 }

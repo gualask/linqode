@@ -1,6 +1,6 @@
 # Architecture
 
-_Last updated: 2026-09-10._
+_Last updated: 2026-10-05._
 
 The shape of the codebase: what the pieces are, which way they depend, and
 how a session starts. The behaviour they implement is documented by
@@ -58,7 +58,7 @@ Four principles shape the design:
 | `internal/operations` | shared configured catalog and connected status/stats/log/action/script workflows; presentation-neutral streams |
 | `internal/config` | `config.toml` loading and host selection |
 | `internal/remote` | SSH: target resolution, connect, host-key policy, auth, one-shot and streaming exec with cancellation |
-| `internal/local` | the same one-shot and streaming exec on the machine Linqode itself runs on, cancelled by signalling the command's own process group so that nothing it started outlives it |
+| `internal/local` | the same one-shot and streaming exec on the machine Linqode itself runs on, cancelled by signalling the command's own process group so that nothing it started outlives it — or the session, whose `Close` ends every command it started |
 | `internal/compose` | `docker compose` command builders (with shell quoting) and the parsers for what they return: `ps` output, the daemon's event stream, container cgroup counters, `docker system df`, and both `docker stats` forms |
 | `internal/probe` | the connect-time capability probe: what the host can be asked for, established once in one round trip and degrading to unknown rather than to a finding |
 | `internal/host` | everything about the machine itself, read out of `/proc` and `/sys`: the marker-sectioned host batch, the client-side deltas that turn its counters into percentages and rates, and the on-demand process table and graphics cards. Plus the one exception to all of that: a native reader for a local macOS target, where those files do not exist |
@@ -115,10 +115,15 @@ their own, or none at all.
 ### Startup and host selection
 
 The human route is `linqode [host]` or `linqode tui [host]`. It accepts a
-configured name or inline `[user@]host[:port]`, permits a TUI-only `--config`,
+configured name or inline `[user@]host[:port]` (an IPv6 address in brackets
+when it has a port: `[::1]:2222`), permits a TUI-only `--config`,
 and can infer the host when the config contains exactly one. The selected spec
-is resolved against `~/.ssh/config`, including aliases, user, port, and
-identity files.
+is resolved against `~/.ssh/config`, including aliases, user, port,
+identity files and `IdentitiesOnly` (the list is in the
+[README](../README.md#getting-started)).
+`ProxyJump` and `ProxyCommand` are not supported: a host that sets either is
+refused at resolution, because connecting directly instead would take
+another path than `ssh` does, or reach nothing.
 
 Top-level machine command names are reserved. Those routes always load the
 default TOML and accept exact configured host names only; unknown values never
@@ -145,14 +150,24 @@ what is not built yet, is in `LOCAL.md`.
   host as OpenSSH does — servers already trusted via plain `ssh` are
   recognized. Unknown host → show the fingerprint, ask for confirmation,
   persist on accept (trust-on-first-use). Key mismatch → refuse with the
-  conflicting line number, never bypassable.
-- **Auth**: SSH agent first, then the target's identity files, loaded
-  lazily so no passphrase is asked for if the agent suffices; encrypted
+  conflicting line number, never bypassable. As OpenSSH does, the host key
+  algorithms offered are narrowed to the types `known_hosts` records for the
+  host (an RSA key allowing its SHA-2 signatures; certificates only when a
+  `@cert-authority` line applies), so a server holding ed25519 and ECDSA
+  keys shows the pinned one. A server that cannot show any recorded type is
+  refused as well, rather than learned: a new key type in place of the pinned
+  one is verified separately, like a changed key.
+- **Auth**: SSH agent first — with `IdentitiesOnly`, only its keys that
+  match a configured identity file (by the `.pub` beside it, or the public
+  half an OpenSSH key file carries unencrypted) — then the target's identity
+  files, loaded lazily so no passphrase is asked for if the agent suffices; encrypted
   keys prompt with OpenSSH-style retries. Password auth is out of scope for
   the MVP.
 - Prompts run in the terminal before the TUI takes over the screen. The machine
   connector instead fails closed: it never learns an unknown key or requests a
-  passphrase, and maps authentication failures to typed JSON.
+  passphrase, and maps authentication failures to typed JSON. An encrypted
+  identity is skipped rather than ending authentication, and named as the
+  failure only when no later identity is accepted.
 - **The capability probe**: one round trip, once, before anything else runs.
   It establishes whether docker is installed, whether this user may reach the
   daemon, which compose the host has, whether the configured `compose_dir`
@@ -175,6 +190,26 @@ what is not built yet, is in `LOCAL.md`.
   filesystem and nothing else; the docker endpoint turns nothing off and is
   shown in the header. What it does *not* establish turns nothing off: Unknown reads
   as "carry on".
+
+### Teardown
+
+Nothing a run started outlives it. `SIGINT`, `SIGTERM` and `SIGHUP` cancel
+the run's context instead of killing the process, and `main` exits only after
+everything below it has returned, so the deferred cleanup always runs. When
+the screen returns — the operator quit, or a signal ended it — the context
+every feed was opened on is cancelled first and the session closed second.
+The screen runs on that same context, so a signal Bubble Tea does not answer
+itself — `SIGHUP`, a terminal that went away — still ends it, and `tui.Run`
+stops every stream it handed out before returning.
+
+The local session is the one where this is load-bearing. Closing an SSH
+connection ends every channel on it at the far end; a local command is a
+process group of its own, which neither the terminal's `SIGINT` nor its
+`SIGHUP` reaches. So every command a local session starts runs under the
+session's context as well as its caller's, and `Close` cancels them all and
+waits, bounded, until each has been reaped. A descendant that left the group
+on purpose (`setsid daemon &`) is out of reach; its stream still closes,
+because once the group is dead the read ends of its pipes are closed too.
 
 ### And then
 

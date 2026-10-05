@@ -7,6 +7,7 @@ import (
 	"io"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/gualask/linqode/internal/remote"
 )
@@ -20,8 +21,23 @@ import (
 // Like the remote path, the stream ends with the *output*, not with the
 // process: a command that exits leaving a background child holding the pipe
 // keeps the stream open, exactly as `ssh host 'daemon &'` hangs. The caller's
-// context is what ends it.
+// context is what ends it — or the session's: Close ends every stream.
 func (s *Session) ExecStream(ctx context.Context, command string) (<-chan remote.ExecEvent, error) {
+	ctx, leave, err := s.enter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	events, err := s.stream(ctx, command, leave)
+	if err != nil {
+		leave()
+		return nil, err
+	}
+	return events, nil
+}
+
+// stream is ExecStream once the command is bound to the session; leave is
+// called when the command has been reaped and the channel closed.
+func (s *Session) stream(ctx context.Context, command string, leave func()) (<-chan remote.ExecEvent, error) {
 	cmd := s.command(command)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -33,6 +49,8 @@ func (s *Session) ExecStream(ctx context.Context, command string) (<-chan remote
 		return nil, err
 	}
 	if err := start(ctx, cmd); err != nil {
+		stdout.Close()
+		stderr.Close()
 		return nil, err
 	}
 
@@ -42,7 +60,10 @@ func (s *Session) ExecStream(ctx context.Context, command string) (<-chan remote
 	go pump(ctx, stdout, remote.ExecStdout, events, &readers)
 	go pump(ctx, stderr, remote.ExecStderr, events, &readers)
 
-	go finish(ctx, cmd, events, &readers)
+	go func() {
+		defer leave()
+		finish(ctx, cmd, events, &readers, stdout, stderr)
+	}()
 	return events, nil
 }
 
@@ -60,6 +81,23 @@ func pump(ctx context.Context, r io.Reader, kind remote.ExecEventKind, events ch
 	}
 }
 
+// release closes the read ends of a terminated command's pipes if its readers
+// have not finished within pipeGrace, which unblocks them: the group is dead
+// by now, and whatever still holds the write ends is not anything terminate
+// could reach. Closing an *os.File under a blocked Read is what the runtime
+// poller is for, and Wait closing them again afterwards is harmless.
+func release(finished <-chan struct{}, pipes []io.Closer) {
+	timer := time.NewTimer(pipeGrace)
+	defer timer.Stop()
+	select {
+	case <-finished:
+	case <-timer.C:
+		for _, pipe := range pipes {
+			_ = pipe.Close()
+		}
+	}
+}
+
 func sendEvent(ctx context.Context, events chan<- remote.ExecEvent, event remote.ExecEvent) bool {
 	select {
 	case events <- event:
@@ -73,7 +111,14 @@ func sendEvent(ctx context.Context, events chan<- remote.ExecEvent, event remote
 // no cancel it waits for them and reports the exit. The readers are joined
 // before Wait rather than after it, because os/exec closes the pipes there
 // and a read still in flight would lose the last of the output.
-func finish(ctx context.Context, cmd *exec.Cmd, events chan remote.ExecEvent, readers *sync.WaitGroup) {
+//
+// That order is also why cmd.WaitDelay does nothing here: it bounds Wait,
+// and Wait is not reached while a reader is blocked. A descendant that left
+// the process group — `setsid daemon &` — is out of terminate's reach and
+// keeps the pipes open, so on cancel the parent's read ends are closed once
+// the grace runs out: what cannot be killed is stopped being listened to.
+func finish(ctx context.Context, cmd *exec.Cmd, events chan remote.ExecEvent, readers *sync.WaitGroup,
+	pipes ...io.Closer) {
 	defer close(events)
 	finished := make(chan struct{})
 	var err error
@@ -86,6 +131,7 @@ func finish(ctx context.Context, cmd *exec.Cmd, events chan remote.ExecEvent, re
 	select {
 	case <-ctx.Done():
 		terminate(cmd, finished)
+		release(finished, pipes)
 		<-finished
 		return
 	case <-finished:

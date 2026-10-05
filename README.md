@@ -23,6 +23,11 @@ aliases from `~/.ssh/config`, host verification against `~/.ssh/known_hosts`
 (unknown hosts prompt for confirmation, like OpenSSH). If `ssh user@host`
 works, Linqode works.
 
+From `~/.ssh/config` it reads `HostName`, `User`, `Port`, `IdentityFile`,
+and `IdentitiesOnly`. Jump hosts are not supported yet: a host whose entry
+sets `ProxyJump` or `ProxyCommand` is refused with an error saying so, never
+reached directly behind your back.
+
 ```bash
 linqode deploy@203.0.113.10        # inline host, no config needed
 linqode myapp                      # a host from the config file
@@ -71,6 +76,9 @@ host = "local"
 compose_dir = "~/Dev/myapp"
 ```
 
+A `compose_dir` starting with `~/` is under the home of the account Linqode
+connects as, the way a shell reads it; `~user/` is not expanded.
+
 `host = "local"` gives the local target a project and scripts of its own.
 `localhost` is not the same thing and is not taken over: it means what it
 means to `ssh`, a connection through sshd. A `[hosts.local]` entry of your own
@@ -103,9 +111,16 @@ One-shot results are JSON; streams are JSON Lines. Remote stdout and stderr
 are typed events on stdout, followed by an `exit` event when the server
 supplies a status. Linqode diagnostics are JSON on stderr. Exit codes are `0`
 for success, `2` for invalid input or an unknown configured name, `1` for a
-Linqode/configuration/transport failure, and `130` for local interruption.
+Linqode/configuration/transport failure, and `130` for local interruption
+(`SIGINT`, `SIGTERM` or `SIGHUP`).
 Lifecycle actions and scripts instead propagate a reported non-zero remote
-exit code exactly. Logs default to 200 lines; `--tail` accepts values from 1
+exit code, as `255` when it does not fit in one (the `exit` event carries it
+exactly). Those ranges overlap — a script that exits `1`, `2` or `130` is
+indistinguishable by exit code from a Linqode failure — so the process exit
+code says only whether something failed. What failed is in the output: an
+`exit` event on stdout is the remote command's status, and a JSON error
+document on stderr is Linqode's own failure. Read those, not the exit code,
+to tell them apart. Logs default to 200 lines; `--tail` accepts values from 1
 through 10,000.
 
 Connecting establishes what the host can be asked for, once. A command that
@@ -120,6 +135,9 @@ temperatures, processes and scripts.
 
 Machine authentication does not prompt, accept an unknown host key, or ask for
 a key passphrase. Prepare trust and credentials with OpenSSH or the TUI first.
+An encrypted key is passed over and the next identity tried, so a plain key or
+one the agent holds still gets in; the locked key is reported only when none
+does.
 Script arguments cannot be supplied at runtime: put every allowed variant in
 the TOML as its own named command. This boundary assumes the agent cannot
 modify the operator-controlled config or SSH files, and that the process

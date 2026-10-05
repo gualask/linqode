@@ -89,6 +89,28 @@ func TestRunMutationStreamsScriptOutputAndPropagatesRemoteExit(t *testing.T) {
 	}
 }
 
+// SSH carries a 32-bit exit status and a process exit code is a byte: 256
+// handed to os.Exit would read as success. A status the process cannot carry
+// exits 255, the exit event keeps the exact value.
+func TestRunMutationClampsARemoteExitTheProcessCannotCarry(t *testing.T) {
+	for _, remote := range []int{256, 512, 70000} {
+		mutator := fakeMutator{script: func(context.Context, string) (operations.Feed, error) {
+			return eventFeed(nil, operations.Event{Kind: operations.EventExit, ExitCode: remote}), nil
+		}}
+		var stdout, stderr bytes.Buffer
+		code := RunMutation(context.Background(), Invocation{
+			Command: CommandScript, Host: "production", ScriptName: "deploy",
+		}, mutator, &stdout, &stderr)
+		if code != 255 || stderr.Len() != 0 {
+			t.Errorf("remote %d: code = %d, stderr = %q", remote, code, stderr.String())
+		}
+		events := decodeJSONLines(t, stdout.String())
+		if len(events) != 1 || events[0]["code"] != float64(remote) {
+			t.Errorf("remote %d: events = %#v", remote, events)
+		}
+	}
+}
+
 func TestRunMutationClassifiesValidationAndIncompleteStreams(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/gualask/linqode/internal/logs"
+	"github.com/gualask/linqode/internal/tui/panel"
 )
 
 // inputMode says which prompt the footer input line is collecting.
@@ -186,6 +187,10 @@ func (m *Model) openFilterInput() {
 
 func (m *Model) handleInputKey(key tea.KeyMsg) tea.Cmd {
 	switch key.String() {
+	case "ctrl+c":
+		// Typing takes every key but this one, which no terminal user
+		// expects to be text.
+		return tea.Quit
 	case "esc":
 		m.input = inputNone
 		m.inputText = ""
@@ -197,8 +202,10 @@ func (m *Model) handleInputKey(key tea.KeyMsg) tea.Cmd {
 	case "backspace":
 		m.deleteInputRune()
 	default:
+		// A paste arrives as one key of many runes, and a line break or an
+		// escape in it is not part of a search or a filter.
 		if len(key.Runes) > 0 {
-			m.inputText += string(key.Runes)
+			m.inputText += panel.Plain(string(key.Runes))
 		}
 	}
 	return nil

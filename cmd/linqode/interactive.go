@@ -84,6 +84,12 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 		return err
 	}
 	defer link.close()
+	// Every feed the screen opens runs on this context, and the screen's
+	// return is the end of all of them: cancelling it here, before the
+	// session closes (defers run in reverse), ends whatever a view left
+	// running rather than leaving it to be cut off underneath.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	operator := operations.NewHostOperator(link.executor, sel.ComposeDir, sel.Scripts...)
 
@@ -105,7 +111,10 @@ func runTUI(ctx context.Context, configPath, hostArg string, stderr io.Writer) e
 		DockerEndpoint:     capabilities.DockerEndpoint(),
 		ComposeUnavailable: capabilities.ComposeUnavailable(),
 	}
-	return tui.Run(info, newBackend(ctx, operator, link.local, sel.HostMetrics, capabilities))
+	if err := ctx.Err(); err != nil {
+		return err // a signal while connecting: there is no screen to open
+	}
+	return tui.Run(ctx, info, newBackend(ctx, operator, link.local, sel.HostMetrics, capabilities))
 }
 
 // newBackend wires what the screen may ask this host for. A fetch left nil

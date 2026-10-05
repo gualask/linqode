@@ -4,6 +4,7 @@ package spark
 // window is not wrong by a little, it says the opposite of what happened.
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -232,5 +233,45 @@ func TestSegments(t *testing.T) {
 	}
 	if got := width([]float64{1}, 0); got != "" {
 		t.Errorf("no width drew %q", got)
+	}
+}
+
+// A reading that is not a number, or too large to be a count of cells, must
+// not reach an integer conversion unclamped: NaN became a negative repeat
+// count and panicked, and +Inf drew as nothing at all. Not a number is drawn
+// as the smallest shape and an unbounded reading as the largest.
+func TestReadingsThatAreNotNumbersDrawAtTheirBounds(t *testing.T) {
+	nan, inf := math.NaN(), math.Inf(1)
+	if got, want := Bar(nan, 8, bare, bare), Bar(0, 8, bare, bare); got != want {
+		t.Errorf("Bar(NaN) = %q, want %q", got, want)
+	}
+	if got, want := Meter(nan, 8, bare, bare), Meter(0, 8, bare, bare); got != want {
+		t.Errorf("Meter(NaN) = %q, want %q", got, want)
+	}
+	if got, want := Bar(inf, 8, bare, bare), Bar(1, 8, bare, bare); got != want {
+		t.Errorf("Bar(+Inf) = %q, want %q", got, want)
+	}
+	if got := Cell(inf); got != "█" {
+		t.Errorf("Cell(+Inf) = %q, want a full cell", got)
+	}
+	if got := Cell(nan); got != "▁" {
+		t.Errorf("Cell(NaN) = %q, want the lowest cell", got)
+	}
+	shapes := map[string]func([]float64, float64, int,
+		func(int) lipgloss.Style, lipgloss.Style) []string{"Bars": Bars, "Columns": Columns}
+	for name, draw := range shapes {
+		lines := draw([]float64{inf, nan, 1e300}, 1, 2, plain, bare)
+		for _, column := range []int{0, 2} {
+			if top := []rune(lines[0])[column]; top != '█' {
+				t.Errorf("%s: column %d tops out at %q, want full:\n%s",
+					name, column, top, strings.Join(lines, "\n"))
+			}
+		}
+		if bottom := []rune(lines[1])[1]; bottom != ' ' {
+			t.Errorf("%s: NaN drew %q, want nothing", name, bottom)
+		}
+	}
+	if got := Segments([]float64{nan, 1}, 4, plain, bare); lipgloss.Width(got) != 4 {
+		t.Errorf("Segments with NaN = %q, want four cells", got)
 	}
 }

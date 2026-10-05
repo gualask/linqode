@@ -246,7 +246,11 @@ shared feed into JSON Lines.
 
 Remote stderr is an event in that stdout stream; Linqode's own typed errors
 use stderr. Read failures use Linqode exit codes, while a started lifecycle
-action or script propagates the reported non-zero remote status. **No command
+action or script propagates the reported non-zero remote status (clamped to
+255, since SSH carries 32 bits and 256 truncated would exit as success). The
+two ranges overlap, so the documents are authoritative and the exit code is
+only a summary: an `exit` event is the remote's status, an error document on
+stderr is Linqode's. **No command
 is retried or reconnected automatically** — a mutation whose outcome is
 uncertain must not be repeated by a machine.
 

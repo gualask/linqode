@@ -49,8 +49,27 @@ func TestBareIPv6IsNotAPort(t *testing.T) {
 	}
 }
 
+func TestBracketedIPv6(t *testing.T) {
+	for spec, want := range map[string]hostSpec{
+		"[::1]:2222":             {host: "::1", port: 2222},
+		"user@[::1]":             {user: "user", host: "::1"},
+		"[::1]":                  {host: "::1"},
+		"root@[fe80::1%eth0]:22": {user: "root", host: "fe80::1%eth0", port: 22},
+	} {
+		s, err := parseSpec(spec)
+		if err != nil {
+			t.Errorf("%s: %v", spec, err)
+			continue
+		}
+		if s != want {
+			t.Errorf("%s: got %+v, want %+v", spec, s, want)
+		}
+	}
+}
+
 func TestRejectsBadSpecs(t *testing.T) {
-	for _, spec := range []string{"", "@host", "user@", "host:", "host:notaport", "host:0", "user@:22"} {
+	for _, spec := range []string{"", "@host", "user@", "host:", "host:notaport", "host:0", "user@:22",
+		"[::1", "[]", "[::1]x", "[::1]:", "[::1]:0", "[host]"} {
 		if _, err := parseSpec(spec); err == nil {
 			t.Errorf("should reject %q", spec)
 		}
@@ -127,5 +146,38 @@ func TestConfiguredIdentityFileExpandsTilde(t *testing.T) {
 	}
 	if len(tgt.IdentityFiles) != 1 || tgt.IdentityFiles[0] != key {
 		t.Errorf("got %v, want [%s]", tgt.IdentityFiles, key)
+	}
+}
+
+func TestSSHConfigIdentitiesOnly(t *testing.T) {
+	cfg := decode(t, "Host pinned\n  IdentitiesOnly yes\n")
+	tgt, err := resolveWith("user@pinned", cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tgt.IdentitiesOnly {
+		t.Errorf("got %+v", tgt)
+	}
+	tgt, err = resolveWith("user@plain", cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tgt.IdentitiesOnly {
+		t.Errorf("unconfigured host got %+v", tgt)
+	}
+}
+
+func TestJumpHostsAreRefusedNotBypassed(t *testing.T) {
+	cfg := decode(t, "Host behind\n  ProxyJump bastion\n"+
+		"Host piped\n  ProxyCommand ssh -W %h:%p bastion\n"+
+		"Host direct\n  ProxyCommand none\n  ProxyJump none\n")
+	for _, host := range []string{"behind", "piped"} {
+		_, err := resolveWith("user@"+host, cfg, "")
+		if err == nil || !strings.Contains(err.Error(), "not supported") {
+			t.Errorf("%s: got %v, want an unsupported-proxy error", host, err)
+		}
+	}
+	if _, err := resolveWith("user@direct", cfg, ""); err != nil {
+		t.Errorf("explicit none refused: %v", err)
 	}
 }

@@ -245,6 +245,19 @@ func shotFollow(width int, structured, ended bool) string {
 	return m.View()
 }
 
+// shotFollowTitle is the log view under a title longer than the terminal,
+// which is what a long `!` command makes.
+func shotFollowTitle(width int) string {
+	events := make(chan operations.Event, 4)
+	events <- operations.Event{Kind: operations.EventStdout, Text: "Filesystem  Size  Used Avail Use% Mounted on"}
+	m := follow.New("deploy@app-prod-01",
+		"$ df -h /var/lib/docker /srv/myapp/data && du -sh /var/lib/docker/volumes/*",
+		operations.Feed{Events: events, Stop: func() {}})
+	m.SetSize(width, 8)
+	m.Update(m.Init()())
+	return m.View()
+}
+
 // shotFollowStats is a JSONL log with its statistics open: twelve minutes of
 // requests arriving in waves, a warning now and then, a burst of errors four
 // minutes ago, and the route field chosen. filter, when set, is typed into
@@ -414,7 +427,50 @@ func TestUIShot(t *testing.T) {
 	}, noMachine)
 	bare.SetSize(150, 20)
 
+	// The band at eighty columns with the fullest disk on a long mount point:
+	// its head is cut before the meter is dropped.
+	longMount := shotScreen(78, 20, true, nil)
+	metrics := busyHost(shotRounds + 1)
+	for index := range metrics.Filesystems {
+		if metrics.Filesystems[index].Mount == "/var" {
+			metrics.Filesystems[index].Mount = "/var/lib/docker/volumes/postgres-data"
+		}
+	}
+	longMount.system.SetSample(metrics, nil)
+
+	// The script menu with a command written over several lines and a list
+	// longer than the body, on a narrow terminal.
+	scriptMenu := shotScreen(80, 18, true, nil)
+	scriptMenu.info.Scripts = []operations.Script{
+		{Name: "deploy", Command: "set -e\ncd /srv/myapp\ngit pull --ff-only && docker compose up -d --build --remove-orphans"},
+		{Name: "backup", Command: "pg_dump -U app app | gzip > /var/backups/app-$(date +%F).sql.gz"},
+	}
+	for index := range 14 {
+		scriptMenu.info.Scripts = append(scriptMenu.info.Scripts, operations.Script{
+			Name: fmt.Sprintf("job-%02d", index), Command: "./jobs/run.sh --verbose --name job"})
+	}
+	scriptMenu.Update(key("x"))
+
+	// A long command typed at `!`: the end, where the typing happens, shows.
+	prompt := shotScreen(80, 12, true, nil)
+	prompt.Update(key("!"))
+	prompt.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(
+		"journalctl -u docker --since '10 min ago' --no-pager | grep -i error | tail -n 50")})
+
+	// A log asked for and not open yet.
+	pending := shotScreen(120, 12, true, nil)
+	focusPanel(pending, "services")
+	pending.SetPending("opening logs: api…")
+
 	frames := []shotFrame{
+		{Name: "78 columns — the fullest disk on a long mount point keeps its meter",
+			Text: longMount.View()},
+		{Name: "80x18 — the script menu: a multi-line command on one line, a list that scrolls",
+			Text: scriptMenu.View()},
+		{Name: "80x12 — a long command at the ! prompt", Text: prompt.View()},
+		{Name: "120x12 — a log being opened: the footer says so", Text: pending.View()},
+		{Name: "50 columns — a long title in the log view's header",
+			Text: shotFollowTitle(50)},
 		{Name: "140x32 — log statistics: how the levels and the routes divide, and how many just now",
 			Text: shotFollowStats(140, 32, "")},
 		{Name: "140x32 — the same log filtered to its errors", Text: shotFollowStats(140, 32, "level=error")},

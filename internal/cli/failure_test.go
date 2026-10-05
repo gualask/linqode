@@ -40,6 +40,7 @@ func TestConnectionFailureKinds(t *testing.T) {
 	}{
 		{name: "unknown key", err: &remote.UnknownHostKeyError{}, kind: "unknown_host_key"},
 		{name: "changed key", err: &remote.HostKeyChangedError{}, kind: "changed_host_key"},
+		{name: "key type not recorded", err: &remote.HostKeyTypeNotRecordedError{}, kind: "changed_host_key"},
 		{name: "passphrase", err: &remote.PassphraseRequiredError{}, kind: "passphrase_required"},
 		{name: "auth", err: &remote.AuthFailedError{}, kind: "authentication_failed"},
 		{name: "transport", err: errors.New("dial failed"), kind: "connection_failed"},

@@ -20,6 +20,7 @@ import (
 
 	"github.com/gualask/linqode/internal/compose"
 	"github.com/gualask/linqode/internal/host"
+	"github.com/gualask/linqode/internal/operations"
 	"github.com/gualask/linqode/internal/tui/panel"
 	"github.com/gualask/linqode/internal/tui/status"
 )
@@ -713,6 +714,29 @@ func TestQQuitsFromEveryLevel(t *testing.T) {
 	// And the menu says so, rather than letting the key be a surprise.
 	if !strings.Contains(menu.View(), "q quit") {
 		t.Errorf("the menu footer does not offer the way out:\n%s", menu.View())
+	}
+}
+
+// ctrl+c leaves from everywhere, the menus and the `!` prompt included: those
+// take every key, and one that swallowed ctrl+c left an operator who reached
+// for it with no way out but `esc` first, which nobody expects to need.
+func TestCtrlCQuitsFromTheModals(t *testing.T) {
+	ctrlC := tea.KeyMsg{Type: tea.KeyCtrlC}
+	for _, opener := range []string{"c", "x", "!"} {
+		screen := screenWith(t, Config{Scripts: []operations.Script{
+			{Name: "deploy", Command: "./deploy.sh"}}}, "api")
+		focusPanel(screen, "services")
+		screen.Update(key(opener))
+		if !screen.Modal() {
+			t.Fatalf("%q opened nothing", opener)
+		}
+		cmd := screen.Update(ctrlC)
+		if cmd == nil {
+			t.Fatalf("ctrl+c in what %q opened did nothing", opener)
+		}
+		if _, quit := cmd().(tea.QuitMsg); !quit {
+			t.Errorf("ctrl+c in what %q opened did not quit", opener)
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ package home
 // package used to be the screen, and these were its tests.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -332,6 +333,68 @@ func TestScriptsMenuRunsSelectedScript(t *testing.T) {
 		t.Error("the opening key should close the menu again")
 	}
 }
+
+// A script's command is whatever the operator wrote in the TOML, several lines
+// of it as easily as one. The menu draws it on one line and cuts every row to
+// the box, and a list longer than the body scrolls with the selection rather
+// than pushing the frame past the bottom of the screen.
+func TestTheMenuFitsTheBody(t *testing.T) {
+	scripts := []operations.Script{{Name: "deploy",
+		Command: "set -e\ncd /srv/app\ngit pull --ff-only && docker compose up -d --build --remove-orphans"}}
+	for index := range 30 {
+		scripts = append(scripts, operations.Script{Name: fmt.Sprintf("job-%02d", index),
+			Command: "./run.sh " + strings.Repeat("--flag ", 12)})
+	}
+	m := screenWith(t, Config{Scripts: scripts}, "web")
+	m.SetSize(60, 20)
+	m.Update(key("x"))
+	for range 25 {
+		m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	view := m.View()
+	lines := strings.Split(view, "\n")
+	if len(lines) != 20 {
+		t.Errorf("the frame is %d rows on a 20-row screen:\n%s", len(lines), view)
+	}
+	for index, line := range lines {
+		if width := lipgloss.Width(line); width > 60 {
+			t.Errorf("line %d is %d columns wide: %q", index, width, line)
+		}
+	}
+	if !strings.Contains(view, "job-24") {
+		t.Errorf("the selected entry scrolled out of the menu:\n%s", view)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyHome})
+	for range 25 {
+		m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	}
+	if view := m.View(); !strings.Contains(view, "set -e cd /srv/app") {
+		t.Errorf("the multi-line command was not drawn on one line:\n%s", view)
+	}
+}
+
+// What is typed at `!` is one line: a paste carrying a line break would run a
+// second command, and an escape would be drawn back at the terminal. And the
+// end of a long one — where the cursor is — always shows.
+func TestThePromptIsOneLineAndShowsItsEnd(t *testing.T) {
+	m := screenWith(t, Config{}, "web")
+	m.SetSize(40, 20)
+	m.Update(key("!"))
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Paste: true,
+		Runes: []rune("echo one\necho two\x1b]0;pwned\x07 && tail -n 100 /var/log/syslog")})
+	if strings.ContainsAny(m.commandText, "\n\x1b\x07") {
+		t.Fatalf("the prompt kept a control character: %q", m.commandText)
+	}
+	footer := lines(m.View())[19]
+	if width := lipgloss.Width(footer); width > 40 {
+		t.Errorf("the prompt is %d columns wide: %q", width, footer)
+	}
+	if !strings.Contains(footer, "syslog▏") {
+		t.Errorf("the end of what was typed is not on screen: %q", footer)
+	}
+}
+
+func lines(view string) []string { return strings.Split(view, "\n") }
 
 func TestFooterFitsTheTerminal(t *testing.T) {
 	m := screenWith(t, Config{Target: "deploy@prod"}, "web", "db")

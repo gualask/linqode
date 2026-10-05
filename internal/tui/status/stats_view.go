@@ -66,12 +66,23 @@ func (m *Model) liveHeight() int {
 	return 2 + max(len(m.liveRows()), 1)
 }
 
-func (m *Model) renderLivePanel(width int) string {
+// renderLivePanel draws the panel in the rows it was given: share is what
+// liveShare took from the table, and the rule and the spare row liveHeight
+// counts come out of it before the containers do. Drawn whole instead, a
+// short terminal pushed every container past the box's bottom border, and
+// docker's disk section under it with them.
+func (m *Model) renderLivePanel(width, share int) string {
 	rows := m.liveRows()
+	if fits := max(share-2, 0); len(rows) > fits {
+		rows = rows[:fits]
+	}
 	layout := liveLayoutFor(rows, width)
 	title := m.liveTitle(rows, layout)
-	rule := theme.Dim.Render(" ──" + title + strings.Repeat("─", max(width-len(title)-4, 0)))
+	rule := theme.Dim.Render(" ──" + title + strings.Repeat("─", max(width-lipgloss.Width(title)-4, 0)))
 	if len(rows) == 0 {
+		if share < 3 {
+			return rule
+		}
 		return rule + "\n" + theme.Dim.Render("  "+m.emptyLiveHint())
 	}
 	lines := make([]string, 0, len(rows))

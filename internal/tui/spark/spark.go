@@ -20,6 +20,8 @@ package spark
 
 import (
 	"fmt"
+	"math"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -40,8 +42,20 @@ const Glyphs = "▁▂▃▄▅▆▇█"
 // lowest cell rather than a blank: a strip is a line of samples, and a
 // sample of nothing is still a sample.
 func Cell(fraction float64) string {
-	index := int(fraction * float64(len(cells)))
-	return cells[min(max(index, 0), len(cells)-1)]
+	return cells[steps(fraction*float64(len(cells)), len(cells)-1)]
+}
+
+// steps converts a scaled reading to a whole number of steps between none
+// and most, clamping before the conversion rather than after it. A float
+// outside what an int holds converts to whatever the platform says — on
+// amd64, the most negative int — so +Inf was drawn as nothing and NaN as a
+// negative repeat count, which panics. Not a number is nothing; anything
+// past the top is the top.
+func steps(scaled float64, most int) int {
+	if math.IsNaN(scaled) {
+		return 0
+	}
+	return int(min(max(scaled, 0), float64(most)))
 }
 
 // Strip draws one value per cell between floor and ceiling. The height is
@@ -83,8 +97,11 @@ func Bar(fraction float64, width int, style, track lipgloss.Style) string {
 	if width <= 0 {
 		return ""
 	}
+	if math.IsNaN(fraction) {
+		fraction = 0
+	}
 	fraction = min(max(fraction, 0), 1)
-	eighths := int(fraction*float64(width*len(widths)) + 0.5)
+	eighths := steps(fraction*float64(width*len(widths))+0.5, width*len(widths))
 	if fraction > 0 {
 		eighths = max(eighths, 1)
 	}
@@ -124,6 +141,14 @@ func Segments(values []float64, width int,
 	style func(index int) lipgloss.Style, track lipgloss.Style) string {
 	if width <= 0 {
 		return ""
+	}
+	// A share that is not a finite number has no part of the bar to claim,
+	// and left in it would make every other share a NaN too.
+	values = slices.Clone(values)
+	for index, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			values[index] = 0
+		}
 	}
 	total := 0.0
 	for _, value := range values {
@@ -217,13 +242,12 @@ func Columns(values []float64, ceiling float64, rows int,
 		return nil
 	}
 	heights := make([]int, len(values))
-	steps := rows * len(cells)
+	most := rows * len(cells)
 	for index, value := range values {
-		if value <= 0 || ceiling <= 0 {
+		if !(value > 0) || !(ceiling > 0) {
 			continue
 		}
-		heights[index] = max(int(value/ceiling*float64(steps)+0.5), 1)
-		heights[index] = min(heights[index], steps)
+		heights[index] = max(steps(value/ceiling*float64(most)+0.5, most), 1)
 	}
 	lines := make([]string, rows)
 	for row := range rows {
@@ -266,13 +290,15 @@ func Bars(values []float64, ceiling float64, rows int,
 	if rows <= 0 {
 		return nil
 	}
-	steps := rows * 2
+	most := rows * 2
 	heights := make([]int, len(values))
 	for index, value := range values {
-		if value <= 0 || ceiling <= 0 {
+		// Written as "not above zero" so that NaN, which is neither above
+		// nor below anything, is nothing rather than a column.
+		if !(value > 0) || !(ceiling > 0) {
 			continue
 		}
-		heights[index] = min(max(int(value/ceiling*float64(steps)+0.5), 1), steps)
+		heights[index] = max(steps(value/ceiling*float64(most)+0.5, most), 1)
 	}
 	lines := make([]string, rows)
 	for row := range rows {

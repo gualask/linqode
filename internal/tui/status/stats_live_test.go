@@ -24,7 +24,7 @@ func TestLiveStreamFeedsTheColumnsAndSaysSo(t *testing.T) {
 		t.Error("the panel did not report the stream as running")
 	}
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
-	m.Update(statsTickMsg{})
+	m.Update(statsTickMsg{request: m.statsRequest})
 	if !strings.Contains(m.View(), "12.34%") {
 		t.Errorf("live samples did not reach the columns:\n%s", m.View())
 	}
@@ -39,7 +39,7 @@ func TestClosingLiveKeepsReadingsOnlyWhenPolled(t *testing.T) {
 	m.SetServices(services("web"), nil)
 	stream := openLive(t, m)
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
-	m.Update(statsTickMsg{})
+	m.Update(statsTickMsg{request: m.statsRequest})
 	m.Update(key("a"))
 	if !stream.stopped {
 		t.Error("closing the panel left the remote docker stats running")
@@ -53,7 +53,7 @@ func TestClosingLiveKeepsReadingsOnlyWhenPolled(t *testing.T) {
 	unpolled.SetServices(services("web"), nil)
 	stream = openLive(t, unpolled)
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
-	unpolled.Update(statsTickMsg{})
+	unpolled.Update(statsTickMsg{request: unpolled.statsRequest})
 	unpolled.Update(key("a"))
 	view := unpolled.View()
 	if strings.Contains(view, "12.34%") || strings.Contains(view, "CPU") {
@@ -141,7 +141,7 @@ func TestLiveStreamEndingStopsTicking(t *testing.T) {
 	stream := openLive(t, m)
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
 	stream.events <- operations.Event{Kind: operations.EventExit, ExitCode: 0}
-	cmd := m.Update(statsTickMsg{})
+	cmd := m.Update(statsTickMsg{request: m.statsRequest})
 	if !stream.stopped {
 		t.Error("ended stream was not cleaned up")
 	}
@@ -170,7 +170,7 @@ func TestLiveStderrSurfacedWithoutStopping(t *testing.T) {
 	m.SetServices(services("web"), nil)
 	stream := openLive(t, m)
 	stream.events <- operations.Event{Kind: operations.EventStderr, Text: "cannot read stats for app-web-1"}
-	if cmd := m.Update(statsTickMsg{}); cmd == nil {
+	if cmd := m.Update(statsTickMsg{request: m.statsRequest}); cmd == nil {
 		t.Error("a stderr line should not stop the stream")
 	}
 	if !strings.Contains(m.Status(), "cannot read stats") {
@@ -178,9 +178,29 @@ func TestLiveStderrSurfacedWithoutStopping(t *testing.T) {
 	}
 }
 
+// A tick from a stream that was closed is not a tick for the one opened after
+// it. Toggled off and on inside one drain interval, the first stream's tick
+// was still in flight when the second started its own, and both re-armed:
+// two chains draining one channel, twice as often, for the rest of the
+// session.
+func TestATickFromAClosedStreamDoesNotDrainTheNextOne(t *testing.T) {
+	m := withStatsFetch()
+	m.SetServices(services("web"), nil)
+	openLive(t, m)
+	stale := statsTickMsg{request: m.statsRequest}
+	m.Update(key("a"))
+	openLive(t, m)
+	if cmd := m.Update(stale); cmd != nil {
+		t.Error("a tick from the closed stream re-armed in the new one")
+	}
+	if cmd := m.Update(statsTickMsg{request: m.statsRequest}); cmd == nil {
+		t.Error("the new stream's own tick did not re-arm")
+	}
+}
+
 func TestStatsTickWithoutStreamIsInert(t *testing.T) {
 	m := New(Config{})
-	if cmd := m.Update(statsTickMsg{}); cmd != nil {
+	if cmd := m.Update(statsTickMsg{request: m.statsRequest}); cmd != nil {
 		t.Error("a stray tick scheduled another with no stream running")
 	}
 }
@@ -194,7 +214,7 @@ func TestLivePanelShowsSeriesPerContainer(t *testing.T) {
 	stream := openLive(t, m)
 	stream.events <- liveReading("web", "12.34%", "153.6MiB")
 	stream.events <- liveReading("web", "6.00%", "150MiB")
-	m.Update(statsTickMsg{})
+	m.Update(statsTickMsg{request: m.statsRequest})
 	view := m.View()
 	for _, text := range []string{"live · 1s", "peak  12.3%"} {
 		if !strings.Contains(view, text) {
@@ -220,6 +240,30 @@ func TestLivePanelAnnouncesStartup(t *testing.T) {
 	}
 }
 
+// The live panel draws in the rows the table gave it and no more. Drawn
+// whole, eight containers on a short panel ran past the box's bottom border,
+// where they were cut off along with anything under them.
+func TestLivePanelKeepsToItsShare(t *testing.T) {
+	names := []string{"web", "db", "cache", "queue", "worker", "proxy", "mail", "cron"}
+	for _, height := range []int{5, 8, 10, 12} {
+		m := withStatsFetch()
+		m.SetSize(120, height)
+		m.SetServices(services(names...), nil)
+		stream := openLive(t, m)
+		for _, name := range names {
+			stream.events <- liveReading(name, "12.34%", "153.6MiB")
+		}
+		m.Update(statsTickMsg{request: m.statsRequest})
+		view := m.View()
+		if lines := strings.Count(view, "\n") + 1; lines > height {
+			t.Errorf("a %d-row panel drew %d lines:\n%s", height, lines, view)
+		}
+		if !strings.Contains(view, "SERVICE") || !strings.Contains(view, "live ·") {
+			t.Errorf("a %d-row panel lost the table or the live rule:\n%s", height, view)
+		}
+	}
+}
+
 func TestLivePanelLeavesTheTableOnScreen(t *testing.T) {
 	m := withStatsFetch()
 	m.SetSize(120, 20)
@@ -228,7 +272,7 @@ func TestLivePanelLeavesTheTableOnScreen(t *testing.T) {
 	for _, name := range []string{"web", "db", "cache"} {
 		stream.events <- liveReading(name, "12.34%", "153.6MiB")
 	}
-	m.Update(statsTickMsg{})
+	m.Update(statsTickMsg{request: m.statsRequest})
 	view := m.View()
 	if lines := strings.Count(view, "\n") + 1; lines > 20 {
 		t.Errorf("view is %d lines, taller than terminal:\n%s", lines, view)

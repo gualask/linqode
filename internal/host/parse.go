@@ -180,6 +180,11 @@ func parsePressure(section string) PressureSet {
 }
 
 // split cuts the output into its marked sections.
+//
+// Only this package's own markers open a section. A section prints what a
+// tool or a file said, and that can begin with `#` as easily as with
+// anything else; taken for a marker, it would cut the section it landed in
+// short and file the rest under a key nobody reads.
 func split(raw string) map[string]string {
 	sections := map[string]string{}
 	current := ""
@@ -191,7 +196,7 @@ func split(raw string) map[string]string {
 		body.Reset()
 	}
 	for line := range strings.Lines(raw) {
-		if marker := strings.TrimSpace(line); strings.HasPrefix(marker, "#") {
+		if marker := strings.TrimSpace(line); markers[marker] {
 			flush()
 			current = marker
 			continue

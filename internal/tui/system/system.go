@@ -284,7 +284,7 @@ const rowTextReserve = 64
 // would throw away, and `/var/lib/docker` beside `/var/lib/postgresql` is
 // the same story on the hosts this usually runs against.
 func pad(label string, column int) string {
-	label = trimPath(label, column)
+	label = trimPath(panel.Plain(label), column)
 	label = lipgloss.NewStyle().MaxWidth(column).Render(label)
 	if gap := column - lipgloss.Width(label); gap > 0 {
 		return label + strings.Repeat(" ", gap)
