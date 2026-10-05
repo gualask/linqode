@@ -151,7 +151,9 @@ what is not built yet, is in `LOCAL.md`.
   read-only global `/etc/ssh/ssh_known_hosts`, keyed by the resolved
   host as OpenSSH does — servers already trusted via plain `ssh` are
   recognized. Unknown host → show the fingerprint, ask for confirmation,
-  persist on accept (trust-on-first-use). Key mismatch → refuse with the
+  persist on accept (trust-on-first-use), hashed when the file already
+  holds hashed entries, so a file kept with `HashKnownHosts` never gains a
+  host name in clear. Key mismatch → refuse with the
   conflicting line number, never bypassable. As OpenSSH does, the host key
   algorithms offered are narrowed to the types `known_hosts` records for the
   host (an RSA key allowing its SHA-2 signatures; certificates only when a

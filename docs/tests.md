@@ -72,6 +72,7 @@ regression hangs the test, not CI.
 | Test | Proves |
 | ---- | ------ |
 | `TestTOFUAcceptsPersistsAndReconnectsSilently` | TOFU prompts exactly once, persists the normalized `[host]:port`, reconnect is silent; exec returns scripted stdout + exit 0 |
+| `TestTOFUHashesWhenKnownHostsIsHashed` | Trust-on-first-use into a `known_hosts` with hashed entries writes a hashed line, recognised on reconnect |
 | `TestRefusedHostKeyAbortsConnect` | Declining the prompt yields `HostKeyRejectedError` |
 | `TestNonInteractiveUnknownHostKeyFailsWithoutLearning` | Machine authentication refuses an unknown key without prompting or changing `known_hosts` |
 | `TestChangedHostKeyRefusesWithoutPrompting` | A pinned different key yields `HostKeyChangedError` with the conflicting line, without ever consulting the prompter (anti-MITM) |
