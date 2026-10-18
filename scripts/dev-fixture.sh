@@ -38,6 +38,11 @@ trap cleanup EXIT
 
 compose() { docker compose --project-directory "$fixture_dir" -f "$fixture_dir/docker-compose.yml" "$@"; }
 
+# Colima's VM, sized for the fixture (sizes and measures in
+# docs/docker-setup.md). Given only when the VM is created: Colima refuses a
+# smaller disk than the VM already has, and keeps the values for later starts.
+colima_resources=(--cpu 2 --memory 1 --disk 2 --root-disk 4)
+
 # ensure_docker makes `docker info` answer, starting Colima if that is what is
 # installed. Docker Desktop and a Linux engine are used as they are found.
 ensure_docker() {
@@ -48,8 +53,13 @@ ensure_docker() {
 	fi
 
 	if command -v colima >/dev/null 2>&1; then
-		log "Docker daemon not reachable, starting Colima"
-		colima start
+		if colima list --json 2>/dev/null | grep -q '"name":"default"'; then
+			log "Docker daemon not reachable, starting Colima"
+			colima start
+		else
+			log "Docker daemon not reachable, creating the Colima VM"
+			colima start "${colima_resources[@]}"
+		fi
 	elif [ -d /Applications/Docker.app ]; then
 		log "Docker daemon not reachable, starting Docker Desktop"
 		open -a Docker

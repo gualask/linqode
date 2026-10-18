@@ -1,6 +1,6 @@
 # Docker setup for development
 
-_Last updated: 2026-08-08_
+_Last updated: 2026-10-18_
 
 Linqode itself needs no Docker: the offline suite (`go test ./...`) runs
 without it. Docker is required only for the end-to-end fixture described in
@@ -71,19 +71,22 @@ Without this, `docker compose` (the plugin form the fixture and
 ### Daily use
 
 ```bash
-colima start --disk 20   # first run only; the config is remembered
-docker compose ...       # ordinary Docker workflow
-colima stop              # frees everything
+colima start --cpu 2 --memory 1 --disk 2 --root-disk 4   # first run only (scripts/dev-fixture.sh does it)
+docker compose ...                                        # ordinary Docker workflow
+colima stop                                               # frees everything
 ```
 
 Values passed on first start are persisted, so later sessions need only
 `colima start`. First start downloads the VM image (~1 GB, cached
 afterwards) and takes about a minute; subsequent starts are a few seconds.
 
-The defaults are 2 CPUs / 2 GiB / 100 GiB disk. CPU and memory are ceilings
-rather than reservations — an idle VM running only dockerd sits at a few
-hundred MB — so they can be left alone until something actually needs more,
-and raised later with `colima stop && colima start --memory N`.
+The defaults are 2 CPUs / 2 GiB / 100 GiB disk, more than the fixture needs.
+CPUs cost nothing while idle, but memory is not a ceiling on the Mac side:
+once the guest's page cache has filled the VM's memory, the VM process keeps
+all of it (`footprint` of a 1 GiB VM: 1,022 MB). So the VM gets what the
+fixture needs, 1 GiB (see [Notes for the e2e fixture](#notes-for-the-e2e-fixture)),
+raised with `colima stop && colima start --memory N` only if it proves
+cramped.
 
 Disk is worth setting explicitly at creation time, for the reason in
 [Disk space](#disk-space-and-cleanup) below.
@@ -159,17 +162,21 @@ the Mac's free space does not move.
 This is why the disk ceiling is worth choosing deliberately. It costs
 nothing while unused, but it bounds how much the file can silently grow
 into before Docker complains: a small ceiling turns runaway accumulation
-into an out-of-space error instead of a quietly vanishing host disk. 20 GiB
-is ample for the e2e fixture (docker-in-docker is ~400 MB, plus the demo
-project's images and build cache).
+into an out-of-space error instead of a quietly vanishing host disk. 2 GiB
+is enough for the e2e fixture: with the fixture up, `/var/lib/docker` holds
+493 MB (docker-in-docker ~500 MB of images, the inner daemon's volume a few
+MB). The VM's system disk is a separate ceiling, `--root-disk` (default
+20 GiB): 4 GiB is the smallest Colima's image accepts, and the system uses
+~870 MB of it.
 
 Note the asymmetry: the disk can be **grown** after creation but not
-shrunk. Reducing it means recreating the VM, which is cheap while empty and
-expensive once images have accumulated:
+shrunk; `colima start` with a smaller `--disk` stops with "disk shrinking is
+not supported". Reducing it means recreating the VM, which is cheap while
+empty and expensive once images have accumulated:
 
 ```bash
 colima delete --data --force
-colima start --disk 20
+colima start --cpu 2 --memory 1 --disk 2 --root-disk 4
 ```
 
 Colima handles this in two ways:
@@ -222,9 +229,9 @@ depth — Linux VM → dockerd → privileged DinD container → inner dockerd �
 demo project containers. On Linux there is one layer less.
 
 Memory is the setting most likely to need attention because of that
-nesting. The default 2 GiB is the current starting point; raise it with
-`colima stop && colima start --memory 4` if the fixture proves cramped.
-This note should be replaced with a measured figure once the fixture runs.
+nesting. Measured on 2026-10-18 with a 1 GiB VM: the fixture up uses 323 MB
+in the guest, and the whole e2e suite passes (about a minute). Raise it with
+`colima stop && colima start --memory 2` if the fixture grows.
 
 The fixture targets `docker compose` (the plugin form), matching the
 commands `internal/compose` builds for the remote host.
